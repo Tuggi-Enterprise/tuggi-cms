@@ -98,7 +98,10 @@ export interface EngagementBankMonth {
   activation: { audio_24h: number | null; audio_7d: number | null }
   cohort: {
     size: number | null
+    /** Another trip on a local day 1 to N after the first one (D9 of migration 20261104120000): "returned by day N". */
     retention: { d1: number | null; d7: number | null; d30: number | null; d60: number | null; d90: number | null }
+    /** Another trip on local day N itself (#1155): "returned on day N"; `null` as in `retention`. */
+    retention_on: { d1: number | null; d7: number | null; d30: number | null }
     second_trip: { d30: number | null; d60: number | null; d90: number | null }
   }
 }
@@ -113,6 +116,8 @@ export interface EngagementBankReport {
    * send this yet" instead of a reason that is not the real one.
    */
   has_mode_fields: boolean
+  /** The function sends `cohort.retention_on` (#1155). Until then its rows say "no data", never 0. */
+  has_retention_on: boolean
 }
 
 /** `null` and anything that is not a finite number is `null`. Zero is a value. */
@@ -143,6 +148,7 @@ export function parseBankReport(raw: unknown): EngagementBankReport {
   const months = Array.isArray(r.months) ? r.months : []
   return {
     has_mode_fields: months.some((m) => 'modes' in obj(m)),
+    has_retention_on: months.some((m) => 'retention_on' in obj(obj(m).cohort)),
     data_since: { open: day(since.open), trip: day(since.trip), audio: day(since.audio) },
     months: months
       .map((m) => {
@@ -151,6 +157,7 @@ export function parseBankReport(raw: unknown): EngagementBankReport {
         const act = obj(o.activation)
         const c = obj(o.cohort)
         const ret = obj(c.retention)
+        const on = obj(c.retention_on)
         const sec = obj(c.second_trip)
         const modes = obj(o.modes)
         return {
@@ -169,6 +176,7 @@ export function parseBankReport(raw: unknown): EngagementBankReport {
           cohort: {
             size: n(c.size),
             retention: { d1: n(ret.d1), d7: n(ret.d7), d30: n(ret.d30), d60: n(ret.d60), d90: n(ret.d90) },
+            retention_on: { d1: n(on.d1), d7: n(on.d7), d30: n(on.d30) },
             second_trip: { d30: n(sec.d30), d60: n(sec.d60), d90: n(sec.d90) },
           },
         }

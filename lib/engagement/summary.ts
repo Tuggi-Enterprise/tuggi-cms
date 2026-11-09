@@ -7,7 +7,8 @@
  *
  *  - **A change is coloured only over a base of `SUMMARY_MIN_BASE` or more in both months**, the
  *    current month never compares with a whole one, a rate changes in points and a count in percent,
- *    and a tile that falls back to an older month says which (DS-COMPONENTE-100).
+ *    a month with nothing before it is "new", and a tile always shows the month of the page, saying
+ *    when its window closes when it has not (DS-COMPONENTE-100, #1154).
  *  - **`null` is never `0`** (BR-COMUNICACAO-022 item 4): every value is a `Cell` from `cells.ts`,
  *    with the state that says why it is empty.
  *  - **No fraction crosses instruments** (DS-COMPONENTE-084 item 2): the divisions below are GA4 by
@@ -15,7 +16,7 @@
  *    live in `lib/conversion/funnel.ts`.
  */
 
-import { resolveCell, screenMinutes, type Cell, type GridCard, type GridInput, type RowDef } from '@/lib/engagement/cells'
+import { GRID_CARDS, resolveCell, screenMinutes, type Cell, type GridCard, type GridInput, type RowDef } from '@/lib/engagement/cells'
 import { addMonths } from '@/lib/engagement/months'
 import { stripTop } from '@/lib/social/funnel'
 import type { EngagementBankMonth } from '@/lib/engagement/report'
@@ -47,7 +48,11 @@ export function summaryMonthOf(param: string | null, months: readonly string[], 
 
 // ── Change against the previous month ───────────────────────────────────────────────────────
 
-export type DeltaState = 'up' | 'down' | 'flat' | 'small_base' | 'partial' | 'unknown'
+/**
+ * `new`: no measured month before to compare with (#1154). `closes`: the tile's window is still open,
+ * `TileDelta.due` says when it closes (#1154).
+ */
+export type DeltaState = 'up' | 'down' | 'flat' | 'small_base' | 'partial' | 'new' | 'closes' | 'unknown'
 /** `relative`: counts and durations, percent of the previous; `points`: rates, percentage points. */
 export type DeltaUnit = 'relative' | 'points'
 
@@ -61,45 +66,66 @@ export interface TilePoint {
 export interface TileDelta {
   state: DeltaState
   unit: DeltaUnit
-  /** Rounded: whole percent for `relative`, whole points for `points`; `null` when nothing is printed. */
+  /**
+   * Percent for `relative`, points for `points`, computed from the values as sent (never from the
+   * rounded ones the tile prints) and rounded to one decimal (#1154); `null` when nothing is printed.
+   */
   rounded: number | null
+  /** `closes`: the first day the window is complete, `YYYY-MM-DD`. */
+  due: string | null
   prev: TilePoint
   curr: TilePoint
 }
 
 const hasValue = (c: Cell) => (c.state === 'measured' || c.state === 'floor') && c.value !== null
 
+/** One decimal, and never `-0`. */
+const oneDecimal = (x: number) => {
+  const r = Math.round(x * 10) / 10
+  return r === 0 ? 0 : r
+}
+
+/** The month before had nothing measured: no source yet, or fewer than 5 people. Not a failure or a pending read. */
+const nothingBefore = (c: Cell) => c.state === 'before_source' || c.state === 'suppressed'
+
 /**
- * The change of a tile against the month before (DS-COMPONENTE-100). `partial` when the month is
- * the current one or either value is a floor (a window still open is a different coverage).
+ * The change of a tile against the month before (DS-COMPONENTE-100). `closes` when the tile's own
+ * window is open (it says when it closes, #1154); `partial` when the month is the current one or the
+ * month before is a floor (a window still open is a different coverage); `new` when the month before
+ * has nothing measured (#1154).
  */
 export function tileDelta(curr: TilePoint, prev: TilePoint, unit: DeltaUnit, currentMonth: string): TileDelta {
-  const out = (state: DeltaState, rounded: number | null = null): TileDelta => ({ state, unit, rounded, prev, curr })
+  const out = (state: DeltaState, rounded: number | null = null): TileDelta => ({ state, unit, rounded, due: null, prev, curr })
+  if ((curr.cell.state === 'not_due' || curr.cell.state === 'floor') && curr.cell.due) return { ...out('closes'), due: curr.cell.due }
   if (curr.month === currentMonth) return out('partial')
-  if (!hasValue(curr.cell) || !hasValue(prev.cell)) return out('unknown')
-  if (curr.cell.state === 'floor' || prev.cell.state === 'floor') return out('partial')
+  if (!hasValue(curr.cell)) return out('unknown')
+  if (!hasValue(prev.cell)) return out(nothingBefore(prev.cell) ? 'new' : 'unknown')
+  if (prev.cell.state === 'floor') return out('partial')
   const c = curr.cell.value as number
   const p = prev.cell.value as number
   let rounded: number
-  if (unit === 'points') rounded = Math.round((c - p) * 100)
-  else {
-    // No ratio over zero: a previous month of zero has no relative change.
-    if (p === 0) return out('unknown')
-    rounded = Math.round(((c - p) / p) * 100)
-  }
-  rounded = rounded === 0 ? 0 : rounded
+  if (unit === 'points') rounded = oneDecimal((c - p) * 100)
+  else if (p === 0) {
+    // No ratio over zero: from a measured zero, a value is new and a zero is steady.
+    if (c !== 0) return out('new')
+    rounded = 0
+  } else rounded = oneDecimal(((c - p) / p) * 100)
   const small = curr.base === null || prev.base === null || curr.base < SUMMARY_MIN_BASE || prev.base < SUMMARY_MIN_BASE
   if (small) return out('small_base', rounded)
   return out(rounded > 0 ? 'up' : rounded < 0 ? 'down' : 'flat', rounded)
 }
 
-/** `+8 %`, `−5 %`, `+2 pt`: the sign on both sides and U+2212 on the negative (DS-COMPONENTE-100 item 2). */
+/**
+ * `+8.0%`, `−5.3%`, `+2.0 pt`: one decimal (#1154), the sign on both sides and U+2212 on the negative
+ * (DS-COMPONENTE-100 item 2).
+ */
 export function formatDelta(d: TileDelta, locale: string, pointsTemplate: (n: string) => string): string | null {
   if (d.rounded === null) return null
   const sign = d.rounded > 0 ? '+' : d.rounded < 0 ? MINUS : ''
   const abs = Math.abs(d.rounded)
-  if (d.unit === 'points') return pointsTemplate(`${sign}${new Intl.NumberFormat(locale).format(abs)}`)
-  return `${sign}${new Intl.NumberFormat(locale, { style: 'percent', maximumFractionDigits: 0 }).format(abs / 100)}`
+  const digits = { minimumFractionDigits: 1, maximumFractionDigits: 1 }
+  if (d.unit === 'points') return pointsTemplate(`${sign}${new Intl.NumberFormat(locale, digits).format(abs)}`)
+  return `${sign}${new Intl.NumberFormat(locale, { style: 'percent', ...digits }).format(abs / 100)}`
 }
 
 // ── Tiles ────────────────────────────────────────────────────────────────────────────────────
@@ -113,7 +139,7 @@ export type TileKey = 'engaged' | 'guide_median' | 'screen_minutes' | 'returned'
 export interface SummaryTileData {
   key: TileKey
   source: 'bank' | 'ga4'
-  /** The month the value is of; differs from the summary month only on `returned` (item 4). */
+  /** The month the value is of: the summary month, on every tile (#1154). */
   month: string
   point: TilePoint
   delta: TileDelta
@@ -141,14 +167,8 @@ const SCREEN_ROW: RowDef = { key: 'screen_minutes', source: 'ga4', kind: 'minute
 const GUIDE_ROW: RowDef = { key: 'guide_median', source: 'bank', kind: 'minutes', since: 'trip', bank: (m) => m.guide_minutes_median }
 const TRIP_ROW: RowDef = { key: 'active_trip', source: 'bank', kind: 'count', since: 'trip', bank: (m) => m.active.trip }
 const ACTIVE_ROW: RowDef = { key: 'active_by', source: 'bank', kind: 'count', since: 'use', bank: (m, u) => m.active[u] }
-const RETURNED_ROW: RowDef = {
-  key: 'returned_next',
-  source: 'bank',
-  kind: 'rate',
-  since: 'use',
-  window: 'next_month',
-  bank: (m, u) => m.returned_next_month[u],
-}
+/** The grid's row itself, so the tile and the table can never define the return in two ways. */
+const RETURNED_ROW: RowDef = GRID_CARDS.flatMap((c) => c.groups.flatMap((g) => g.rows)).find((r) => r.key === 'returned_next')!
 
 /** `resolveCell`, plus `no_source` where the source answered the month without the field. */
 function cellOf(row: RowDef, month: string, input: GridInput): Cell {
@@ -177,21 +197,11 @@ function tileOf(key: TileKey, row: RowDef, baseRow: RowDef, unit: DeltaUnit, mon
   const curr = point(month)
   const current = input.today.slice(0, 7)
   // The current month selected: no tile compares (spec §B1 item 1), not even the one that falls back.
-  const delta = tileDelta(curr, point(addMonths(month, -1)), unit, input.summaryMonth === current ? month : current)
+  const prevMonth = addMonths(month, -1)
+  let delta = tileDelta(curr, point(prevMonth), unit, input.summaryMonth === current ? month : current)
+  // A month before the ruler was never read: calling the tile "new" would be a guess.
+  if (delta.state === 'new' && !input.months.includes(prevMonth)) delta = { ...delta, state: 'unknown' }
   return { key, source: row.source, month, point: curr, delta, spark: sparkOf(row, month, input), share: null, over: false }
-}
-
-/**
- * The month tile 4 shows: the summary month when its window closed, else the latest month before it
- * that has a value (DS-COMPONENTE-100 item 4). A month empty for any other reason stays itself.
- */
-export function returnedMonth(month: string, input: GridInput): string {
-  const first = cellOf(RETURNED_ROW, month, input)
-  if (first.state !== 'not_due') return month
-  for (let m = addMonths(month, -1); input.months.includes(m); m = addMonths(m, -1)) {
-    if (hasValue(cellOf(RETURNED_ROW, m, input))) return m
-  }
-  return month
 }
 
 export function buildTiles(input: SummaryInput): SummaryTileData[] {
@@ -207,7 +217,9 @@ export function buildTiles(input: SummaryInput): SummaryTileData[] {
     engaged,
     tileOf('guide_median', GUIDE_ROW, TRIP_ROW, 'relative', month, input),
     tileOf('screen_minutes', SCREEN_ROW, GA4_ACTIVE_ROW, 'relative', month, input),
-    tileOf('returned', RETURNED_ROW, ACTIVE_ROW, 'points', returnedMonth(month, input), input),
+    // The month of the page, never an older one under its name: while the window is open the tile
+    // says when it closes (#1154; DS-COMPONENTE-100 item 4 allows, does not require, the fallback).
+    tileOf('returned', RETURNED_ROW, ACTIVE_ROW, 'points', month, input),
   ]
 }
 

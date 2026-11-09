@@ -430,17 +430,21 @@
             "returned_next": "Voltou no mês seguinte",
             "returned_next_hint": "Parte dos ativos do mês que {use} de novo no mês seguinte.",
             "audio_24h": "Novos com 1º áudio em 24 h",
-            "audio_24h_hint": "Base: quem abriu o app pela primeira vez no mês. Parte que ouviu áudio até 24 h depois.",
+            "audio_24h_hint": "Base: quem fez a primeira viagem no mês. Parte que ouviu áudio até 24 h depois dessa viagem.",
             "audio_7d": "Novos com 1º áudio em 7 dias",
-            "audio_7d_hint": "Base: quem abriu o app pela primeira vez no mês. Parte que ouviu áudio até 7 dias depois.",
+            "audio_7d_hint": "Base: quem fez a primeira viagem no mês. Parte que ouviu áudio até 7 dias depois dessa viagem.",
             "cohort_size": "Pessoas na turma",
             "cohort_size_hint": "Quem fez a primeira viagem neste mês.",
-            "ret_d1": "Voltou em D1",
-            "ret_d7": "Voltou em D7",
-            "ret_d30": "Voltou em D30",
-            "ret_d60": "Voltou em D60",
-            "ret_d90": "Voltou em D90",
-            "ret_hint": "Parte da turma com outra viagem até {days} dias depois da primeira.",
+            "ret_d1": "Voltou até o dia 1",
+            "ret_d7": "Voltou até o dia 7",
+            "ret_d30": "Voltou até o dia 30",
+            "ret_d60": "Voltou até o dia 60",
+            "ret_d90": "Voltou até o dia 90",
+            "ret_hint": "Parte da turma com outra viagem num dia local de 1 a {days} depois da primeira.",
+            "ret_on_d1": "Voltou no dia 1",
+            "ret_on_d7": "Voltou no dia 7",
+            "ret_on_d30": "Voltou no dia 30",
+            "ret_on_hint": "Parte da turma com outra viagem no dia local {days} depois da primeira, só nesse dia.",
             "second_30": "2ª viagem em 30 dias",
             "second_60": "2ª viagem em 60 dias",
             "second_90": "2ª viagem em 90 dias",
@@ -517,13 +521,11 @@
           },
           "screens": {
             "guide_map_screen": "Mapa do guia",
-            "guide_map": "Mapa do guia (nome antigo)",
             "home_screen": "Tela inicial (nome antigo)",
             "permission_screen": "Permissões",
             "welcome_screen": "Boas-vindas (tela antiga)",
             "terms_screen": "Termos de uso",
             "single_detail": "Ficha do lugar",
-            "route_explorer": "Rota aberta (nome antigo)",
             "route_explorer_sheet": "Rota aberta",
             "completion_modal": "Rota concluída"
           },
@@ -543,7 +545,8 @@
               "screen_minutes": "Minutos de app por pessoa",
               "screen_minutes_n": "dos {n} ativos",
               "returned": "Voltaram no mês seguinte",
-              "returned_n": "de quem {use} em {month} ({n})",
+              "returned_n": "{count} dos {n} que {use} em {month}",
+              "returned_n_plain": "de quem {use} em {month} ({n})",
               "no_source_bank": "Sem dado: o banco ainda não envia este número.",
               "no_source_ga4": "Sem dado: a consulta ao GA4 ainda não traz este número."
             },
@@ -637,7 +640,116 @@
               "empty_branch": "ninguém neste ramo",
               "sr": "{branch}: {n} pessoas, {bought} compraram ({pct})"
             },
-            "clicks_month_of": "{month}"
+            "clicks_month_of": "{month}",
+            "delta_new": "novo",
+            "delta_new_hint": "Nada medido em {month}: não há variação para comparar.",
+            "delta_closes": "fecha em {date}"
+          },
+          "n_of": "{count} de {base}",
+          "dictionary": {
+            "title": "Dicionário",
+            "note": "O que cada linha conta e de onde vem",
+            "source_ga4": "GA4",
+            "source_bank": "Banco",
+            "source_ga4_hint": "Google Analytics: conta aparelhos e sessões.",
+            "source_bank_hint": "Banco do Tuggi: conta pessoas.",
+            "items": {
+              "engaged": {
+                "term": "Pessoas engajadas",
+                "definition": "Abriu o app e fez pelo menos uma destas: ligou o guia, abriu a ficha de um local ou evento, tocou uma história, pediu rota até um local, evento ou roteiro, buscou nesta área ou usou o Explorar.",
+                "origin": "GA4 totalUsers com um evento engajado, ou button_clicked com um botão engajado"
+              },
+              "active_ga4": {
+                "term": "Ativos",
+                "definition": "Aparelhos com o app aberto no mês. Conta aparelho, não pessoa.",
+                "origin": "GA4 activeUsers"
+              },
+              "use_open": {
+                "term": "Abriu o app",
+                "definition": "Abriu o app no dia local (horário de São Paulo).",
+                "origin": "drive.app_opens"
+              },
+              "use_trip": {
+                "term": "Fez viagem",
+                "definition": "Ligou o guia. A viagem conta no mês em que começou.",
+                "origin": "drive.trip_sessions.start_time"
+              },
+              "use_audio": {
+                "term": "Ouviu áudio",
+                "definition": "Ouviu o áudio de um local.",
+                "origin": "drive.poi_visits com audio_played"
+              },
+              "new_by": {
+                "term": "Novos",
+                "definition": "Fez o uso escolhido pela primeira vez neste mês.",
+                "origin": "a tabela do uso escolhido"
+              },
+              "screen_minutes": {
+                "term": "Em tela por ativo",
+                "definition": "App aberto em primeiro plano, com ou sem guia, dividido pelos ativos do GA4.",
+                "origin": "GA4 userEngagementDuration por usuário ativo"
+              },
+              "guide_time": {
+                "term": "Guia ligado, mediana e p75",
+                "definition": "Do liga ao desliga do guia, inclusive com a tela apagada e as pausas de até 1 h, quando o guia é religado na mesma viagem (BR-AUDIO-018). Uma viagem acima de 8 h fica fora. Mediana e p75 são entre as pessoas que fizeram viagem no mês.",
+                "origin": "drive.trip_sessions.duration"
+              },
+              "guide_fg_bg": {
+                "term": "Guia em primeiro e segundo plano",
+                "definition": "Nas viagens com guia ligado, cada batimento vale o tempo até o próximo da mesma viagem, no máximo 120 s, no estado em que o app estava. Mediana por pessoa; a parte em segundo plano soma o tempo de todos. Menos de 5 pessoas com batimento: sem dado.",
+                "origin": "drive.session_heartbeats (app_state)"
+              },
+              "modes": {
+                "term": "Modos de uso",
+                "definition": "Pessoas distintas do mês. Só dirigindo: ligou o guia e nunca abriu o app sem ele. Só explorando: abriu o app num dia sem guia e não ligou o guia no mês. Os dois: cada um dos dois no mês.",
+                "origin": "drive.trip_sessions e drive.app_opens"
+              },
+              "sessions_ga4": {
+                "term": "Sessões por ativo",
+                "definition": "Sessões divididas pelos ativos do GA4 no mês.",
+                "origin": "GA4 sessionsPerUser"
+              },
+              "days": {
+                "term": "Dias de uso",
+                "definition": "Dias locais distintos do mês com o uso escolhido, e a parte dos ativos desse uso.",
+                "origin": "a tabela do uso escolhido"
+              },
+              "returned_next": {
+                "term": "Voltou no mês seguinte",
+                "definition": "Parte dos ativos do mês que fizeram o uso escolhido de novo no mês seguinte. Fecha quando o mês seguinte acaba.",
+                "origin": "a tabela do uso escolhido"
+              },
+              "activation": {
+                "term": "Novos com 1º áudio em 24 h e 7 dias",
+                "definition": "Base: quem fez a primeira viagem no mês. Parte que ouviu áudio até 24 h e até 7 dias depois dessa viagem.",
+                "origin": "drive.trip_sessions e drive.poi_visits com audio_played"
+              },
+              "cohort_size": {
+                "term": "Pessoas na turma",
+                "definition": "Quem fez a primeira viagem no mês.",
+                "origin": "drive.trip_sessions"
+              },
+              "ret": {
+                "term": "Voltou até o dia N",
+                "definition": "Parte da turma com outra viagem num dia local de 1 a N depois da primeira.",
+                "origin": "drive.trip_sessions"
+              },
+              "ret_on": {
+                "term": "Voltou no dia N",
+                "definition": "Parte da turma com outra viagem no dia local N depois da primeira, só nesse dia.",
+                "origin": "drive.trip_sessions"
+              },
+              "second": {
+                "term": "2ª viagem em N dias",
+                "definition": "Parte da turma com uma viagem iniciada pelo menos 3 dias depois da primeira e menos de N dias depois dela.",
+                "origin": "drive.trip_sessions"
+              },
+              "clicks": {
+                "term": "No que clicam",
+                "definition": "Pessoas e toques por botão no mês, agrupados por tela. O nome antigo de uma tela soma na linha do nome novo.",
+                "origin": "GA4 button_clicked (eventCount, totalUsers)"
+              }
+            }
           }
         },
         "content_coverage": {

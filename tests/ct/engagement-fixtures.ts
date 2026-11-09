@@ -10,6 +10,8 @@ const none = du(null, null, null, null)
 
 export const BANK: EngagementBankReport = {
   has_mode_fields: true,
+  // the function deployed today does not send cohort.retention_on (#1155)
+  has_retention_on: false,
   data_since: { open: '2026-10-28', trip: '2026-08-01', audio: '2026-08-01' },
   months: [
     {
@@ -18,7 +20,7 @@ export const BANK: EngagementBankReport = {
       modes: { drive_only: null, explore_only: null, both: null }, guide_foreground_minutes_median: null, guide_background_minutes_median: null, guide_background_share: null,
       days_used: { open: none, trip: du(100, 30, 15, 5), audio: du(131, 40, 26, null) },
       returned_next_month: { open: null, trip: 0.1, audio: 0.12 }, activation: { audio_24h: null, audio_7d: null },
-      cohort: { size: 142, retention: { d1: 0.23, d7: 0.31, d30: 0.14, d60: 0.09, d90: null }, second_trip: { d30: 0.11, d60: 0.15, d90: null } },
+      cohort: { size: 142, retention: { d1: 0.23, d7: 0.31, d30: 0.14, d60: 0.09, d90: null }, retention_on: { d1: null, d7: null, d30: null }, second_trip: { d30: 0.11, d60: 0.15, d90: null } },
     },
     {
       month: '2026-09', active: { open: null, trip: 160, audio: 231 }, new: { open: null, trip: 128, audio: 142 },
@@ -26,7 +28,7 @@ export const BANK: EngagementBankReport = {
       modes: { drive_only: null, explore_only: null, both: null }, guide_foreground_minutes_median: null, guide_background_minutes_median: null, guide_background_share: null,
       days_used: { open: none, trip: du(110, 30, 15, 5), audio: du(152, 44, 28, 7) },
       returned_next_month: { open: null, trip: 0.09, audio: 0.11 }, activation: { audio_24h: null, audio_7d: null },
-      cohort: { size: 128, retention: { d1: 0.25, d7: 0.29, d30: 0.12, d60: null, d90: null }, second_trip: { d30: 0.09, d60: null, d90: null } },
+      cohort: { size: 128, retention: { d1: 0.25, d7: 0.29, d30: 0.12, d60: null, d90: null }, retention_on: { d1: null, d7: null, d30: null }, second_trip: { d30: 0.09, d60: null, d90: null } },
     },
     {
       month: '2026-10', active: { open: null, trip: 120, audio: 187 }, new: { open: null, trip: 97, audio: 98 },
@@ -34,7 +36,7 @@ export const BANK: EngagementBankReport = {
       modes: { drive_only: null, explore_only: null, both: null }, guide_foreground_minutes_median: null, guide_background_minutes_median: null, guide_background_share: null,
       days_used: { open: none, trip: du(80, 25, 10, 5), audio: du(118, 39, 24, 6) },
       returned_next_month: { open: null, trip: 0.08, audio: 0.09 }, activation: { audio_24h: null, audio_7d: null },
-      cohort: { size: 97, retention: { d1: 0.21, d7: 0.27, d30: null, d60: null, d90: null }, second_trip: { d30: null, d60: null, d90: null } },
+      cohort: { size: 97, retention: { d1: 0.21, d7: 0.27, d30: null, d60: null, d90: null }, retention_on: { d1: null, d7: null, d30: null }, second_trip: { d30: null, d60: null, d90: null } },
     },
     {
       month: '2026-11', active: { open: 41, trip: 20, audio: 29 }, new: { open: 14, trip: 12, audio: 14 },
@@ -42,7 +44,7 @@ export const BANK: EngagementBankReport = {
       modes: { drive_only: 9, explore_only: 21, both: 11 }, guide_foreground_minutes_median: 18, guide_background_minutes_median: 14, guide_background_share: 0.44,
       days_used: { open: du(30, 8, null, null), trip: du(15, null, null, null), audio: du(21, 6, null, null) },
       returned_next_month: { open: null, trip: null, audio: null }, activation: { audio_24h: null, audio_7d: null },
-      cohort: { size: 12, retention: { d1: null, d7: null, d30: null, d60: null, d90: null }, second_trip: { d30: null, d60: null, d90: null } },
+      cohort: { size: 12, retention: { d1: null, d7: null, d30: null, d60: null, d90: null }, retention_on: { d1: null, d7: null, d30: null }, second_trip: { d30: null, d60: null, d90: null } },
     },
   ],
 }

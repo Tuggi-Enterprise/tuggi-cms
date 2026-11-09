@@ -23,7 +23,8 @@ import {
 } from '@/lib/engagement/cells'
 import { conversionRedirectTarget, ENGAGEMENT_MAX_MONTHS, engagementMonths, engagementRange, saoPauloDay } from '@/lib/engagement/months'
 import { parseBankReport, parseEngagementFilters, parseGa4Report, type EngagementBankMonth } from '@/lib/engagement/report'
-import { clickBlocks } from '@/lib/engagement/clicks'
+import { clickBlocks, screenColor, SCREEN_RENAMES } from '@/lib/engagement/clicks'
+import { ENGAGEMENT_DICTIONARY } from '@/lib/engagement/dictionary'
 import { UNKNOWN_VALUE } from '@/lib/format/unknown'
 
 const TODAY = '2026-11-04'
@@ -206,8 +207,8 @@ test('#1094: a month the database did not return is a column of "before the sour
   assert.equal(cell(cards, 'active_by', '2026-08').state, 'before_source')
   const rows = (c: GridCard[]) => c.map((x) => x.groups.map((g) => g.rows.map((r) => `${r.key}:${r.cells.length}`)))
   assert.deepEqual(rows(grid({ bank: undefined, ga4: undefined })), rows(grid()))
-  // The rows of spec §4: 6, 6 and 11.
-  assert.deepEqual(grid().map((c) => c.groups.reduce((s, g) => s + g.rows.length, 0)), [6, 6, 11])
+  // The rows of spec §4: 6, 6 and 11, plus "returned on day 1, 7 and 30" since #1154.
+  assert.deepEqual(grid().map((c) => c.groups.reduce((s, g) => s + g.rows.length, 0)), [6, 6, 14])
 })
 
 test('#1094: the empty slice is every bank cell without a number', () => {
@@ -270,8 +271,78 @@ test('#1094: clicks are one month, grouped by screen by the sum of people, on th
   ]
   const { blocks, max } = clickBlocks(clicks, '2026-10')
   assert.equal(max, 142)
-  assert.deepEqual(blocks.map((b) => b.screen), ['guide_map', 'poi_detail'])
+  // guide_map is the old name of guide_map_screen (#1154): the line carries the new name
+  assert.deepEqual(blocks.map((b) => b.screen), ['guide_map_screen', 'poi_detail'])
   assert.deepEqual(blocks[0].rows.map((r) => r.button), ['start_guide', 'open_explore'])
+})
+
+test('#1154 DS-COMPONENTE-100: an old screen name adds up on the line of its new name, button by button, and takes its color from the same table', () => {
+  const clicks = [
+    { month: '2026-10', screen: 'guide_map_screen', button: 'start_guide', events: 200, users: 90 },
+    { month: '2026-10', screen: 'guide_map', button: 'start_guide', events: 101, users: 52 },
+    { month: '2026-10', screen: 'guide_map', button: 'open_explore', events: 40, users: 30 },
+    { month: '2026-10', screen: 'route_explorer', button: 'start_route', events: 12, users: 9 },
+    { month: '2026-10', screen: 'route_explorer_sheet', button: 'start_route', events: 8, users: 6 },
+    { month: '2026-09', screen: 'guide_map', button: 'start_guide', events: 999, users: 500 },
+  ]
+  const { blocks, max } = clickBlocks(clicks, '2026-10')
+  assert.deepEqual(blocks.map((b) => b.screen), ['guide_map_screen', 'route_explorer_sheet'], 'no line keeps an old name')
+  const guide = blocks[0]
+  assert.deepEqual(guide.rows.map((r) => [r.button, r.events, r.users]), [['start_guide', 301, 142], ['open_explore', 40, 30]])
+  assert.equal(guide.users, 172)
+  assert.deepEqual(blocks[1].rows.map((r) => [r.button, r.events, r.users]), [['start_route', 20, 15]])
+  // the ruler is the merged row, the other month never leaks in
+  assert.equal(max, 142)
+  for (const [old, now] of Object.entries(SCREEN_RENAMES)) assert.equal(screenColor(old), screenColor(now), old)
+})
+
+test('#1154 DS-COMPONENTE-084 item 2: every grid row has a dictionary entry with its own source', () => {
+  const defined = new Map<string, Set<string>>()
+  for (const e of ENGAGEMENT_DICTIONARY) for (const r of e.rows) defined.set(r, (defined.get(r) ?? new Set()).add(e.source))
+  for (const c of grid()) for (const g of c.groups) for (const r of g.rows) {
+    assert.deepEqual([...(defined.get(r.key) ?? [])], [r.source], r.key)
+  }
+  const messages = (lang: string) => JSON.parse(readFileSync(resolve(process.cwd(), `messages/${lang}.json`), 'utf8')).Pages.Dashboard.reports.engagement.dictionary
+  for (const lang of ['en', 'pt', 'es']) {
+    for (const e of ENGAGEMENT_DICTIONARY) {
+      const item = messages(lang).items[e.key]
+      assert.ok(item?.term && item?.definition && item?.origin, `${lang} ${e.key}`)
+    }
+  }
+})
+
+test('#1154 BR-COMUNICACAO-022 item 4: "returned on day N" is no data while the function does not send retention_on, never 0; sent, it prints with its n', () => {
+  const absent = grid()
+  for (const k of ['ret_on_d1', 'ret_on_d7', 'ret_on_d30']) {
+    const c = cell(absent, k, '2026-08')
+    assert.equal(c.state, 'no_source', k)
+    assert.equal(c.value, null)
+    assert.equal(formatCell(c.kind, c, f).main, UNKNOWN_VALUE)
+  }
+  const cohort = { size: 31, retention: { d1: 0.2258, d7: 0.3871, d30: 0.14, d60: null, d90: null }, retention_on: { d1: 0.2258, d7: 0.0645, d30: null }, second_trip: { d30: null, d60: null, d90: null } }
+  const sent = grid({ bank: bank(MONTHS.map((m) => month(m, { cohort }))) })
+  const on7 = cell(sent, 'ret_on_d7', '2026-08')
+  assert.equal(on7.state, 'measured')
+  assert.deepEqual(formatCell(on7.kind, on7, f), { main: '6%', share: null, n: { count: '2', base: '31' } })
+  // NULL means what it means in retention: below the base of 5 or a window still open, never 0
+  assert.notEqual(cell(sent, 'ret_on_d30', '2026-08').state, 'no_source')
+  assert.equal(cell(sent, 'ret_on_d30', '2026-08').value, null)
+  // "returned by day 7" is the share with another trip on day 1 to 7, so it can never be under "on day 7"
+  assert.ok(cohort.retention.d7 >= cohort.retention_on.d7)
+})
+
+test('#1154: every rate prints the people behind it, "38% · 12 of 31", from the base of the same month and source', () => {
+  const cards = grid()
+  // returned the next month: 0.12 of active.audio 204
+  assert.deepEqual(printed(cards, 'returned_next', '2026-08').n, { count: '24', base: '204' })
+  // activation: base new.trip (D15 of 20261104130000), 0.71 of 142
+  assert.deepEqual(printed(cards, 'audio_24h', '2026-08').n, { count: '101', base: '142' })
+  // cohort rates: base cohort.size
+  assert.deepEqual(printed(cards, 'ret_d7', '2026-08').n, { count: '44', base: '142' })
+  assert.deepEqual(printed(cards, 'second_30', '2026-08').n, { count: '16', base: '142' })
+  // an unknown base prints the percent alone, never "of 0"
+  const noBase = grid({ bank: bank(MONTHS.map((m) => month(m, { active: { open: null, trip: 150, audio: null } }))) })
+  assert.equal(printed(noBase, 'returned_next', '2026-08').n, null)
 })
 
 test('#1101 spec C16 item 1: the old Conversion route goes to the purchase funnel, a valid ?month=YYYY-MM-DD becomes ?month=YYYY-MM, anything else is dropped', () => {

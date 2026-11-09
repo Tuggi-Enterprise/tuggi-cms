@@ -21,6 +21,8 @@ export interface MonthGridCell {
   main: string
   /** `countShare`: the share printed after the count. */
   share: string | null
+  /** `rate`: the people behind the percent, "12 of 31", on a line of its own under it (#1154). */
+  n?: string | null
   /** `≥` in front: the window has not closed. */
   floor: boolean
   /** Why the cell is what it is; absent for a measured value. */
@@ -37,6 +39,8 @@ export interface MonthGridRow {
   label: string
   hint: string
   ga4: boolean
+  /** A rate row: every cell keeps the line of `n`, so the row has the same height loading, empty and measured. */
+  withN?: boolean
   cells: MonthGridCell[]
 }
 
@@ -121,6 +125,11 @@ export function MonthGrid({ testId, title, icon, right, notice, months, groups, 
                             <span className={c.muted ? DIM : undefined}>{c.main}</span>
                             {c.share && <span className={cn('text-[11px] leading-none', DIM)}> · {c.share}</span>}
                           </Fragment>
+                        )}
+                        {row.withN && (
+                          <span className={cn('block text-[11px] leading-4', DIM, c.tone && !c.loading && 'text-gray-700')} data-testid={c.n ? 'engagement-cell-n' : undefined}>
+                            {(!c.loading && c.n) || '\u00a0'}
+                          </span>
                         )}
                       </td>
                     ))}

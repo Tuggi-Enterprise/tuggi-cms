@@ -18,7 +18,7 @@ import { CHART_COLORS, CHART_NEUTRAL } from '@/lib/constants/chart-colors'
 import { formatDurationOrDash } from '@/lib/format/duration'
 import { UNKNOWN_VALUE } from '@/lib/format/unknown'
 import { cn } from '@/lib/utils'
-import type { Cell, CellFormatters } from '@/lib/engagement/cells'
+import { rateCount, type Cell, type CellFormatters } from '@/lib/engagement/cells'
 import { readPurchaseFunnel, readUseFunnel, type ConversionFunnel, type PurchaseBranch } from '@/lib/conversion/funnel'
 import {
   BAND_KEYS,
@@ -57,6 +57,8 @@ export interface EngagementSummaryProps {
   /** `set`: the month alone, for the change line of a tile, which has no room for the year at 390. */
   monthShort: (month: string) => string
   monthLong: (month: string) => string
+  /** `YYYY-MM-DD` as the report prints a day. */
+  day: (iso: string) => string
   onBankRetry: () => void
   onGa4Retry: () => void
   ga4BadgeHint: string
@@ -111,7 +113,7 @@ export const HEAT_TONES = ['bg-emerald-50', 'bg-emerald-100', 'bg-emerald-200', 
 const hasValue = (c: Cell) => (c.state === 'measured' || c.state === 'floor') && c.value !== null
 
 export function EngagementSummary(props: EngagementSummaryProps) {
-  const { k, locale, fmt, input, useName, cellTitle, monthHeader, monthShort, monthLong } = props
+  const { k, locale, fmt, input, useName, cellTitle, monthHeader, monthShort, monthLong, day } = props
   const s = (key: string, values?: Record<string, string | number>) => k(`summary.${key}`, values)
   const summary = useMemo(() => buildSummary(input), [input])
   const current = input.today.slice(0, 7)
@@ -125,6 +127,13 @@ export function EngagementSummary(props: EngagementSummaryProps) {
     key === 'engaged' ? fmt.integer.format(v) : key === 'returned' ? fmt.percent.format(v) : formatDurationOrDash(Math.round(v))
 
   const printed = (t: SummaryTileData, c: Cell) => (hasValue(c) ? `${c.state === 'floor' ? '≥ ' : ''}${tileValue(t.key, c.value as number)}` : UNKNOWN_VALUE)
+
+  /** The n beside the return rate (#1154): "25 of the 231 who listened in Oct", or the base alone without a rate. */
+  const returnedN = (t: SummaryTileData, nBase: string) => {
+    const rc = hasValue(t.point.cell) ? rateCount(t.point.cell.value as number, t.point.base) : null
+    const values = { n: nBase, use: useName, month: monthHeader(t.month) }
+    return rc ? s('tiles.returned_n', { ...values, count: fmt.integer.format(rc.count) }) : s('tiles.returned_n_plain', values)
+  }
 
   const tileProps = (t: SummaryTileData) => {
     const d = t.delta
@@ -146,6 +155,14 @@ export function EngagementSummary(props: EngagementSummaryProps) {
       case 'partial':
         delta = { text: k('until_today'), title: s('delta_partial') }
         break
+      case 'new':
+        delta = { text: s('delta_new'), title: s('delta_new_hint', { month: monthLong(d.prev.month) }) }
+        break
+      case 'closes': {
+        const date = d.due ? day(d.due) : ''
+        delta = { text: s('delta_closes', { date }), title: k('cell_not_due', { date }) }
+        break
+      }
       default: {
         const missing = hasValue(d.curr.cell) ? d.prev.cell : d.curr.cell
         delta = { text: UNKNOWN_VALUE, title: titleOf(missing, t.source) }
@@ -161,7 +178,7 @@ export function EngagementSummary(props: EngagementSummaryProps) {
             ? s('tiles.engaged_n', { pct: fmt.percent.format(t.share), n: nBase })
             : s('tiles.engaged_n_plain', { n: nBase })
           : t.key === 'returned'
-            ? s('tiles.returned_n', { n: nBase, use: useName, month: monthHeader(t.month) })
+            ? returnedN(t, nBase)
             : s(`tiles.${t.key}_n`, { n: nBase })
       n = text
     }
@@ -170,9 +187,6 @@ export function EngagementSummary(props: EngagementSummaryProps) {
       testId: `summary-tile-${t.key}`,
       icon: TILE_ICONS[t.key],
       label: s(`tiles.${t.key}`),
-      monthTag: t.month !== month ? monthHeader(t.month) : null,
-      // the return tile may fall back to an older month and name it (DS-COMPONENTE-100 item 4)
-      reserveMonthTag: t.key === 'returned',
       loading: t.point.cell.state === 'loading',
       value: printed(t, t.point.cell),
       valueMuted: !hasValue(t.point.cell),

@@ -48,6 +48,8 @@ export interface Cell {
   value: number | null
   /** `countShare` only: the fraction of the month's active people, `null` when there is no base. */
   share: number | null
+  /** `rate` only: the people the rate is a share of (`RowDef.base`), `null` or absent when unknown (#1154). */
+  base?: number | null
   /** `before_source`: the first day the source recorded, `null` when it has no row at all. */
   since: string | null
   /** `not_due` and `floor`: the day the window closes. */
@@ -67,6 +69,10 @@ export interface RowDef {
   window?: Window
   since?: Since
   bank?: (m: EngagementBankMonth, use: EngagementUse) => number | null
+  /** `rate` rows: the base of the rate, of the same month and source, so the cell prints "12 of 31" (#1154). */
+  base?: (m: EngagementBankMonth, use: EngagementUse) => number | null
+  /** A field a deployed function may not send yet: without it the row is `no_source`, never 0. */
+  requires?: 'retention_on'
   ga4?: (m: EngagementGa4Month) => number | null
 }
 
@@ -94,7 +100,10 @@ export interface GridCard {
 export const screenMinutes = (m: EngagementGa4Month) => (m.activeUsers > 0 ? m.engagementSeconds / m.activeUsers / 60 : null)
 
 const RET = [1, 7, 30, 60, 90] as const
+const RET_ON = [1, 7, 30] as const
 const SECOND = [30, 60, 90] as const
+/** The base of every cohort rate: who took the first trip in the month (contract Parte 25). */
+const cohortBase = (m: EngagementBankMonth) => m.cohort.size
 
 /** The rows of the three cards, in the order of spec §4. */
 export const GRID_CARDS: ReadonlyArray<{ key: GridCardKey; groups: ReadonlyArray<{ key: string | null; rows: RowDef[] }> }> = [
@@ -130,7 +139,15 @@ export const GRID_CARDS: ReadonlyArray<{ key: GridCardKey; groups: ReadonlyArray
           { key: 'days_2', source: 'bank', kind: 'countShare', since: 'use', bank: (m, u) => m.days_used[u].d2 },
           { key: 'days_3_5', source: 'bank', kind: 'countShare', since: 'use', bank: (m, u) => m.days_used[u].d3_5 },
           { key: 'days_6_plus', source: 'bank', kind: 'countShare', since: 'use', bank: (m, u) => m.days_used[u].d6_plus },
-          { key: 'returned_next', source: 'bank', kind: 'rate', since: 'use', window: 'next_month', bank: (m, u) => m.returned_next_month[u] },
+          {
+            key: 'returned_next',
+            source: 'bank',
+            kind: 'rate',
+            since: 'use',
+            window: 'next_month',
+            bank: (m, u) => m.returned_next_month[u],
+            base: (m, u) => m.active[u],
+          },
         ],
       },
     ],
@@ -140,10 +157,10 @@ export const GRID_CARDS: ReadonlyArray<{ key: GridCardKey; groups: ReadonlyArray
     groups: [
       {
         key: 'g_activation',
-        // The base of `activation` is `new.open` of the month (contract Parte 25).
+        // The base of `activation` is `new.trip`, the first trip of the person in the month (D15 of migration 20261104130000).
         rows: [
-          { key: 'audio_24h', source: 'bank', kind: 'rate', since: 'open', window: { days: 1 }, bank: (m) => m.activation.audio_24h },
-          { key: 'audio_7d', source: 'bank', kind: 'rate', since: 'open', window: { days: 7 }, bank: (m) => m.activation.audio_7d },
+          { key: 'audio_24h', source: 'bank', kind: 'rate', since: 'open', window: { days: 1 }, bank: (m) => m.activation.audio_24h, base: (m) => m.new.trip },
+          { key: 'audio_7d', source: 'bank', kind: 'rate', since: 'open', window: { days: 7 }, bank: (m) => m.activation.audio_7d, base: (m) => m.new.trip },
         ],
       },
       {
@@ -158,6 +175,18 @@ export const GRID_CARDS: ReadonlyArray<{ key: GridCardKey; groups: ReadonlyArray
             since: 'trip',
             window: { days: d },
             bank: (m) => m.cohort.retention[`d${d}`],
+            base: cohortBase,
+          })),
+          // "Returned on day N", beside "returned by day N" above (#1154); the field comes with #1155.
+          ...RET_ON.map((d): RowDef => ({
+            key: `ret_on_d${d}`,
+            source: 'bank',
+            kind: 'rate',
+            since: 'trip',
+            window: { days: d },
+            requires: 'retention_on',
+            bank: (m) => m.cohort.retention_on[`d${d}`],
+            base: cohortBase,
           })),
           ...SECOND.map((d): RowDef => ({
             key: `second_${d}`,
@@ -166,6 +195,7 @@ export const GRID_CARDS: ReadonlyArray<{ key: GridCardKey; groups: ReadonlyArray
             since: 'trip',
             window: { days: d },
             bank: (m) => m.cohort.second_trip[`d${d}`],
+            base: cohortBase,
           })),
         ],
       },
@@ -220,6 +250,8 @@ export function resolveCell(row: RowDef, month: string, input: GridInput): Cell 
 
   if (input.bankFailed) return empty('source_failed')
   if (!input.bank) return empty('loading')
+  // BR-COMUNICACAO-022 item 4: a field the deployed function does not send is "no data", never 0.
+  if (row.requires === 'retention_on' && !input.bank.has_retention_on) return empty('no_source')
 
   const sinceUse: EngagementUse = row.since === undefined || row.since === 'use' ? input.use : row.since
   const since = input.bank.data_since[sinceUse]
@@ -237,9 +269,10 @@ export function resolveCell(row: RowDef, month: string, input: GridInput): Cell 
       const base = m.active[input.use]
       share = base !== null && base > 0 ? value / base : null
     }
+    const base = row.base ? row.base(m, input.use) : null
     // The current month says "until today" in its header and marks no floor cell by cell (spec §3.2).
     const floor = open && month !== current
-    return { ...empty(floor ? 'floor' : 'measured'), value, share, due: floor ? due : null }
+    return { ...empty(floor ? 'floor' : 'measured'), value, share, base, due: floor ? due : null }
   }
   if (beforeSource(month, since, sinceUse)) return empty('before_source', { since })
   if (open) return empty('not_due', { due })
@@ -265,7 +298,7 @@ export function buildGrid(input: GridInput): GridCard[] {
 /** Every bank cell of every month is empty: the slice has nothing to show (spec §6, "recorte vazio"). */
 export function bankSliceEmpty(cards: readonly GridCard[]): boolean {
   const bank = cards.flatMap((c) => c.groups.flatMap((g) => g.rows.filter((r) => r.source === 'bank').flatMap((r) => r.cells)))
-  return bank.length > 0 && bank.every((c) => c.state === 'suppressed' || c.state === 'before_source' || c.state === 'not_due')
+  return bank.length > 0 && bank.every((c) => c.state === 'suppressed' || c.state === 'before_source' || c.state === 'not_due' || c.state === 'no_source')
     && bank.some((c) => c.state === 'suppressed')
 }
 
@@ -284,20 +317,37 @@ export function cellFormatters(locale: string): CellFormatters {
   }
 }
 
+/**
+ * The people behind a rate, "12 of 31" (#1154): the base and the count it implies. The database sends
+ * the rate with 4 decimals over a base it also sends, so the rounded product is the count it divided.
+ */
+export function rateCount(rate: number, base: number | null | undefined): { count: number; base: number } | null {
+  return base === null || base === undefined || base <= 0 ? null : { count: Math.round(rate * base), base }
+}
+
+export interface PrintedCell {
+  main: string
+  share: string | null
+  /** `rate` with a known base: the two numbers of "12 of 31", formatted; the screen owns the words. */
+  n: { count: string; base: string } | null
+}
+
 /** The printed value of a cell; `UNKNOWN_VALUE` for every state without one, never `0`. */
-export function formatCell(kind: CellKind, cell: Cell, f: CellFormatters): { main: string; share: string | null } {
-  if (cell.value === null || (cell.state !== 'measured' && cell.state !== 'floor')) return { main: UNKNOWN_VALUE, share: null }
+export function formatCell(kind: CellKind, cell: Cell, f: CellFormatters): PrintedCell {
+  if (cell.value === null || (cell.state !== 'measured' && cell.state !== 'floor')) return { main: UNKNOWN_VALUE, share: null, n: null }
   const v = cell.value
   switch (kind) {
     case 'count':
-      return { main: f.integer.format(v), share: null }
-    case 'rate':
-      return { main: f.percent.format(v), share: null }
+      return { main: f.integer.format(v), share: null, n: null }
+    case 'rate': {
+      const rc = rateCount(v, cell.base)
+      return { main: f.percent.format(v), share: null, n: rc && { count: f.integer.format(rc.count), base: f.integer.format(rc.base) } }
+    }
     case 'decimal':
-      return { main: f.decimal.format(v), share: null }
+      return { main: f.decimal.format(v), share: null, n: null }
     case 'minutes':
-      return { main: formatDurationOrDash(Math.round(v)), share: null }
+      return { main: formatDurationOrDash(Math.round(v)), share: null, n: null }
     case 'countShare':
-      return { main: f.integer.format(v), share: cell.share === null ? null : f.percent.format(cell.share) }
+      return { main: f.integer.format(v), share: cell.share === null ? null : f.percent.format(cell.share), n: null }
   }
 }

@@ -65,6 +65,7 @@ test('spec §11 item 4 BR-COMUNICACAO-022 item 4: suppressed and before-source p
   // The database sends null for a month before data_since (contract Parte 25): August of audio here.
   const bank = {
     has_mode_fields: true,
+    has_retention_on: false,
     data_since: { ...BANK.data_since, audio: '2026-09-02' },
     months: BANK.months.map((m) => (m.month === '2026-08' ? { ...m, active: { ...m.active, audio: null } } : m)),
   }
@@ -89,7 +90,9 @@ test('spec §11 item 5: last month return prints a floor with a number, and D90 
   await page.setViewportSize({ width: 1440, height: 1000 })
   await mount(<Screen months={MONTHS} today={TODAY} bank={BANK} ga4={GA4} />)
   const oct = cellOf(page, 'returned_next', 3)
-  await expect(oct).toHaveText('≥ 9%')
+  // #1154: the people behind the rate on the line below, 0.09 of the 187 active of October
+  await expect(oct).toHaveText('≥ 9%17 de 187')
+  await expect(oct.getByTestId('engagement-cell-n')).toHaveText('17 de 187')
   await expect(oct).toHaveAttribute('title', E.cell_floor.replace('{date}', '01/12/2026'))
   const d90 = cellOf(page, 'ret_d90', 2)
   await expect(d90).toHaveAttribute('title', E.cell_not_due.replace('{date}', '30/12/2026'))
@@ -120,7 +123,7 @@ test('spec §11 item 8: bank down and GA4 down keep the table, mark their own ce
 
 test('spec §6: an empty slice says so above the cards, with clear filters', async ({ mount, page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 })
-  const empty = { has_mode_fields: true, data_since: BANK.data_since, months: MONTHS.map((month) => ({ ...BANK.months[0], month, active: { open: null, trip: null, audio: null }, new: { open: null, trip: null, audio: null }, guide_minutes_median: null, guide_minutes_p75: null, days_used: { open: BANK.months[0].days_used.open, trip: BANK.months[0].days_used.open, audio: BANK.months[0].days_used.open }, returned_next_month: { open: null, trip: null, audio: null }, cohort: { size: null, retention: { d1: null, d7: null, d30: null, d60: null, d90: null }, second_trip: { d30: null, d60: null, d90: null } } })) }
+  const empty = { has_mode_fields: true, has_retention_on: false, data_since: BANK.data_since, months: MONTHS.map((month) => ({ ...BANK.months[0], month, active: { open: null, trip: null, audio: null }, new: { open: null, trip: null, audio: null }, guide_minutes_median: null, guide_minutes_p75: null, days_used: { open: BANK.months[0].days_used.open, trip: BANK.months[0].days_used.open, audio: BANK.months[0].days_used.open }, returned_next_month: { open: null, trip: null, audio: null }, cohort: { size: null, retention: { d1: null, d7: null, d30: null, d60: null, d90: null }, retention_on: { d1: null, d7: null, d30: null }, second_trip: { d30: null, d60: null, d90: null } } })) }
   await mount(<Screen months={MONTHS} today={TODAY} bank={empty} ga4={GA4} filters={{ source: null, country: 'PT', platform: null, account: null }} />)
   await expect(page.getByTestId('engagement-empty-slice')).toContainText(E.empty_filtered)
 })

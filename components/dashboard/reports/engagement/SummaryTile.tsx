@@ -22,10 +22,6 @@ export interface SummaryTileProps {
   testId: string
   icon: LucideIcon
   label: string
-  /** The month the value is of, when it is not the summary's (DS-COMPONENTE-100 item 4). */
-  monthTag?: string | null
-  /** Keeps the line of `monthTag` even before the data, so the tile does not grow when it arrives. */
-  reserveMonthTag?: boolean
   loading: boolean
   value: string
   /** The value is `UNKNOWN_VALUE`: it recedes, and `valueTitle` says why. */
@@ -43,12 +39,14 @@ const DELTA_TONE: Record<DeltaState, string> = {
   flat: DIM,
   small_base: DIM,
   partial: DIM,
+  new: DIM,
+  closes: DIM,
   unknown: DIM,
 }
 
 const PULSE = 'animate-pulse rounded bg-gray-100 dark:bg-gray-800'
 
-export function SummaryTile({ testId, icon: Icon, label, monthTag, reserveMonthTag, loading, value, valueMuted, valueTitle, delta, spark, n }: SummaryTileProps) {
+export function SummaryTile({ testId, icon: Icon, label, loading, value, valueMuted, valueTitle, delta, spark, n }: SummaryTileProps) {
   const DeltaIcon = DELTA_ICON[delta.state]
   return (
     <div data-testid={testId}>
@@ -59,11 +57,6 @@ export function SummaryTile({ testId, icon: Icon, label, monthTag, reserveMonthT
           </span>
           <span className="text-[11px] font-bold uppercase tracking-widest leading-[1.15] text-gray-500 dark:text-gray-400">
             {label}
-            {monthTag ? (
-              <span className="block text-gray-900 dark:text-white" data-testid="summary-tile-month">{monthTag}</span>
-            ) : (
-              reserveMonthTag && <span className="block" aria-hidden="true">{'\u00a0'}</span>
-            )}
           </span>
         </div>
         {loading ? (

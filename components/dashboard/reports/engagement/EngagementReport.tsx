@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState, type ReactNode } from 'react'
-import { Activity, MousePointerClick, Repeat, Sparkles, Users } from 'lucide-react'
+import { Activity, BookOpen, MousePointerClick, Repeat, Sparkles, Users } from 'lucide-react'
 import { useLocale, useTranslations } from 'next-intl'
 
 import { ReportTabs } from '@/components/dashboard/ReportTabs'
@@ -24,6 +24,7 @@ import {
   type GridRow,
 } from '@/lib/engagement/cells'
 import { clickBlocks, clickColor, screenGroupColor } from '@/lib/engagement/clicks'
+import { ENGAGEMENT_DICTIONARY } from '@/lib/engagement/dictionary'
 import { cohortCurve, heatStep } from '@/lib/engagement/summary'
 import type { ConversionFunnel } from '@/lib/conversion/funnel'
 import {
@@ -184,6 +185,8 @@ export function EngagementReport({
         return source === 'ga4' ? k('cell_ga4_failed') : k('cell_bank_failed')
       case 'suppressed':
         return k('cell_suppressed')
+      case 'no_source':
+        return source === 'ga4' ? k('summary.tiles.no_source_ga4') : k('summary.tiles.no_source_bank')
       default:
         return undefined
     }
@@ -191,10 +194,13 @@ export function EngagementReport({
 
   const rowText = (key: string) => {
     const ret = /^ret_d(\d+)$/.exec(key)
+    const retOn = /^ret_on_d(\d+)$/.exec(key)
     const second = /^second_(\d+)$/.exec(key)
     const hint = ret
       ? k('rows.ret_hint', { days: ret[1] })
-      : second
+      : retOn
+        ? k('rows.ret_on_hint', { days: retOn[1] })
+        : second
         ? k('rows.second_hint', { days: second[1] })
         : k(`rows.${key}_hint`, { use: useName })
     return { label: k(`rows.${key}`, { use: useName }), hint }
@@ -208,11 +214,13 @@ export function EngagementReport({
         key: row.key,
         ...rowText(row.key),
         ga4: row.source === 'ga4',
+        withN: row.kind === 'rate',
         cells: row.cells.map((c): MonthGridCell => {
           const printed = formatCell(row.kind, c, fmt)
           return {
             main: printed.main,
             share: printed.share,
+            n: printed.n && k('n_of', printed.n),
             floor: c.state === 'floor',
             title: cellTitle(c, row.source),
             loading: c.state === 'loading',
@@ -353,6 +361,7 @@ export function EngagementReport({
         monthHeader={(m) => monthHeader(m, locale)}
         monthShort={(m) => monthHeader(m, locale).split(' ')[0]}
         monthLong={(m) => monthLong(m, locale)}
+        day={day}
         onBankRetry={onBankRetry}
         onGa4Retry={onGa4Retry}
         ga4BadgeHint={ga4Filtered ? k('ga4_filter_hint') : k('ga4_badge_hint')}
@@ -419,6 +428,32 @@ export function EngagementReport({
           {allTime}
         </>
       )}
+
+      <DictionaryCard k={k} />
+    </div>
+  )
+}
+
+/** What each line counts, the event or table it reads, and its source (#1154). */
+function DictionaryCard({ k }: { k: (key: string, values?: Record<string, string | number>) => string }) {
+  const d = (key: string) => k(`dictionary.${key}`)
+  return (
+    <div data-testid="engagement-dictionary">
+      <WidgetCard>
+        <SectionHeader as="h2" title={d('title')} icon={BookOpen} className="flex-wrap gap-2" right={<span className={`text-[11px] text-right ${DIM}`}>{d('note')}</span>} />
+        <dl className="grid grid-cols-1 gap-x-8 gap-y-4 lg:grid-cols-2">
+          {ENGAGEMENT_DICTIONARY.map((e) => (
+            <div key={e.key} data-testid={`engagement-dictionary-${e.key}`}>
+              <dt className="text-sm font-semibold text-gray-900 dark:text-white">
+                {d(`items.${e.key}.term`)}
+                <Ga4Badge text={d(`source_${e.source}`)} hint={d(`source_${e.source}_hint`)} />
+              </dt>
+              <dd className="mt-0.5 text-xs leading-5 text-gray-700 dark:text-gray-300">{d(`items.${e.key}.definition`)}</dd>
+              <dd className={`mt-0.5 font-mono text-[11px] break-words ${DIM}`}>{d(`items.${e.key}.origin`)}</dd>
+            </div>
+          ))}
+        </dl>
+      </WidgetCard>
     </div>
   )
 }

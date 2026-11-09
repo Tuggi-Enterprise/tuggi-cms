@@ -136,8 +136,9 @@ test('#1099 DS-COMPONENTE-100 item 1: base 29 against 30 prints the change witho
   assert.equal(tileDelta({ ...point('2026-10', 33, 30), base: null }, point('2026-09', 30, 30), 'relative', '2026-11').state, 'small_base')
 })
 
-test('#1099 DS-COMPONENTE-100 item 1: a change rounded to zero is flat; a fall is down', () => {
-  assert.equal(tileDelta(point('2026-10', 100.4, 40), point('2026-09', 100, 40), 'relative', '2026-11').state, 'flat')
+test('#1099 #1154 DS-COMPONENTE-100 item 1: a change rounded to zero at one decimal is flat; a fall is down', () => {
+  assert.equal(tileDelta(point('2026-10', 100.04, 40), point('2026-09', 100, 40), 'relative', '2026-11').state, 'flat')
+  assert.equal(tileDelta(point('2026-10', 100.4, 40), point('2026-09', 100, 40), 'relative', '2026-11').state, 'up')
   const down = tileDelta(point('2026-10', 95, 40), point('2026-09', 100, 40), 'relative', '2026-11')
   assert.equal(down.state, 'down')
   assert.equal(down.rounded, -5)
@@ -145,23 +146,28 @@ test('#1099 DS-COMPONENTE-100 item 1: a change rounded to zero is flat; a fall i
 
 test('#1099 DS-COMPONENTE-100 item 3 DS-COMPONENTE-084 item 2: the current month prints until today and no change; a floor never compares', () => {
   assert.equal(tileDelta(point('2026-11', 30, 40), point('2026-10', 100, 40), 'relative', '2026-11').state, 'partial')
-  const floor: TilePoint = { month: '2026-10', cell: { ...measured(0.09), state: 'floor' }, base: 187 }
-  assert.equal(tileDelta(floor, point('2026-09', 0.11, 231), 'points', '2026-11').state, 'partial')
-  // Selecting the current month: no tile compares, not even the return tile that falls back to September.
+  // A floor never compares: as the month before it is partial; as the tile's own month it says when it closes (#1154).
+  const floor: TilePoint = { month: '2026-10', cell: { ...measured(0.09), state: 'floor', due: '2026-12-01' }, base: 187 }
+  assert.equal(tileDelta(point('2026-11', 0.1, 40), floor, 'points', '2026-12').state, 'partial')
+  const own = tileDelta(floor, point('2026-09', 0.11, 231), 'points', '2026-11')
+  assert.deepEqual([own.state, own.due, own.rounded], ['closes', '2026-12-01', null])
+  // Selecting the current month: no tile compares; the return tile says when November closes.
   const tiles = buildTiles(input({ summaryMonth: '2026-11' }))
-  assert.deepEqual(tiles.map((t) => t.delta.state), ['partial', 'partial', 'partial', 'partial'])
+  assert.deepEqual(tiles.map((t) => t.delta.state), ['partial', 'partial', 'partial', 'closes'])
+  assert.equal(tiles[3].delta.due, '2027-01-01')
 })
 
-test('#1099 DS-COMPONENTE-100 item 2: the sign on both sides, U+2212 on the negative, the unit printed', () => {
+test('#1099 #1154 DS-COMPONENTE-100 item 2: the sign on both sides, U+2212 on the negative, the unit printed, one decimal', () => {
   const pt = (n: string) => `${n} pt`
   const down = tileDelta(point('2026-10', 95, 40), point('2026-09', 100, 40), 'relative', '2026-11')
-  assert.equal(formatDelta(down, 'pt', pt), `${MINUS}5%`)
+  assert.equal(formatDelta(down, 'pt', pt), `${MINUS}5,0%`)
   assert.ok(!formatDelta(down, 'pt', pt)!.includes('-'), 'no hyphen-minus')
   const up = tileDelta(point('2026-10', 108, 40), point('2026-09', 100, 40), 'relative', '2026-11')
-  assert.equal(formatDelta(up, 'pt', pt), '+8%')
+  assert.equal(formatDelta(up, 'pt', pt), '+8,0%')
+  assert.equal(formatDelta(up, 'en', pt), '+8.0%')
   const rateDown = tileDelta(point('2026-10', 0.1, 231), point('2026-09', 0.11, 204), 'points', '2026-11')
   assert.equal(rateDown.state, 'down')
-  assert.equal(formatDelta(rateDown, 'pt', pt), `${MINUS}1 pt`)
+  assert.equal(formatDelta(rateDown, 'pt', pt), `${MINUS}1,0 pt`)
   assert.equal(formatDelta(tileDelta(point('2026-11', 1, 40), point('2026-10', 1, 40), 'relative', '2026-11'), 'pt', pt), null)
 })
 
@@ -180,19 +186,57 @@ test('#1099 DS-COMPONENTE-100 item 5: a rate changes in points, a count and a du
   assert.deepEqual([guide.delta.prev.base, guide.delta.curr.base], [160, 120])
 })
 
+test('#1154 DS-COMPONENTE-100 item 5: the change comes from the values as sent, not from the rounded ones the tile prints, at one decimal', () => {
+  // A rate of 11.49 % against 12.51 %: the tile prints 11 % and 13 %, the change is 1.0 pt, not 2.
+  const rate = tileDelta(point('2026-10', 0.1251, 40), point('2026-09', 0.1149, 40), 'points', '2026-11')
+  assert.deepEqual([rate.state, rate.rounded], ['up', 1])
+  assert.equal(formatDelta(rate, 'pt', (n) => `${n} pt`), '+1,0 pt')
+  // A median of 36.4 min against 30.6: the tile prints 36 and 31 min (16.1 %), the change is 19.0 %.
+  const minutes = tileDelta(point('2026-10', 36.4, 40), point('2026-09', 30.6, 40), 'relative', '2026-11')
+  assert.equal(minutes.rounded, 19)
+  assert.equal(formatDelta(minutes, 'pt', (n) => n), '+19,0%')
+  // One decimal kept: 33 against 30.5 is 8.2 %, never -0 on a tiny fall.
+  assert.equal(tileDelta(point('2026-10', 33, 40), point('2026-09', 30.5, 40), 'relative', '2026-11').rounded, 8.2)
+  assert.ok(Object.is(tileDelta(point('2026-10', 99.99, 40), point('2026-09', 100, 40), 'relative', '2026-11').rounded, 0))
+})
+
+test('#1154 DS-COMPONENTE-100: with no measured month before, the tile says "new" instead of a change', () => {
+  const before: TilePoint = { month: '2026-09', cell: { state: 'before_source', value: null, share: null, since: '2026-10-01', due: null }, base: null }
+  assert.deepEqual([tileDelta(point('2026-10', 30, 40), before, 'relative', '2026-11').state, tileDelta(point('2026-10', 30, 40), before, 'relative', '2026-11').rounded], ['new', null])
+  const fewer: TilePoint = { month: '2026-09', cell: { state: 'suppressed', value: null, share: null, since: null, due: null }, base: 3 }
+  assert.equal(tileDelta(point('2026-10', 0.2, 40), fewer, 'points', '2026-11').state, 'new')
+  // from a measured zero a count is new, and zero to zero is steady
+  assert.equal(tileDelta(point('2026-10', 12, 40), point('2026-09', 0, 40), 'relative', '2026-11').state, 'new')
+  assert.equal(tileDelta(point('2026-10', 0, 40), point('2026-09', 0, 40), 'relative', '2026-11').state, 'flat')
+  // a failed or pending read before is not "new": it stays unknown
+  const failed: TilePoint = { month: '2026-09', cell: { state: 'source_failed', value: null, share: null, since: null, due: null }, base: null }
+  assert.equal(tileDelta(point('2026-10', 30, 40), failed, 'relative', '2026-11').state, 'unknown')
+  // the current month still prints until today, never "new"
+  assert.equal(tileDelta(point('2026-11', 30, 40), before, 'relative', '2026-11').state, 'partial')
+  // the first month of the ruler: the month before was never read, so no tile calls itself new
+  const august = buildTiles(input({ summaryMonth: '2026-08' }))
+  assert.ok(august.every((t) => t.delta.state !== 'new'), JSON.stringify(august.map((t) => t.delta.state)))
+  // September of a bank whose guide time starts in September: the guide tile is new
+  const late = parseBankReport({ data_since: SINCE, months: [month('2026-08', { guide_minutes_median: null }), month('2026-09'), month('2026-10'), month('2026-11')] })
+  assert.equal(tile(input({ bank: late, summaryMonth: '2026-09' }), 'guide_median').delta.state, 'new')
+})
+
 // ── §B15 item 4 ─────────────────────────────────────────────────────────────────────────────
 
-test('#1099 DS-COMPONENTE-100 item 4 spec B15 item 4: the return tile of a month not due shows the last measured month, names it, and compares it with the one before', () => {
+test('#1154 DS-COMPONENTE-100 item 4: the return tile shows the month of the page; while its window is open it says it closes on the first day of the month after the next', () => {
+  // October selected on 2026-11-04: October's return is known only when November ends.
   const ret = tile(input(), 'returned')
-  assert.equal(ret.month, '2026-09')
-  assert.equal(ret.point.cell.value, 0.11)
-  assert.equal(ret.point.base, 231)
-  assert.equal(ret.delta.prev.month, '2026-08')
-  assert.equal(ret.delta.curr.month, '2026-09')
-  assert.equal(ret.delta.state, 'down')
-  assert.equal(ret.delta.rounded, -1)
-  // August selected: its window closed, it is itself.
-  assert.equal(tile(input({ summaryMonth: '2026-08' }), 'returned').month, '2026-08')
+  assert.equal(ret.month, '2026-10')
+  assert.equal(ret.point.cell.state, 'not_due')
+  assert.equal(ret.point.cell.value, null)
+  assert.deepEqual([ret.delta.state, ret.delta.due, ret.delta.rounded], ['closes', '2026-12-01', null])
+  // September selected: closed, measured, and compared with August.
+  const sep = tile(input({ summaryMonth: '2026-09' }), 'returned')
+  assert.deepEqual([sep.month, sep.point.cell.value, sep.point.base], ['2026-09', 0.11, 231])
+  assert.deepEqual([sep.delta.state, sep.delta.rounded, sep.delta.due], ['down', -1, null])
+  // The day it closes moves with the month, across the year.
+  const dec = tileDelta({ month: '2026-12', cell: { state: 'not_due', value: null, share: null, since: null, due: '2027-02-01' }, base: 30 }, point('2026-11', 0.1, 30), 'points', '2027-01')
+  assert.deepEqual([dec.state, dec.due], ['closes', '2027-02-01'])
 })
 
 // ── §B15 item 5 ─────────────────────────────────────────────────────────────────────────────
