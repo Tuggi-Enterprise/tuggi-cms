@@ -48,7 +48,7 @@ import {
   partnerKindOf,
   type PartnerKind,
 } from '@/lib/partnerships/partner-kind'
-import { copyGuidePhoto, guideRpcErrorOf } from '@/lib/services/guide-profile-service'
+import { copyFacadeToProfilePhoto, guideRpcErrorOf } from '@/lib/services/guide-profile-service'
 
 function partner() {
   return getSupabaseService().schema('partner')
@@ -216,6 +216,8 @@ interface SubmissionForApproval {
   answers: PartnerAnswers | null
   attraction_id: string | null
   client_id: string | null
+  /** The login of the proposal; for the guide it becomes the record's owner (#1185, BR-B2B-069 item 2.a). */
+  account_id: string | null
 }
 
 const CATEGORY_LABELS = ptMessages.PartnerForm.categories as Record<string, string>
@@ -268,7 +270,7 @@ export async function approvePortalSubmission(
 ): Promise<PortalActOutcome> {
   const { data, error } = await partner()
     .from('place_submissions')
-    .select('id, status, answers, attraction_id, client_id')
+    .select('id, status, answers, attraction_id, client_id, account_id')
     .eq('id', submissionId)
     .maybeSingle()
   if (error) {
@@ -432,7 +434,7 @@ async function approveWithoutPlace(
   if (kind !== 'guide') return { ...outcome, clientId }
 
   const commissionError = commission ? { commissionError: commission } : {}
-  const published = await publishGuide(submission.id, clientId, answers, operator, actorUserId)
+  const published = await publishGuide(submission.id, clientId, submission.account_id, answers, operator, actorUserId)
   return published.ok
     ? { ok: true, status: published.status, clientId, ...commissionError }
     : { ...outcome, clientId, guidePublishError: published.error, ...commissionError }
@@ -456,7 +458,9 @@ async function applyDefaultCommission(clientId: string): Promise<string | null> 
 }
 
 /**
- * The guide's publication: photo → profile → `live`. Shared by the approval and by
+ * The guide's publication: photo → profile → `live`. The photo is the proposal's facade copied as
+ * the ACCOUNT's photo when the account has none (#1185, contract §8.6 item 3); the function makes the
+ * login the owner and fills only the empty fields of the account. Shared by the approval and by
  * `publishApprovedGuide` (the "Publicar o perfil" retry), so the two cannot publish differently.
  * `live` is "Publicado" in the portal (contract §8.6); a failed `live` after a published profile
  * is logged and answered as published, because the app already lists the guide.
@@ -464,13 +468,14 @@ async function applyDefaultCommission(clientId: string): Promise<string | null> 
 async function publishGuide(
   submissionId: string,
   clientId: string,
+  accountId: string | null,
   answers: PartnerAnswers,
   operator: SupabaseClient,
   actorUserId: string,
   alreadyLive = false
 ): Promise<{ ok: true; status: string } | { ok: false; httpStatus: number; error: string }> {
-  const copied = await copyGuidePhoto(submissionId, clientId, answers.profile_photo)
-  if (!copied.ok) return { ok: false, httpStatus: copied.error === 'invalid_photo' ? 422 : 503, error: copied.error }
+  const copied = await copyFacadeToProfilePhoto(submissionId, clientId, accountId, answers.profile_photo)
+  if (!copied.ok) return { ok: false, httpStatus: copied.error === 'photo_copy_failed' ? 503 : 422, error: copied.error }
 
   const { error } = await operator.schema('core').rpc('cms_publish_guide_profile', { p_submission_id: submissionId })
   if (error) {
@@ -491,7 +496,7 @@ export async function publishApprovedGuide(
 ): Promise<PortalActOutcome> {
   const { data, error } = await partner()
     .from('place_submissions')
-    .select('id, status, answers, attraction_id, client_id')
+    .select('id, status, answers, attraction_id, client_id, account_id')
     .eq('id', submissionId)
     .maybeSingle()
   if (error) {
@@ -510,6 +515,7 @@ export async function publishApprovedGuide(
   const published = await publishGuide(
     submission.id,
     submission.client_id,
+    submission.account_id,
     answers,
     operator,
     actorUserId,

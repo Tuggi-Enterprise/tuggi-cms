@@ -4,14 +4,17 @@
  * and audits.
  *
  * GET   → `{ profile: GuideProfile | null }` (`null` = not published yet).
- * PATCH `{ "bio": string }` → `{ updatedAt }` — the curator rewrites the bio (1 to 400).
+ * PATCH `{ "bio": string }` → `{ updatedAt }` — the curator rewrites the bio of the guide's
+ *       account (1 to 400, #1185: the profile of the guide is the profile of the account);
+ *       409 `owner_conflict` when the record has no account.
  * PATCH `{ "meetingPoint": { address, city, lat, lng } }` → `{ updatedAt }` — the curator sets the
  *       meeting point (#1179, BR-B2B-064 item 11.c).
  * POST  `{ "hidden": true, "reason": GuideHideReason, "other"?: string }` hides the guide from the
  *       app (reason required); `{ "hidden": false }` shows it again. Nothing is deleted.
  * POST  `{ "listed": boolean }` → `{ listed }` — "Aparece no app" (#1179, BR-B2B-064 item 11.a).
- *       Listing without a meeting point, a photo or a bio → 409 `meeting_point_required`,
- *       `photo_required` or `bio_required` (TGP23 and its DETAIL, #1184).
+ *       Listing without a meeting point, an account, the account's photo or bio, or a WhatsApp →
+ *       409 `meeting_point_required`, `owner_required`, `photo_required`, `bio_required` or
+ *       `whatsapp_required` (TGP23 and its DETAIL, #1184, #1185).
  *
  * Every write runs with the operator's session: `core.cms_*` answers for the person on the screen.
  */

@@ -187,10 +187,6 @@ test('BR-B2B-064 item 11.c: saving the point calls cms_set_guide_meeting_point w
 test('BR-B2B-064 items 6 and 11: the profile read carries the tick and the point, all four columns or none', async () => {
   const base = {
     client_id: CLIENT,
-    display_name: 'Ana Guia',
-    bio: 'Conto a história da península a pé.',
-    photo_path: `${CLIENT}/a.jpg`,
-    languages: ['pt'],
     specialties: ['city_tour'],
     whatsapp: '5522999998888',
     public_contact_consent: true,
@@ -210,14 +206,15 @@ test('BR-B2B-064 items 6 and 11: the profile read carries the tick and the point
   assert.equal(old.profile.listedInApp, false)
   assert.equal(old.profile.meetingPoint, null)
 
-  w.rows = [{ client_id: CLIENT, hidden: false, public_contact_consent: true, listed_in_app: false, meeting_point_lat: POINT.lat }]
+  // No owner behind the record in this fake: the facts say incomplete (#1185, the account has the photo and the bio).
+  w.rows = [{ client_id: CLIENT, hidden: false, public_contact_consent: true, listed_in_app: false, meeting_point_lat: POINT.lat, whatsapp: '5522999998888' }]
   const facts = await guides.loadGuideProfileFacts([CLIENT])
-  assert.deepEqual(facts.get(CLIENT), { hidden: false, consent: true, listedInApp: false, hasMeetingPoint: true })
+  assert.deepEqual(facts.get(CLIENT), { hidden: false, consent: true, listedInApp: false, hasMeetingPoint: true, complete: false })
 })
 
 // ── One derivation for the badge and the queue ───────────────────────────────────────────────
 
-const FACTS = { hidden: false, consent: true, listedInApp: true, hasMeetingPoint: true }
+const FACTS = { hidden: false, consent: true, listedInApp: true, hasMeetingPoint: true, complete: true }
 
 test('BR-B2B-064 items 5, 6 and 11 · spec §9.1: the badge is derived top down, consent, hidden, point, tick', () => {
   assert.equal(pipeline.guideVisibilityOf(FACTS), 'listed')

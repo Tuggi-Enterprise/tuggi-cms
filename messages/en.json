@@ -4339,7 +4339,10 @@
         "bioLocked": "The guide's bio is missing. Check it before ticking.",
         "setMeetingPoint": "Set the meeting point",
         "listedOn": "Ticked at {time}.",
-        "listedOff": "Unticked at {time}."
+        "listedOff": "Unticked at {time}.",
+        "incomplete": "Missing photo, bio or WhatsApp",
+        "whatsappLocked": "The guide's WhatsApp is missing. The guide adds it in the app or the portal.",
+        "ownerLocked": "The guide has no app account. Photo and bio come from the account."
       },
       "meetingPoint": {
         "title": "Meeting point",
@@ -4375,7 +4378,11 @@
         "testWhatsapp": "Test on WhatsApp",
         "consent": "Consent",
         "consentYes": "Agreed to appear in the app",
-        "consentNo": "No consent"
+        "consentNo": "No consent",
+        "handle": "Account @",
+        "nameNotShown": "Only the @: the guide has not authorized showing the name",
+        "fromAccount": "Name, photo, bio and languages come from the guide's app account, edited in Edit profile.",
+        "noAccount": "This guide has no app account yet. Name, photo, bio and languages show once it exists."
       },
       "bio": {
         "title": "Bio",

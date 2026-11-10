@@ -85,7 +85,7 @@ function reset(answers: Record<string, string> = PORTAL_GUIDE, over: Partial<Wor
     insert: null,
     profileRow: null,
     calls: [],
-    submission: { id: SUB, status: 'in_review', answers, attraction_id: null, client_id: null },
+    submission: { id: SUB, status: 'in_review', answers, attraction_id: null, client_id: null, account_id: '66666666-6666-4666-8666-666666666666' },
     commissionError: null,
     ...over,
   }
@@ -144,7 +144,9 @@ const service = {
   from: (name: string) => query(name),
   storage: {
     from: () => ({
-      copy: async () => {
+      // #1185: the facade becomes the account's photo, read and written as a JPEG.
+      download: async () => ({ data: new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xe0])]), error: null }),
+      upload: async () => {
         w.calls.push('copy_photo')
         return { data: null, error: null }
       },
@@ -228,10 +230,6 @@ test('BR-B2B-066 item 10 · BR-B2B-064 item 11.a: the app guide without a submis
 test('BR-B2B-066 item 10.b: the empty profile the approval creates reads without breaking, every missing field as null', async () => {
   w.profileRow = {
     client_id: CLIENT,
-    display_name: null,
-    bio: null,
-    photo_path: null,
-    languages: [],
     specialties: [],
     whatsapp: null,
     public_contact_consent: false,
@@ -246,9 +244,11 @@ test('BR-B2B-066 item 10.b: the empty profile the approval creates reads without
   }
   const read = await guides.loadGuideProfile(CLIENT)
   assert.ok(read.ok && read.profile)
-  assert.equal(read.profile.displayName, null)
+  // #1185: name, bio, photo and languages are the account's; this fake has no owner behind the record.
+  assert.equal(read.profile.hasAccount, false)
+  assert.equal(read.profile.shownName, null)
   assert.equal(read.profile.bio, null)
-  assert.equal(read.profile.photoPath, null)
+  assert.equal(read.profile.hasPhoto, false)
   assert.equal(read.profile.photoUrl, null)
   assert.equal(read.profile.whatsapp, null)
   assert.deepEqual(read.profile.languages, [])
@@ -256,20 +256,20 @@ test('BR-B2B-066 item 10.b: the empty profile the approval creates reads without
   assert.equal(read.profile.listedInApp, false)
   assert.equal(read.profile.meetingPoint, null)
 
-  // A portal guide's profile still reads whole.
-  w.profileRow = { ...w.profileRow, display_name: 'Ana Guia', bio: 'A pé.', photo_path: `${CLIENT}/a.jpg`, whatsapp: '5522999998888' }
+  // The WhatsApp is still the display row's.
+  w.profileRow = { ...w.profileRow, whatsapp: '5522999998888' }
   const full = await guides.loadGuideProfile(CLIENT)
   assert.ok(full.ok && full.profile)
-  assert.match(full.profile.photoUrl ?? '', /\/storage\/v1\/object\/public\/guide-photos\/33333333-3333-4333-8333-333333333333\/a\.jpg$/)
+  assert.equal(full.profile.whatsapp, '5522999998888')
 })
 
 test('BR-B2B-064 item 9.a: the app guide is conferred before the tick, so the tick stays locked without photo and bio', () => {
   const tab = readFileSync(resolve(ROOT, 'components/admin/clients/tabs/GuideProfileTab.tsx'), 'utf8')
-  assert.match(tab, /const photoMissing = profile\.photoUrl === null \|\| listRefused === 'photo'/)
-  assert.match(tab, /const bioMissing = profile\.bio === null \|\| listRefused === 'bio'/)
+  assert.match(tab, /const photoMissing = !profile\.hasPhoto \|\| ownerMissing \|\| listRefused === 'photo'/)
+  assert.match(tab, /const bioMissing = profile\.bio === null \|\| ownerMissing \|\| listRefused === 'bio'/)
   assert.match(tab, /const nothingToConfer = photoMissing \|\| bioMissing/)
   // Switching ON is locked; switching OFF an already ticked guide stays free.
-  assert.match(tab, /const tickLocked = listLocked \|\| \(nothingToConfer && !profile\.listedInApp\)/)
+  assert.match(tab, /const tickLocked = listLocked \|\| \(\(nothingToConfer \|\| whatsappMissing\) && !profile\.listedInApp\)/)
   assert.match(tab, /disabled=\{busy \|\| tickLocked\}/)
   // The "Publicar o perfil" button needs a portal submission; the app guide has none.
   assert.match(tab, /\{submissionId \? \(\s*<Button variant="cta"/)
@@ -464,9 +464,10 @@ test('BR-B2B-064 items 9.a and 11.a: TGP23 meeting_point, photo and bio each rea
   }
 
   const tab = readFileSync(resolve(ROOT, 'components/admin/clients/tabs/GuideProfileTab.tsx'), 'utf8')
-  assert.match(tab, /meeting_point_required: 'meeting_point', photo_required: 'photo', bio_required: 'bio'/)
+  assert.match(tab, /meeting_point_required: 'meeting_point',\s+photo_required: 'photo',\s+bio_required: 'bio',/)
   assert.match(tab, /const pointMissing = listLocked \|\| listRefused === 'meeting_point'/)
   assert.match(tab, /photoMissing && bioMissing \? 'incompleteLocked' : photoMissing \? 'photoLocked' : 'bioLocked'/)
+  assert.match(tab, /const incompleteLine = ownerMissing\s+\? 'ownerLocked'/)
   for (const locale of ['pt', 'en', 'es']) {
     const visibility = JSON.parse(readFileSync(resolve(ROOT, `messages/${locale}.json`), 'utf8')).Clients.guide.visibility
     for (const key of ['listedLocked', 'incompleteLocked', 'photoLocked', 'bioLocked']) {

@@ -20,6 +20,7 @@ const SUB = '11111111-1111-4111-8111-111111111111'
 const CLIENT = '33333333-3333-4333-8333-333333333333'
 const CMS_OP = '44444444-4444-4444-8444-444444444444'
 const PHOTO = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jpg'
+const ACCOUNT = '66666666-6666-4666-8666-666666666666'
 const NOW = new Date('2026-10-16T12:00:00.000Z')
 
 const GUIDE = {
@@ -62,7 +63,7 @@ let w: World
 
 function reset(answers: Record<string, string> = GUIDE, over: Partial<World> = {}) {
   w = {
-    submission: { id: SUB, status: 'in_review', answers, attraction_id: null, client_id: null },
+    submission: { id: SUB, status: 'in_review', answers, attraction_id: null, client_id: null, account_id: ACCOUNT },
     calls: [],
     clientInsert: null,
     publishError: null,
@@ -131,9 +132,14 @@ const service = {
     },
   }),
   storage: {
+    // #1185: the facade is read and written as the account's photo (a JPEG), not copied to guide-photos.
     from: (bucket: string) => ({
-      copy: async (from: string, to: string, options: { destinationBucket: string }) => {
-        w.calls.push(`copy:${bucket}/${from}->${options.destinationBucket}/${to}`)
+      download: async (path: string) => {
+        w.calls.push(`download:${bucket}/${path}`)
+        return { data: new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xe0])]), error: null }
+      },
+      upload: async (path: string) => {
+        w.calls.push(`upload:${bucket}/${path}`)
         return { data: null, error: w.copyError }
       },
     }),
@@ -255,20 +261,20 @@ function portalState(over: Partial<import('@/lib/partnerships/pipeline').Pipelin
 }
 
 test('BR-B2B-064 item 10 · BR-B2B-057: the guide is Publicado by its active, visible and listed profile (#1179), never by a place', () => {
-  assert.equal(portalState({ partnerKind: 'guide', portalStatus: 'live', guideProfile: { hidden: false, consent: true, listedInApp: true, hasMeetingPoint: true } }), 'published')
-  assert.equal(portalState({ partnerKind: 'guide', portalStatus: 'approved', guideProfile: { hidden: false, consent: true, listedInApp: true, hasMeetingPoint: true } }), 'published')
+  assert.equal(portalState({ partnerKind: 'guide', portalStatus: 'live', guideProfile: { hidden: false, consent: true, listedInApp: true, hasMeetingPoint: true, complete: true } }), 'published')
+  assert.equal(portalState({ partnerKind: 'guide', portalStatus: 'approved', guideProfile: { hidden: false, consent: true, listedInApp: true, hasMeetingPoint: true, complete: true } }), 'published')
   // approved and the profile never reached the app: work, "Aprovado, falta publicar o perfil"
   const pending = portalState({ partnerKind: 'guide', guideProfile: null })
   assert.equal(pending, 'approved_awaiting_narration')
   assert.equal(pipeline.stateMessageKey(pending, 'guide'), 'approved_awaiting_guide_profile')
   assert.equal(pipeline.stateMessageKey(pending, 'place'), 'approved_awaiting_narration')
   // the gate of BR-B2B-057 item 3 still comes first
-  assert.equal(portalState({ partnerKind: 'guide', guideProfile: { hidden: false, consent: true, listedInApp: true, hasMeetingPoint: true }, gateMissing: ['partner_code'] as never }), 'awaiting_acceptance')
+  assert.equal(portalState({ partnerKind: 'guide', guideProfile: { hidden: false, consent: true, listedInApp: true, hasMeetingPoint: true, complete: true }, gateMissing: ['partner_code'] as never }), 'awaiting_acceptance')
 })
 
 test('BR-B2B-064 items 5 and 11: hidden by the curator or without consent is Oculto do app — terminal, out of the default filter, in the Publicado column', () => {
-  assert.equal(portalState({ partnerKind: 'guide', portalStatus: 'live', guideProfile: { hidden: true, consent: true, listedInApp: true, hasMeetingPoint: true } }), 'hidden_from_app')
-  assert.equal(portalState({ partnerKind: 'guide', portalStatus: 'live', guideProfile: { hidden: false, consent: false, listedInApp: true, hasMeetingPoint: true } }), 'hidden_from_app')
+  assert.equal(portalState({ partnerKind: 'guide', portalStatus: 'live', guideProfile: { hidden: true, consent: true, listedInApp: true, hasMeetingPoint: true, complete: true } }), 'hidden_from_app')
+  assert.equal(portalState({ partnerKind: 'guide', portalStatus: 'live', guideProfile: { hidden: false, consent: false, listedInApp: true, hasMeetingPoint: true, complete: true } }), 'hidden_from_app')
   assert.ok(!pipeline.IN_PROGRESS_STATES.includes('hidden_from_app'))
   assert.ok(pipeline.PIPELINE_STATES.includes('hidden_from_app'))
   assert.equal(board.columnOf('hidden_from_app'), 'published')
@@ -294,7 +300,8 @@ test('BR-B2B-064 items 3 and 10: approving the guide creates no place and publis
     'approve_client',
     'apply_default_commission',
     'transition:approved',
-    `copy:place-submission-photos/${SUB}/facade/${PHOTO}->guide-photos/${CLIENT}/${PHOTO}`,
+    `download:place-submission-photos/${SUB}/facade/${PHOTO}`,
+    `upload:profile-photos/${ACCOUNT}/${PHOTO}`,
     'rpc:cms_publish_guide_profile',
     'transition:live',
   ])
@@ -367,12 +374,12 @@ test('#936 §3: the publication failing leaves the guide approved, says so, and 
   assert.deepEqual(w.calls.slice(-2), ['rpc:cms_publish_guide_profile', 'transition:live'])
 })
 
-test('#936: a photo path that is not the submission\'s own facade never reaches Storage', async () => {
-  assert.equal(guides.guidePhotoCopyPaths(SUB, CLIENT, `../${SUB}/facade/${PHOTO}`), null)
-  assert.equal(guides.guidePhotoCopyPaths(SUB, CLIENT, `${CLIENT}/facade/${PHOTO}`), null)
-  assert.deepEqual(guides.guidePhotoCopyPaths(SUB, CLIENT, `${SUB}/facade/${PHOTO}`), {
+test('#936 · #1185: a photo path that is not the submission\'s own facade never reaches Storage', async () => {
+  assert.equal(guides.facadeProfilePhotoPaths(SUB, ACCOUNT, `../${SUB}/facade/${PHOTO}`), null)
+  assert.equal(guides.facadeProfilePhotoPaths(SUB, ACCOUNT, `${CLIENT}/facade/${PHOTO}`), null)
+  assert.deepEqual(guides.facadeProfilePhotoPaths(SUB, ACCOUNT, `${SUB}/facade/${PHOTO}`), {
     from: `${SUB}/facade/${PHOTO}`,
-    to: `${CLIENT}/${PHOTO}`,
+    to: `${ACCOUNT}/${PHOTO}`,
   })
 })
 

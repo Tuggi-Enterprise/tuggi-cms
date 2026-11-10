@@ -190,7 +190,7 @@ export interface PipelineInput {
   appPartnerWithoutPlace?: boolean
 }
 
-/** What the queue and the record need from `partner.guide_profiles`: whether the app lists it. */
+/** What the queue and the record need to know whether the app lists the guide: the display row and the account (#1185). */
 export interface GuideProfileFacts {
   hidden: boolean
   /** `public_contact_consent`: the guide can withdraw it in the portal (BR-B2B-064 item 5). */
@@ -199,6 +199,11 @@ export interface GuideProfileFacts {
   listedInApp: boolean
   /** The four `meeting_point_*` columns are filled (they are all null or all filled). */
   hasMeetingPoint: boolean
+  /**
+   * The rest of `partner.guide_shown_in_app` (#1185, BR-B2B-064 items 4.a.i and 9.a): the record has
+   * an owner whose account has a photo and a bio, and the display row has a WhatsApp.
+   */
+  complete: boolean
 }
 
 /**
@@ -208,17 +213,21 @@ export interface GuideProfileFacts {
  *  · `no_consent`        the guide withdrew the consent (BR-B2B-064 item 5);
  *  · `hidden`            the curator hid it with a reason, above the tick (item 11.b);
  *  · `no_meeting_point`  no point yet, so the tick cannot be set (items 6 and 11.a);
+ *  · `incomplete`        the account has no photo or no bio, or there is no WhatsApp (#1185): the
+ *                        app does not list it, ticked or not;
  *  · `unlisted`          everything in order, and the curator has not ticked it (item 11.a);
- *  · `listed`            in the app, within the radius of the point (item 6).
+ *  · `listed`            in the app, within the radius of the point (item 6). The same predicate as
+ *                        `partner.guide_shown_in_app`, without the radius.
  *
  * Pure and free of the service client, so the client component imports it too.
  */
-export type GuideVisibility = 'no_consent' | 'hidden' | 'no_meeting_point' | 'unlisted' | 'listed'
+export type GuideVisibility = 'no_consent' | 'hidden' | 'no_meeting_point' | 'incomplete' | 'unlisted' | 'listed'
 
 export function guideVisibilityOf(facts: GuideProfileFacts): GuideVisibility {
   if (!facts.consent) return 'no_consent'
   if (facts.hidden) return 'hidden'
   if (!facts.hasMeetingPoint) return 'no_meeting_point'
+  if (!facts.complete) return 'incomplete'
   return facts.listedInApp ? 'listed' : 'unlisted'
 }
 
@@ -228,7 +237,7 @@ export function guideVisibilityOf(facts: GuideProfileFacts): GuideVisibility {
  *
  *  · guide without a profile                → `approved_awaiting_narration` ("falta publicar o perfil");
  *  · guide hidden, or without consent       → `hidden_from_app`;
- *  · guide not ticked, or without a point   → `published_unlisted` (BR-B2B-064 item 10: approving does not list);
+ *  · guide not ticked, without a point, or incomplete → `published_unlisted` (BR-B2B-064 item 10: approving does not list);
  *  · guide listed                           → `published`;
  *  · transfer without a base                → `referral_only` (BR-B2B-065).
  */
@@ -242,6 +251,7 @@ function noPlaceApprovedState(input: PipelineInput): PipelineState {
     case 'hidden':
       return 'hidden_from_app'
     case 'no_meeting_point':
+    case 'incomplete':
     case 'unlisted':
       return 'published_unlisted'
     case 'listed':

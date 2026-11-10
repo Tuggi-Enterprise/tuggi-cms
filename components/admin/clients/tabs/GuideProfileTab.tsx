@@ -7,12 +7,17 @@
  * Visibility on top, then the meeting point (#1179, spec §9: it locks "Aparece no app", so the
  * reason and the fix sit in the same view), then the data, then the bio. Every write goes through
  * `/api/admin/clients/{id}/guide-profile`; nothing here decides what the app lists — that is
- * `core.app_get_nearby_guides`, which reads `listed_in_app`, `hidden`, the consent and the point.
+ * `partner.guide_shown_in_app`, which `guideVisibilityOf` mirrors for the badge.
  *
  * The guide of the app request (#1184, BR-B2B-066 item 10) lands here with an EMPTY profile and
  * no submission: no "Publicar o perfil", every missing field reads as a dash, and the tick stays
  * locked until there is a photo and a bio to confer (BR-B2B-064 item 9.a: in the app path the
  * conference comes before the tick, not before the approval).
+ *
+ * Since #1185 the name, the photo, the bio and the languages are the ACCOUNT's (BR-B2B-064 item
+ * 4.a): the tab shows them as the account's, the guide changes them in the app's Editar perfil, and
+ * the curator's bio edit writes the account's bio. The name is the one the guide authorized to show
+ * (`drive.published_name`, BR-USUARIO-050 item 2.d); without it, only the @.
  *
  * Out of this tab, and said so: the queue of photo and bio changes sent by the guide (spec §5,
  * item 4). The portal RPC of #933 edits both directly, so there is nothing pending to approve.
@@ -38,10 +43,17 @@ const BIO_MAX = 400
 const ADDRESS_MAX = 300
 const CITY_MAX = 80
 /**
- * The route's answers to listing refused by `cms_set_guide_listed` (TGP23 and its DETAIL, #1184):
- * `GUIDE_MEETING_POINT_REQUIRED`, `GUIDE_PHOTO_REQUIRED`, `GUIDE_BIO_REQUIRED` → what is missing.
+ * The route's answers to listing refused by `cms_set_guide_listed` (TGP23 and its DETAIL, #1184,
+ * #1185): `GUIDE_MEETING_POINT_REQUIRED`, `GUIDE_PHOTO_REQUIRED`, `GUIDE_BIO_REQUIRED`,
+ * `GUIDE_OWNER_REQUIRED`, `GUIDE_WHATSAPP_REQUIRED` → what is missing.
  */
-const LIST_REFUSALS = { meeting_point_required: 'meeting_point', photo_required: 'photo', bio_required: 'bio' } as const
+const LIST_REFUSALS = {
+  meeting_point_required: 'meeting_point',
+  photo_required: 'photo',
+  bio_required: 'bio',
+  owner_required: 'owner',
+  whatsapp_required: 'whatsapp',
+} as const
 type ListRefusal = (typeof LIST_REFUSALS)[keyof typeof LIST_REFUSALS]
 const listRefusalOf = (error: string | undefined): ListRefusal | null =>
   error && Object.prototype.hasOwnProperty.call(LIST_REFUSALS, error) ? LIST_REFUSALS[error as keyof typeof LIST_REFUSALS] : null
@@ -58,6 +70,7 @@ const BADGE: Record<GuideVisibility, { key: string; className: string }> = {
   no_consent: { key: 'visibility.noConsent', className: 'border-amber-300 bg-amber-50 text-amber-900' },
   hidden: { key: 'visibility.hidden', className: 'border-gray-300 bg-gray-100 text-gray-800' },
   no_meeting_point: { key: 'visibility.noMeetingPoint', className: 'border-amber-300 bg-amber-50 text-amber-900' },
+  incomplete: { key: 'visibility.incomplete', className: 'border-amber-300 bg-amber-50 text-amber-900' },
   unlisted: { key: 'visibility.unlisted', className: 'border-gray-300 bg-gray-100 text-gray-800' },
   listed: { key: 'visibility.listed', className: 'border-green-300 bg-green-50 text-green-800' },
 }
@@ -322,28 +335,39 @@ export function GuideProfileTab({ clientId, submissionId, fallbackName, onPublis
   const reasonLabel = (stored: string | null) =>
     stored && (REASONS as readonly string[]).includes(stored) && stored !== 'other' ? t(`reasons.${stored}` as 'reasons.inactive') : (stored ?? '')
   const whatsappHref = profile.whatsapp ? `https://wa.me/${profile.whatsapp}` : null
-  const name = profile.displayName ?? fallbackName
+  const name = profile.shownName ?? fallbackName
+  // BR-B2B-064 item 9.a and BR-B2B-066 item 10.d (#1184): photo and bio are what the curator confers
+  // before ticking, and the empty profile of the app guide has neither yet. Since #1185 they are the
+  // account's, so a record without an account has neither. A refusal of the database (TGP23 owner,
+  // photo, bio or whatsapp) names the same gap even before the refetch lands.
+  const ownerMissing = !profile.hasAccount || listRefused === 'owner'
+  const photoMissing = !profile.hasPhoto || ownerMissing || listRefused === 'photo'
+  const bioMissing = profile.bio === null || ownerMissing || listRefused === 'bio'
+  const whatsappMissing = profile.whatsapp === null || listRefused === 'whatsapp'
+  const nothingToConfer = photoMissing || bioMissing
   const badge = BADGE[
     guideVisibilityOf({
       hidden: profile.hidden,
       consent: profile.consent,
       listedInApp: profile.listedInApp,
       hasMeetingPoint: profile.meetingPoint !== null,
+      complete: !nothingToConfer && !whatsappMissing,
     })
   ]
   // Only the missing point locks the tick (spec §9.1): hidden or without consent, the badge says
   // why the guide is not listed, and the tick counts once the other condition is back.
   const listLocked = profile.meetingPoint === null
-  // BR-B2B-064 item 9.a and BR-B2B-066 item 10.d (#1184): photo and bio are what the curator confers
-  // before ticking, and the empty profile of the app guide has neither yet. Unticking stays free.
-  // A refusal of the database (TGP23 photo or bio) names the same gap even before the refetch lands.
-  const photoMissing = profile.photoUrl === null || listRefused === 'photo'
-  const bioMissing = profile.bio === null || listRefused === 'bio'
-  const nothingToConfer = photoMissing || bioMissing
   const pointMissing = listLocked || listRefused === 'meeting_point'
-  const tickLocked = listLocked || (nothingToConfer && !profile.listedInApp)
-  const incompleteLine = photoMissing && bioMissing ? 'incompleteLocked' : photoMissing ? 'photoLocked' : 'bioLocked'
-  const lockLines = [pointMissing ? 'guide-listed-locked' : null, nothingToConfer ? 'guide-listed-incomplete' : null]
+  // Unticking stays free: only switching ON waits for what `cms_set_guide_listed` checks.
+  const tickLocked = listLocked || ((nothingToConfer || whatsappMissing) && !profile.listedInApp)
+  const incompleteLine = ownerMissing
+    ? 'ownerLocked'
+    : photoMissing && bioMissing ? 'incompleteLocked' : photoMissing ? 'photoLocked' : 'bioLocked'
+  const lockLines = [
+    pointMissing ? 'guide-listed-locked' : null,
+    nothingToConfer ? 'guide-listed-incomplete' : null,
+    whatsappMissing ? 'guide-listed-whatsapp' : null,
+  ]
     .filter(Boolean)
     .join(' ')
   const meetingPoint = profile.meetingPoint
@@ -411,6 +435,11 @@ export function GuideProfileTab({ clientId, submissionId, fallbackName, onPublis
         {nothingToConfer ? (
           <p id="guide-listed-incomplete" className="mt-2 text-sm text-amber-900 dark:text-amber-300">
             {t(`visibility.${incompleteLine}`)}
+          </p>
+        ) : null}
+        {whatsappMissing ? (
+          <p id="guide-listed-whatsapp" className="mt-2 text-sm text-amber-900 dark:text-amber-300">
+            {t('visibility.whatsappLocked')}
           </p>
         ) : null}
         {!profile.consent ? <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">{t('visibility.noConsentLine')}</p> : null}
@@ -514,9 +543,13 @@ export function GuideProfileTab({ clientId, submissionId, fallbackName, onPublis
 
       {/* 3 · data, beside the 160 px photo */}
       <RecordSection icon={<UserRound className="h-4 w-4 text-tuggi-blue" />} title={t('data.title')}>
+        {/* #1185: name, photo, bio and languages are the account's; the guide edits them in the app. */}
+        <p className="mb-4 text-xs text-gray-700 dark:text-gray-300">
+          {profile.hasAccount ? t('data.fromAccount') : t('data.noAccount')}
+        </p>
         <div className="flex flex-col gap-6 sm:flex-row">
           {profile.photoUrl ? (
-            /* eslint-disable-next-line @next/next/no-img-element -- public object of guide-photos, any size */
+            /* eslint-disable-next-line @next/next/no-img-element -- short-lived signed URL of profile-photos */
             <img src={profile.photoUrl} alt={t('data.photoAlt', { name })} width={160} height={160} className="h-40 w-40 shrink-0 rounded-full object-cover" />
           ) : (
             <span className="flex h-40 w-40 shrink-0 items-center justify-center rounded-full bg-gray-100 dark:bg-gray-800" aria-hidden="true">
@@ -524,7 +557,8 @@ export function GuideProfileTab({ clientId, submissionId, fallbackName, onPublis
             </span>
           )}
           <div className={cn(FIELD_GRID, 'flex-1')}>
-            <ReadField label={t('data.name')}>{profile.displayName}</ReadField>
+            <ReadField label={t('data.name')}>{profile.shownName ?? (profile.hasAccount ? t('data.nameNotShown') : null)}</ReadField>
+            <ReadField label={t('data.handle')}>{profile.handle ? `@${profile.handle}` : null}</ReadField>
             <ReadField label={t('data.languages')}>{profile.languages.join(', ').toUpperCase()}</ReadField>
             <ReadField label={t('data.specialties')}>
               {profile.specialties.map((id) => (t.has(`specialties.${id}`) ? t(`specialties.${id}` as 'specialties.city_tour') : id)).join(', ')}
@@ -591,7 +625,7 @@ export function GuideProfileTab({ clientId, submissionId, fallbackName, onPublis
           <div className="space-y-2 text-sm">
             <p className="whitespace-pre-wrap text-gray-900 dark:text-white">{profile.bio ?? '-'}</p>
             <div className="flex items-center gap-3">
-              <Button variant="outline" onClick={() => { setDraft(profile.bio ?? ''); setEditing(true); setSavedAt(null) }}>
+              <Button variant="outline" disabled={!profile.hasAccount} onClick={() => { setDraft(profile.bio ?? ''); setEditing(true); setSavedAt(null) }}>
                 {t('bio.edit')}
               </Button>
               {savedAt ? (

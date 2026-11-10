@@ -4321,7 +4321,10 @@
         "bioLocked": "Falta la presentación del guía. Revísala antes de marcar.",
         "setMeetingPoint": "Definir el punto de encuentro",
         "listedOn": "Marcado a las {time}.",
-        "listedOff": "Desmarcado a las {time}."
+        "listedOff": "Desmarcado a las {time}.",
+        "incomplete": "Falta foto, presentación o WhatsApp",
+        "whatsappLocked": "Falta el WhatsApp del guía. Lo informa en la app o en el portal.",
+        "ownerLocked": "El guía no tiene cuenta en la app. La foto y la presentación son las de la cuenta."
       },
       "meetingPoint": {
         "title": "Punto de encuentro",
@@ -4357,7 +4360,11 @@
         "testWhatsapp": "Probar en WhatsApp",
         "consent": "Autorización",
         "consentYes": "Autorizó aparecer en la app",
-        "consentNo": "Sin autorización"
+        "consentNo": "Sin autorización",
+        "handle": "@ de la cuenta",
+        "nameNotShown": "Solo el @: el guía no autorizó mostrar el nombre",
+        "fromAccount": "Nombre, foto, presentación e idiomas vienen de la cuenta del guía en la app. Los cambia en Editar perfil.",
+        "noAccount": "Este guía aún no tiene cuenta en la app. Nombre, foto, presentación e idiomas aparecen cuando exista."
       },
       "bio": {
         "title": "Presentación",
