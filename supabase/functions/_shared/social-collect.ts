@@ -6,7 +6,8 @@
 // lands in the schema `social` (migration 20261029150000) by upsert on the primary key, so a second
 // run on the same day rewrites the same rows instead of adding new ones.
 //
-// Import-free except `ga4-data.ts`, `apple-downloads.ts` and `apple-store-funnel.ts` (all import-free): the
+// Import-free except `ga4-data.ts`, `apple-downloads.ts`, `apple-store-funnel.ts` and `search-console.ts` (all
+// import-free): the
 // database, `fetch`, Gemini and the clock are parameters, so the Deno tests drive it with recorded answers and
 // no network.
 //
@@ -48,10 +49,28 @@
 // #1063, checked 2026-10-30 against the v26.0 User Insights reference: follows_and_unfollows is
 // period=day, metric_type=total_value, breakdown follow_type, and is not returned under 100 followers.
 // It rides the same 90-day walk as the account funnel and lands in funnel_daily.follows/unfollows.
+//
+// #1170, the acquisition funnel's site and Google search (interface fixed on #1167), two jobs isolated like
+// `apple_store`, run only when `deps.acquisition` is given:
+// - `site_channels`: the site property per day and `sessionDefaultChannelGroup` (a standard dimension of the
+//   Data API schema, checked 2026-11-09), sessions and totalUsers, and `click_store` by `customEvent:store`
+//   into `social.site_channel_daily`. Before STORE_DIMENSION_SINCE a click has no store, so both click
+//   columns are null there, never 0 (DS-COMPONENTE-084 item 1).
+// - `search_console`: `_shared/search-console.ts` into `social.search_console_daily`.
+// Both keep `covered_from` on a refusal and write Google's status, reason and sentence in the detail
+// (`googleErrorDetail`): a 403 with SERVICE_DISABLED is the API off in the Cloud project, a 403 without it
+// or an empty `sites.list` is the account not granted in Search Console.
 
-import { GA4_APP_PROPERTY_ID, GA4_ROW_LIMIT, GA4_SITE_PROPERTY_ID, ga4AppFilter } from './ga4-data.ts';
+import {
+  GA4_APP_PROPERTY_ID,
+  GA4_ROW_LIMIT,
+  GA4_SITE_PROPERTY_ID,
+  ga4AppFilter,
+  googleErrorDetail,
+} from './ga4-data.ts';
 import { type AppleConfig, collectAppleDownloads, redact } from './apple-downloads.ts';
 import { collectAppleStoreFunnel } from './apple-store-funnel.ts';
+import { collectSearchConsole, type SearchConsoleApi } from './search-console.ts';
 
 /** Same value as `SOCIAL_TIME_ZONE` in the CMS (`lib/social/time.ts`): every day here is Brasília. */
 export const SOCIAL_TIME_ZONE = 'America/Sao_Paulo';
@@ -125,6 +144,13 @@ export const AUDIENCE_TIMEFRAME = 'this_week';
 /** The site event of a store button (#1060), with `store` = app_store | play_store. */
 export const STORE_CLICK_EVENT = 'click_store';
 export const STORE_IDS = ['app_store', 'play_store'] as const;
+/**
+ * The first day `customEvent:store` is registered on the site property (#1170 card): GA4 has no store for a
+ * click before it, so `site_channel_daily` keeps both click columns null on the days before.
+ */
+export const STORE_DIMENSION_SINCE = '2026-10-29';
+/** Rows per upsert of the acquisition tables, so one PostgREST body stays small on a first run. */
+export const UPSERT_CHUNK = 1_000;
 const BASE_METRICS = ['reach', 'saved', 'shares', 'likes', 'comments'];
 const MEDIA_FIELDS = 'id,media_type,media_product_type,caption,permalink,timestamp,like_count,comments_count';
 const BD_MEDIA_FIELDS = 'id,media_type,media_product_type,caption,permalink,timestamp,like_count,comments_count';
@@ -274,10 +300,21 @@ export type SocialTable =
   | 'collector_runs'
   | 'apple_downloads_daily'
   | 'store_listing_daily'
-  | 'store_installs_daily';
+  | 'store_installs_daily'
+  | 'site_channel_daily'
+  | 'search_console_daily';
 
 /** The jobs of `social.collector_runs` (one row per job, the last run wins). */
-export type CollectorJob = 'daily' | 'stories' | 'audience' | 'apple' | 'apple_store';
+export type CollectorJob =
+  | 'daily'
+  | 'stories'
+  | 'audience'
+  | 'apple'
+  | 'apple_store'
+  | 'site_channels'
+  | 'search_console';
+/** The jobs with a `covered_from` (the CHECK `collector_runs_covered_from_apple_only`). */
+export type CoveredJob = 'apple' | 'apple_store' | 'site_channels' | 'search_console';
 export type CollectorStatus = 'ok' | 'error' | 'not_configured';
 
 export interface PostForPrompt {
@@ -299,8 +336,10 @@ export interface SocialStore {
   hasWeekly(weekStart: string): Promise<boolean>;
   /** Whether `audience_weekly` has the snapshot of the week starting `weekStart`. */
   hasAudience(weekStart: string): Promise<boolean>;
-  /** The `covered_from` an Apple job recorded, or null. */
-  coveredFrom(job: 'apple' | 'apple_store'): Promise<string | null>;
+  /** The `covered_from` a job recorded, or null. */
+  coveredFrom(job: CoveredJob): Promise<string | null>;
+  /** The latest `day` of an acquisition table, or null when it is empty (#1170: where the next read starts). */
+  lastDay(table: 'site_channel_daily' | 'search_console_daily'): Promise<string | null>;
   rpc(fn: 'own_media_ranking' | 'account_engagement', args: Record<string, unknown>): Promise<Record<string, unknown>[]>;
   ownPostsSince(accountId: string, sinceIso: string): Promise<PostForPrompt[]>;
   funnelSince(day: string): Promise<Record<string, unknown>[]>;
@@ -384,6 +423,13 @@ export function supabaseStore(social: any): SocialStore {
         await social.from('collector_runs').select('covered_from').eq('job', job).limit(1),
       ) ?? [];
       return rows[0]?.covered_from ?? null;
+    },
+    async lastDay(table) {
+      const rows = check<Array<{ day: string | null }>>(
+        `${table}_last_day`,
+        await social.from(table).select('day').order('day', { ascending: false }).limit(1),
+      ) ?? [];
+      return rows[0]?.day ?? null;
     },
     async rpc(fn, args) {
       return check<Record<string, unknown>[]>(`rpc_${fn}`, await social.rpc(fn, args)) ?? [];
@@ -482,6 +528,11 @@ export interface CollectDeps {
    * `not_configured`. Absent: the run does not touch Apple at all (the stories job, the tests of #1059).
    */
   apple?: { config: AppleConfig | null; fetch: FetchFn };
+  /**
+   * #1170: the site property's runner and the Search Console client, each null without the service account
+   * (the job records `not_configured`). Absent: neither job runs (the stories job, the older tests).
+   */
+  acquisition?: { siteGa4: Ga4Run | null; searchConsole: SearchConsoleApi | null };
 }
 
 export interface CollectReport {
@@ -500,6 +551,10 @@ export interface CollectReport {
   apple: 'read' | 'pending' | 'not_configured' | 'failed' | 'skipped';
   /** #1168: the store funnel; `partial` when one report was refused or missing and the others were written. */
   apple_store: 'read' | 'pending' | 'partial' | 'not_configured' | 'failed' | 'skipped';
+  /** #1170: `partial` when the sessions landed and the clicks report was refused. */
+  site_channels: 'read' | 'partial' | 'not_configured' | 'failed' | 'skipped';
+  /** #1170: `no_property` when `sites.list` gives no tuggi.app property (the account was not added). */
+  search_console: 'read' | 'no_property' | 'not_configured' | 'failed' | 'skipped';
   themes: number;
   /** #1064: the competitors whose history walk reached the end in this run, and those it left. */
   history: { done: string[]; partial: string[]; posts: number };
@@ -1113,6 +1168,130 @@ async function collectStoreClicks(
 }
 
 // ----------------------------------------------------------------------------------------------
+// Site channels (#1170)
+
+/** Sessions and users of the site per day and default channel group. */
+export function siteChannelsBody(from: string, to: string): Record<string, unknown> {
+  return {
+    dateRanges: [{ startDate: from, endDate: to }],
+    dimensions: [{ name: 'date' }, { name: 'sessionDefaultChannelGroup' }],
+    metrics: [{ name: 'sessions' }, { name: 'totalUsers' }],
+    limit: String(GA4_ROW_LIMIT),
+  };
+}
+
+/** `click_store` per day, default channel group of the session, and store. */
+export function channelClicksBody(from: string, to: string): Record<string, unknown> {
+  return {
+    dateRanges: [{ startDate: from, endDate: to }],
+    dimensions: [{ name: 'date' }, { name: 'sessionDefaultChannelGroup' }, { name: 'customEvent:store' }],
+    metrics: [{ name: 'eventCount' }],
+    dimensionFilter: {
+      filter: { fieldName: 'eventName', stringFilter: { matchType: 'EXACT', value: STORE_CLICK_EVENT } },
+    },
+    limit: String(GA4_ROW_LIMIT),
+  };
+}
+
+/** The rows of one report, refusing an answer GA4 cut at the row limit: a missing day must not read as 0. */
+function ga4AllRows(body: unknown): Ga4RowRaw[] {
+  const rows = ga4RowsOf(body);
+  const total = Number((body as { rowCount?: unknown } | null)?.rowCount);
+  if (Number.isFinite(total) && total > rows.length) throw new Error('ga4_rows_truncated');
+  return rows;
+}
+
+const metricInt = (r: Ga4RowRaw, i: number): number => {
+  const v = Number(r.metricValues?.[i]?.value);
+  return Number.isFinite(v) && v > 0 ? Math.trunc(v) : 0;
+};
+
+export interface SiteChannelsResult {
+  from: string;
+  to: string;
+  rows: number;
+  /** Null when the clicks report was read (or had no day to read); its error code otherwise. */
+  clicks_error: string | null;
+  first_day: string | null;
+}
+
+/**
+ * From the oldest of the last stored day and the last three days (the first run: FUNNEL_HISTORY_DAYS back),
+ * through yesterday. A (day, channel) GA4 answers is written; GA4 leaves out a pair whose metrics are all
+ * zero, so a pair without sessions does not exist and is not written. On and after STORE_DIMENSION_SINCE a
+ * pair with no click is a measured 0 per store; before it both click columns are null. A refused sessions
+ * report writes nothing; a refused clicks report writes the sessions only, leaving the click columns of the
+ * rows already there untouched.
+ */
+async function collectSiteChannels(
+  deps: CollectDeps,
+  run: Ga4Run,
+  today: string,
+  lastDay: string | null,
+): Promise<{ result: SiteChannelsResult; clicksError: unknown }> {
+  const to = addDays(today, -1);
+  const floor = addDays(today, -FUNNEL_HISTORY_DAYS);
+  const recent = addDays(today, -GA4_LOOKBACK_DAYS);
+  const from = lastDay === null || lastDay < floor ? floor : lastDay < recent ? lastDay : recent;
+
+  const pairs = new Map<string, { day: string; channel: string; sessions: number; users: number }>();
+  for (const r of ga4AllRows(await run(siteChannelsBody(from, to)))) {
+    const day = ga4Day(r.dimensionValues?.[0]?.value);
+    const channel = String(r.dimensionValues?.[1]?.value ?? '').trim();
+    if (!day || !channel) continue;
+    const prev = pairs.get(`${day}|${channel}`);
+    pairs.set(`${day}|${channel}`, {
+      day,
+      channel,
+      sessions: (prev?.sessions ?? 0) + metricInt(r, 0),
+      users: (prev?.users ?? 0) + metricInt(r, 1),
+    });
+  }
+
+  let clicks: Map<string, number> | null = new Map();
+  let clicksError: unknown = null;
+  const clicksFrom = from > STORE_DIMENSION_SINCE ? from : STORE_DIMENSION_SINCE;
+  if (clicksFrom <= to) {
+    try {
+      for (const r of ga4AllRows(await run(channelClicksBody(clicksFrom, to)))) {
+        const day = ga4Day(r.dimensionValues?.[0]?.value);
+        const channel = String(r.dimensionValues?.[1]?.value ?? '').trim();
+        const store = String(r.dimensionValues?.[2]?.value ?? '');
+        if (!day || !channel || !(STORE_IDS as readonly string[]).includes(store)) continue;
+        const k = `${day}|${channel}|${store}`;
+        clicks.set(k, (clicks.get(k) ?? 0) + metricInt(r, 0));
+      }
+    } catch (e) {
+      clicks = null;
+      clicksError = e;
+    }
+  }
+
+  const rows = [...pairs.values()].map((p) => {
+    if (!clicks) return p;
+    const measured = p.day >= STORE_DIMENSION_SINCE;
+    return {
+      ...p,
+      clicks_app_store: measured ? clicks.get(`${p.day}|${p.channel}|app_store`) ?? 0 : null,
+      clicks_play_store: measured ? clicks.get(`${p.day}|${p.channel}|play_store`) ?? 0 : null,
+    };
+  });
+  for (let i = 0; i < rows.length; i += UPSERT_CHUNK) {
+    await deps.store.upsert('site_channel_daily', rows.slice(i, i + UPSERT_CHUNK), 'day,channel');
+  }
+  return {
+    result: {
+      from,
+      to,
+      rows: rows.length,
+      clicks_error: clicksError ? googleErrorDetail(clicksError) : null,
+      first_day: rows.map((r) => r.day).sort()[0] ?? null,
+    },
+    clicksError,
+  };
+}
+
+// ----------------------------------------------------------------------------------------------
 // Audience and stories (#1062)
 
 /**
@@ -1346,6 +1525,81 @@ async function runAppleStoreCollect(
     const message = redact(reason(e), config);
     deps.log(`[social-collect] apple_store failed: ${message}`);
     await recordRun(deps, 'apple_store', 'error', message);
+    return 'failed';
+  }
+}
+
+const earliest = (...days: Array<string | null>) => days.filter((d): d is string => !!d).sort()[0] ?? null;
+
+/**
+ * #1170, the `site_channels` job. Isolated like `apple_store`: a refusal is recorded with Google's words and
+ * the run goes on. `covered_from` only moves back, and a refused run keeps it.
+ */
+async function runSiteChannelsCollect(
+  deps: CollectDeps,
+  run: Ga4Run | null,
+  today: string,
+): Promise<CollectReport['site_channels']> {
+  if (!run) {
+    await recordRun(deps, 'site_channels', 'not_configured', null);
+    return 'not_configured';
+  }
+  try {
+    const coveredFrom = await deps.store.coveredFrom('site_channels');
+    const lastDay = await deps.store.lastDay('site_channel_daily');
+    const { result, clicksError } = await collectSiteChannels(deps, run, today, lastDay);
+    const first = earliest(coveredFrom, result.first_day);
+    if (clicksError) deps.log(`[social-collect] site_channels clicks refused: ${result.clicks_error}`);
+    const status = clicksError ? 'error' : 'ok';
+    await recordRun(deps, 'site_channels', status, JSON.stringify(result), { covered_from: first });
+    return clicksError ? 'partial' : 'read';
+  } catch (e) {
+    const detail = googleErrorDetail(e);
+    deps.log(`[social-collect] site_channels failed: ${detail}`);
+    // No covered_from in the row: the upsert leaves the one already recorded as it was.
+    await recordRun(deps, 'site_channels', 'error', detail);
+    return 'failed';
+  }
+}
+
+/** #1170, the `search_console` job, isolated and recorded like `site_channels`. */
+async function runSearchConsoleCollect(
+  deps: CollectDeps,
+  api: SearchConsoleApi | null,
+  today: string,
+): Promise<CollectReport['search_console']> {
+  if (!api) {
+    await recordRun(deps, 'search_console', 'not_configured', null);
+    return 'not_configured';
+  }
+  try {
+    const coveredFrom = await deps.store.coveredFrom('search_console');
+    const result = await collectSearchConsole({
+      api,
+      today,
+      lastDay: await deps.store.lastDay('search_console_daily'),
+      write: async (rows) => {
+        for (let i = 0; i < rows.length; i += UPSERT_CHUNK) {
+          const chunk = rows.slice(i, i + UPSERT_CHUNK) as unknown as Record<string, unknown>[];
+          await deps.store.upsert('search_console_daily', chunk, 'day,query');
+        }
+      },
+    });
+    const first = earliest(coveredFrom, result.first_day);
+    if (result.state === 'no_property') {
+      // sites.list answered, without tuggi.app: the account was not added as a user in Search Console.
+      const detail = `search_console_no_property: sites.list listed ${result.listed} site(s), none on tuggi.app`;
+      deps.log(`[social-collect] ${detail}`);
+      await recordRun(deps, 'search_console', 'error', detail, { covered_from: first });
+      return 'no_property';
+    }
+    await recordRun(deps, 'search_console', 'ok', JSON.stringify(result), { covered_from: first });
+    return 'read';
+  } catch (e) {
+    const detail = googleErrorDetail(e);
+    deps.log(`[social-collect] search_console failed: ${detail}`);
+    // No covered_from in the row: the upsert leaves the one already recorded as it was.
+    await recordRun(deps, 'search_console', 'error', detail);
     return 'failed';
   }
 }
@@ -1607,6 +1861,8 @@ export async function runSocialCollect(deps: CollectDeps): Promise<CollectReport
     audience: 'skipped',
     apple: 'skipped',
     apple_store: 'skipped',
+    site_channels: 'skipped',
+    search_console: 'skipped',
     themes: 0,
     history: { done: [], partial: [], posts: 0 },
     weekly: 'not_monday',
@@ -1670,6 +1926,10 @@ export async function runSocialCollect(deps: CollectDeps): Promise<CollectReport
   if (deps.apple) {
     report.apple = await runAppleCollect(deps, deps.apple);
     report.apple_store = await runAppleStoreCollect(deps, deps.apple);
+  }
+  if (deps.acquisition) {
+    report.site_channels = await runSiteChannelsCollect(deps, deps.acquisition.siteGa4, today);
+    report.search_console = await runSearchConsoleCollect(deps, deps.acquisition.searchConsole, today);
   }
 
   if (own) {

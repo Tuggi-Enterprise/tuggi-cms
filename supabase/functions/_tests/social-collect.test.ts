@@ -16,6 +16,7 @@ import {
   IG_SESSION_SOURCE_PATTERN,
   navigationValues,
   type CollectDeps,
+  type CoveredJob,
   type Gemini,
   lookupAccount,
   type Meta,
@@ -53,6 +54,8 @@ const PK: Record<SocialTable, string[]> = {
   apple_downloads_daily: ['day', 'campaign'],
   store_listing_daily: ['day', 'store', 'source_raw'],
   store_installs_daily: ['day', 'store'],
+  site_channel_daily: ['day', 'channel'],
+  search_console_daily: ['day', 'query'],
 };
 
 /** The schema `social` in memory: upsert merges the columns it carries into the row of its key. */
@@ -70,6 +73,8 @@ class MemoryStore implements SocialStore {
     apple_downloads_daily: new Map(),
     store_listing_daily: new Map(),
     store_installs_daily: new Map(),
+    site_channel_daily: new Map(),
+    search_console_daily: new Map(),
   };
   igIds: Record<string, string> = {};
   rpcs: Array<{ fn: string; args: Record<string, unknown> }> = [];
@@ -109,8 +114,11 @@ class MemoryStore implements SocialStore {
   hasWeekly(weekStart: string) {
     return Promise.resolve(this.tables.weekly_insights.has(weekStart));
   }
-  coveredFrom(job: 'apple' | 'apple_store') {
+  coveredFrom(job: CoveredJob) {
     return Promise.resolve((this.tables.collector_runs.get(job)?.covered_from as string | undefined) ?? null);
+  }
+  lastDay(table: 'site_channel_daily' | 'search_console_daily') {
+    return Promise.resolve([...this.tables[table].values()].map((r) => String(r.day)).sort().at(-1) ?? null);
   }
   hasAudience(weekStart: string) {
     return Promise.resolve([...this.tables.audience_weekly.values()].some((r) => r.week_start === weekStart));

@@ -1,0 +1,7 @@
+{
+  "siteEntry": [
+    { "siteUrl": "https://www.tuggi.app/", "permissionLevel": "siteRestrictedUser" },
+    { "siteUrl": "sc-domain:tuggi.app", "permissionLevel": "siteRestrictedUser" },
+    { "siteUrl": "https://tuggi.app/", "permissionLevel": "siteRestrictedUser" }
+  ]
+}

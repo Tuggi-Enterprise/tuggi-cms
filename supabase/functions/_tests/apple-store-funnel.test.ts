@@ -281,6 +281,7 @@ function store() {
     hasAudience: () => Promise.resolve(true),
     coveredFrom: (job) =>
       Promise.resolve((tables.collector_runs?.get(job)?.covered_from as string | undefined) ?? null),
+    lastDay: () => Promise.resolve(null),
     rpc: () => Promise.resolve([]),
     ownPostsSince: () => Promise.resolve([]),
     funnelSince: () => Promise.resolve([]),

@@ -150,11 +150,18 @@ function pemToDer(pem: string): Uint8Array<ArrayBuffer> {
   return der;
 }
 
-/** The signed assertion of the jwt-bearer grant, valid for one hour (Google's maximum). */
-export async function serviceAccountAssertion(sa: ServiceAccount, nowSeconds: number): Promise<string> {
+/**
+ * The signed assertion of the jwt-bearer grant, valid for one hour (Google's maximum). One scope per token:
+ * the Search Console job (#1170) draws its own, so a GA4 token never reaches another API.
+ */
+export async function serviceAccountAssertion(
+  sa: ServiceAccount,
+  nowSeconds: number,
+  scope = GA4_SCOPE,
+): Promise<string> {
   const enc = new TextEncoder();
   const header = b64url(enc.encode(JSON.stringify({ alg: 'RS256', typ: 'JWT' })));
-  const claims = b64url(enc.encode(JSON.stringify({ iss: sa.clientEmail, scope: GA4_SCOPE, aud: GOOGLE_TOKEN_URL, iat: nowSeconds, exp: nowSeconds + 3600 })));
+  const claims = b64url(enc.encode(JSON.stringify({ iss: sa.clientEmail, scope, aud: GOOGLE_TOKEN_URL, iat: nowSeconds, exp: nowSeconds + 3600 })));
   const key = await crypto.subtle.importKey('pkcs8', pemToDer(sa.privateKey), { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);
   const sig = new Uint8Array(await crypto.subtle.sign('RSASSA-PKCS1-v1_5', key, enc.encode(`${header}.${claims}`)));
   return `${header}.${claims}.${b64url(sig)}`;
@@ -163,10 +170,95 @@ export async function serviceAccountAssertion(sa: ServiceAccount, nowSeconds: nu
 type FetchFn = (url: string, init: RequestInit) => Promise<Response>;
 
 /**
- * Any `runReport` body against one property, answering Google's raw JSON. The token is drawn on the
- * first report and reused for the run (the job lasts seconds; the token one hour). Errors carry the
- * HTTP status only (`ga4_report_403` is "this service account has no access to the property"):
- * Google's body can echo the request, and nothing of it goes to the log.
+ * A refusal of a Google API. `message` is the short code the callers compare (`ga4_report_403`), unchanged
+ * since #993; `google` keeps what Google answered, for `collector_runs.detail` (#1170): the `status` of the
+ * error (`PERMISSION_DENIED`), the `reason` (`SERVICE_DISABLED` when the API is off in the Cloud project,
+ * `forbidden` when the account was not granted the resource) and Google's sentence, cleaned by `cleanGoogle`.
+ * Shape checked 2026-11-09: google.rpc.Status (`error.code`, `error.status`, `error.message`, `error.details[]`
+ * with an `ErrorInfo.reason`) and the v3 APIs' `error.errors[].reason`; the token endpoint answers the OAuth
+ * pair `error` and `error_description`. Nothing else of the body is kept: it can echo the request.
+ */
+export class GoogleApiError extends Error {
+  constructor(
+    code: string,
+    readonly google: { status: string | null; reason: string | null; message: string | null },
+  ) {
+    super(code);
+  }
+}
+
+/** Google's sentence without an e-mail or an access token, on one line, 300 characters at most. */
+export function cleanGoogle(text: string): string {
+  return text
+    .replace(/ya29\.[\w.-]+/g, '[token]')
+    .replace(/[\w.+-]+@[\w-]+(\.[\w-]+)+/g, '[email]')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 300);
+}
+
+/** The error of a refused answer, `<prefix>_<http status>`, with what Google said in `google`. */
+export async function googleApiError(prefix: string, res: Response): Promise<GoogleApiError> {
+  const body = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+  const raw = body?.error;
+  const text = (v: unknown) => (typeof v === 'string' && v.trim() ? cleanGoogle(v) : null);
+  if (typeof raw === 'string') {
+    const message = text(body?.error_description);
+    return new GoogleApiError(`${prefix}_${res.status}`, { status: text(raw), reason: null, message });
+  }
+  const e = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  const details = Array.isArray(e.details) ? (e.details as Array<Record<string, unknown>>) : [];
+  const errors = Array.isArray(e.errors) ? (e.errors as Array<Record<string, unknown>>) : [];
+  const reason = details.map((d) => d?.reason).find((r) => typeof r === 'string') ?? errors[0]?.reason;
+  const google = { status: text(e.status), reason: text(reason), message: text(e.message) };
+  return new GoogleApiError(`${prefix}_${res.status}`, google);
+}
+
+/** `collector_runs.detail` of a failed read: the code, then Google's status, reason and sentence when it gave them. */
+export function googleErrorDetail(e: unknown): string {
+  if (!(e instanceof Error)) return 'unknown';
+  if (!(e instanceof GoogleApiError)) return cleanGoogle(e.message);
+  const { status, reason, message } = e.google;
+  const head = [e.message, status, reason].filter(Boolean).join(' ');
+  return message ? `${head}: ${message}` : head;
+}
+
+/**
+ * A bearer token of the service account for one scope, drawn on first use and reused for the run (the job
+ * lasts seconds; the token one hour). A refusal forgets it, so the next call asks again.
+ */
+export function googleAccessToken(
+  sa: ServiceAccount,
+  scope: string,
+  prefix: string,
+  fetchFn: FetchFn,
+  now: () => number = Date.now,
+): () => Promise<string> {
+  let token: Promise<string> | null = null;
+  return () =>
+    (token ??= (async () => {
+      const assertion = await serviceAccountAssertion(sa, Math.floor(now() / 1000), scope);
+      const res = await fetchFn(GOOGLE_TOKEN_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: `grant_type=${encodeURIComponent('urn:ietf:params:oauth:grant-type:jwt-bearer')}&assertion=${assertion}`,
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!res.ok) throw await googleApiError(`${prefix}_token`, res);
+      const body = (await res.json().catch(() => null)) as { access_token?: unknown } | null;
+      if (typeof body?.access_token !== 'string') throw new Error(`${prefix}_token_${res.status}`);
+      return body.access_token;
+    })().catch((e) => {
+      token = null;
+      throw e;
+    }));
+}
+
+/**
+ * Any `runReport` body against one property, answering Google's raw JSON. Errors are `GoogleApiError`
+ * whose message is the HTTP status only (`ga4_report_403` is "this service account has no access to the
+ * property"), what the callers compare; Google's status, reason and sentence ride on `google`, and only
+ * `googleErrorDetail` writes them anywhere.
  * `ga4Client` below and the social collector (#1059) both stand on this, so the token flow exists once.
  */
 export function ga4Runner(
@@ -175,23 +267,7 @@ export function ga4Runner(
   fetchFn: FetchFn,
   now: () => number = Date.now,
 ): (body: Record<string, unknown>) => Promise<unknown> {
-  let token: Promise<string> | null = null;
-  const accessToken = () =>
-    (token ??= (async () => {
-      const assertion = await serviceAccountAssertion(sa, Math.floor(now() / 1000));
-      const res = await fetchFn(GOOGLE_TOKEN_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: `grant_type=${encodeURIComponent('urn:ietf:params:oauth:grant-type:jwt-bearer')}&assertion=${assertion}`,
-        signal: AbortSignal.timeout(10_000),
-      });
-      const body = (await res.json().catch(() => null)) as { access_token?: unknown } | null;
-      if (!res.ok || typeof body?.access_token !== 'string') {
-        token = null;
-        throw new Error(`ga4_token_${res.status}`);
-      }
-      return body.access_token;
-    })());
+  const accessToken = googleAccessToken(sa, GA4_SCOPE, 'ga4', fetchFn, now);
   return async (body) => {
     const res = await fetchFn(`${GA4_API}/properties/${propertyId}:runReport`, {
       method: 'POST',
@@ -199,7 +275,7 @@ export function ga4Runner(
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(15_000),
     });
-    if (!res.ok) throw new Error(`ga4_report_${res.status}`);
+    if (!res.ok) throw await googleApiError('ga4_report', res);
     return await res.json();
   };
 }

@@ -17,6 +17,10 @@
  * #1168: with the same secrets the run also reads the store funnel (impressions, product page views and
  * first-time downloads by Source Type, installs and deletes) into `social.store_listing_daily` and
  * `social.store_installs_daily`, job `apple_store`, isolated from the other jobs (`_shared/apple-store-funnel.ts`).
+ * #1170: with GA4_SERVICE_ACCOUNT_JSON the run also reads the site sessions, users and store clicks per channel
+ * (job `site_channels`, `social.site_channel_daily`) and the Google searches per day and query through the Search
+ * Console API (job `search_console`, `social.search_console_daily`, `_shared/search-console.ts`), each isolated;
+ * without the secret both record `not_configured`.
  *
  * Machine key only (`isOwnSecretKey`: `ef_secret_key` of the cron, `cms_secret_key` of the CMS
  * server). The Meta token lives in this function's secrets and nowhere else: the CMS validates a
@@ -26,7 +30,8 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { getSecretKey, isOwnSecretKey } from '../_shared/secret-key.ts';
-import { GA4_CREDENTIALS_ENV, ga4Runner, parseServiceAccount } from '../_shared/ga4-data.ts';
+import { GA4_CREDENTIALS_ENV, GA4_SITE_PROPERTY_ID, ga4Runner, parseServiceAccount } from '../_shared/ga4-data.ts';
+import { searchConsoleClient } from '../_shared/search-console.ts';
 import { runGeminiPromptWithUsage } from '../_shared/translationUtility.ts';
 import { appleConfig } from '../_shared/apple-downloads.ts';
 import {
@@ -111,6 +116,10 @@ serve(async (req) => {
       forceWeekly: body?.force_weekly === true,
       recollectApp: body?.recollect_app === true,
       apple: { config: appleConfig((name) => Deno.env.get(name)), fetch: (url, init) => fetch(url, init) },
+      acquisition: {
+        siteGa4: sa ? ga4Runner(sa, GA4_SITE_PROPERTY_ID, (url, init) => fetch(url, init)) : null,
+        searchConsole: sa ? searchConsoleClient(sa, (url, init) => fetch(url, init)) : null,
+      },
     });
     console.log(`[social-collect] done ${JSON.stringify(report)}`);
     return json(report, 200);
