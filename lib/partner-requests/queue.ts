@@ -100,6 +100,16 @@ export function parsePartnerRequestRows(data: unknown): PartnerRequestRow[] | nu
   return rows
 }
 
+/**
+ * #1184 D5 (BR-B2B-064, edge case of the Portal guide who asks in the app): a guide request whose
+ * document is held by a Portal guide arrives with that guide as `existingClientId` and
+ * `documentInUse`. The approval LINKS that record to the account; it does not complete a record
+ * the account already had, so the queue does not say it does.
+ */
+export function linksPortalGuide(row: Pick<PartnerRequestRow, 'partnerType' | 'documentInUse' | 'existingClientId'>): boolean {
+  return row.partnerType === 'tour_guide' && row.documentInUse && row.existingClientId !== null
+}
+
 /** `12345678909` → `123.456.789-09`; `12ABC34501DE35` → `12.ABC.345/01DE-35`. Anything else as it came. */
 export function formatDocument(type: PartnerDocumentType, document: string): string {
   const value = document.replace(/[^0-9A-Za-z]/g, '').toUpperCase()

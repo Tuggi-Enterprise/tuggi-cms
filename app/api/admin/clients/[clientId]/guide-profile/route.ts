@@ -10,7 +10,8 @@
  * POST  `{ "hidden": true, "reason": GuideHideReason, "other"?: string }` hides the guide from the
  *       app (reason required); `{ "hidden": false }` shows it again. Nothing is deleted.
  * POST  `{ "listed": boolean }` → `{ listed }` — "Aparece no app" (#1179, BR-B2B-064 item 11.a).
- *       Listing without a meeting point → 409 `meeting_point_required`.
+ *       Listing without a meeting point, a photo or a bio → 409 `meeting_point_required`,
+ *       `photo_required` or `bio_required` (TGP23 and its DETAIL, #1184).
  *
  * Every write runs with the operator's session: `core.cms_*` answers for the person on the screen.
  */

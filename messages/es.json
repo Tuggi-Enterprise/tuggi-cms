@@ -4317,6 +4317,8 @@
         "listedInApp": "Aparece en la app",
         "listedLocked": "Solo aparece en la app con punto de encuentro.",
         "incompleteLocked": "Falta foto o presentación. Revisa las dos antes de marcar.",
+        "photoLocked": "Falta la foto del guía. Revísala antes de marcar.",
+        "bioLocked": "Falta la presentación del guía. Revísala antes de marcar.",
         "setMeetingPoint": "Definir el punto de encuentro",
         "listedOn": "Marcado a las {time}.",
         "listedOff": "Desmarcado a las {time}."

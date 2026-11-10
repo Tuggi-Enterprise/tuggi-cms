@@ -119,7 +119,12 @@ function table(name: string) {
 const service = {
   schema: () => ({
     from: (name: string) => table(name),
-    rpc: async (_name: string, args: Record<string, unknown>) => {
+    rpc: async (name: string, args: Record<string, unknown>) => {
+      // #1184: the guide's default rate, written by the database once the client is approved.
+      if (name === 'apply_default_commission') {
+        w.calls.push('apply_default_commission')
+        return { data: 0.2, error: null }
+      }
       w.calls.push(`transition:${args.p_to}`)
       w.submission.status = args.p_to
       return { data: args.p_to, error: null }
@@ -287,6 +292,7 @@ test('BR-B2B-064 items 3 and 10: approving the guide creates no place and publis
     'create_client:tour_guide',
     'write_client_id',
     'approve_client',
+    'apply_default_commission',
     'transition:approved',
     `copy:place-submission-photos/${SUB}/facade/${PHOTO}->guide-photos/${CLIENT}/${PHOTO}`,
     'rpc:cms_publish_guide_profile',
@@ -310,7 +316,9 @@ test('BR-B2B-064 item 2 and BR-MONETIZACAO-039 item 6.c (#1184): the guide is bo
   await validation.approvePortalSubmission(SUB, operator, 'op', CMS_OP, NOW)
   // Until 2026-11-10 the guide was born with zero, written as zero; the rule now gives every guide
   // the default, whose number lives only in the database.
-  assert.equal(w.clientInsert && 'commission_rate' in w.clientInsert, false)
+  assert.equal(w.clientInsert?.commission_rate, null)
+  assert.ok(w.clientInsert && 'commission_rate' in w.clientInsert)
+  assert.ok(w.calls.includes('apply_default_commission'))
   assert.equal(w.clientInsert?.client_type, 'tour_guide')
 })
 
@@ -341,7 +349,7 @@ test('#936: a CNPJ of a client of the same type links that client, no new client
   reset({ ...GUIDE, tax_id: '11.222.333/0001-81' }, { existingClient: { id: CLIENT, name: 'Ana Guia', email: 'ana@guia.com.br', client_type: 'tour_guide' } })
   const out = await validation.approvePortalSubmission(SUB, operator, 'op', CMS_OP, NOW)
   assert.equal(out.ok, true)
-  assert.deepEqual(w.calls.slice(0, 4), ['claim', 'write_client_id', 'approve_client', 'transition:approved'])
+  assert.deepEqual(w.calls.slice(0, 5), ['claim', 'write_client_id', 'approve_client', 'apply_default_commission', 'transition:approved'])
   assert.equal(w.clientInsert, null)
 })
 

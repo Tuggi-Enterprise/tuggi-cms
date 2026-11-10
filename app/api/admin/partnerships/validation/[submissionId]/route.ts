@@ -117,7 +117,7 @@ export const POST = withRateLimit(30, 60_000)(
             : decision.action === 'approve'
             ? outcome.attractionId
               ? `Portal submission ${submissionId} approved; place ${outcome.attractionId}`
-              : `Portal submission ${submissionId} approved without a place; client ${outcome.clientId ?? '?'}${outcome.guidePublishError ? `; guide profile not published (${outcome.guidePublishError})` : ''}`
+              : `Portal submission ${submissionId} approved without a place; client ${outcome.clientId ?? '?'}${outcome.guidePublishError ? `; guide profile not published (${outcome.guidePublishError})` : ''}${outcome.commissionError ? `; default commission not written (${outcome.commissionError})` : ''}`
             : `Portal submission ${submissionId}: changes requested`,
     })
 
@@ -135,6 +135,8 @@ export const POST = withRateLimit(30, 60_000)(
       clientId: outcome.clientId ?? null,
       // #936: the guide is approved and its profile is not in the app yet — the screen offers the retry.
       guidePublishError: outcome.guidePublishError ?? null,
+      // #1184: the guide is approved and its default rate was not written; the screen says so.
+      commissionError: outcome.commissionError ?? null,
       notified,
     })
   })

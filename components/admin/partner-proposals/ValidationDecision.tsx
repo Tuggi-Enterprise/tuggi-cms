@@ -40,8 +40,11 @@ import { formatShortDate } from './format'
 import { FIELD } from './surface'
 
 export type DecisionResult =
-  /** `guidePublishFailed` (#936): the guide is approved and its profile did not reach the app. */
-  | { kind: 'approved'; paid: boolean; attractionId: string | null; guidePublishFailed?: boolean }
+  /**
+   * `guidePublishFailed` (#936): the guide is approved and its profile did not reach the app.
+   * `commissionFailed` (#1184): the guide is approved and its default rate was not written.
+   */
+  | { kind: 'approved'; paid: boolean; attractionId: string | null; guidePublishFailed?: boolean; commissionFailed?: boolean }
   | { kind: 'changes' }
   | { kind: 'rejected'; refundTotal: string | null }
 
@@ -158,6 +161,7 @@ export function ValidationDecision({
         error?: string
         attractionId?: string | null
         guidePublishError?: string | null
+        commissionError?: string | null
       }
       if (response.status === 409 && payload.error === 'status_conflict') {
         setError({ text: t('dialogs.conflict') })
@@ -192,6 +196,7 @@ export function ValidationDecision({
       paid,
       attractionId: outcome.attractionId ?? null,
       guidePublishFailed: Boolean(outcome.guidePublishError),
+      commissionFailed: Boolean(outcome.commissionError),
     })
   }
 

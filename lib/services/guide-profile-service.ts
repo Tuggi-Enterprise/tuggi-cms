@@ -25,6 +25,9 @@ export const GUIDE_MEETING_POINT_ADDRESS_MAX = 300
 export const GUIDE_MEETING_POINT_CITY_MAX = 80
 /** The route's answer when listing is refused for want of a meeting point (TGP23, BR-B2B-064 item 11.a). */
 export const GUIDE_MEETING_POINT_REQUIRED = 'meeting_point_required'
+/** The route's answers when listing is refused for want of a photo or a bio (TGP23, BR-B2B-064 item 9.a, #1184). */
+export const GUIDE_PHOTO_REQUIRED = 'photo_required'
+export const GUIDE_BIO_REQUIRED = 'bio_required'
 
 /** The closed reasons of the "Ocultar do app" dialog (spec #936 §5); `other` carries free text. */
 export const GUIDE_HIDE_REASONS = ['tourist_report', 'inactive', 'guide_request', 'other'] as const
@@ -235,9 +238,12 @@ export function guideRpcErrorOf(code: string | undefined, detail?: string | null
       return { httpStatus: 409, error: 'status_conflict' }
     case 'TGP22':
       return { httpStatus: 422, error: detail ? `invalid_${detail}` : 'invalid' }
-    // `cms_set_guide_listed`: listing needs a meeting point (BR-B2B-064 item 11.a). Its own answer,
-    // so the screen tells "set the point first" apart from a bad argument.
+    // `cms_set_guide_listed`: listing needs a meeting point, a photo and a bio (BR-B2B-064 items
+    // 9.a and 11.a). The DETAIL names what is missing, one answer each, so the screen tells which
+    // apart from a bad argument. No DETAIL is the meeting point, the database's answer before #1184.
     case 'TGP23':
+      if (detail === 'photo') return { httpStatus: 409, error: GUIDE_PHOTO_REQUIRED }
+      if (detail === 'bio') return { httpStatus: 409, error: GUIDE_BIO_REQUIRED }
       return { httpStatus: 409, error: GUIDE_MEETING_POINT_REQUIRED }
     default:
       return { httpStatus: 503, error: 'guide_write_failed' }
@@ -287,8 +293,9 @@ export async function updateGuideBio(
 
 /**
  * BR-B2B-064 item 11.a: the curator lists the guide in the app ("Aparece no app") or takes it out.
- * Listing without a meeting point is refused by the database (TGP23) and answered as
- * `meeting_point_required`. Unlisting deletes nothing and records no reason.
+ * Listing without a meeting point, a photo or a bio is refused by the database (TGP23 with that
+ * DETAIL) and answered as `meeting_point_required`, `photo_required` or `bio_required`. Unlisting
+ * deletes nothing and records no reason.
  */
 export async function setGuideListed(
   operator: SupabaseClient,

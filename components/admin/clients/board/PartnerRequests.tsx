@@ -24,6 +24,7 @@ import {
   REFUSAL_REASON_MAX,
   approvalKeepsRequest,
   formatDocument,
+  linksPortalGuide,
   publishesHref,
   refusalReasonOf,
   whatsappHref,
@@ -161,7 +162,9 @@ export function PartnerRequestsQueue({ requests, status, busyId, notice, onAppro
                           {request.documentInUse && (
                             <p className="mt-1 max-w-[16rem] text-xs text-gray-700 dark:text-gray-300">{t('documentInUseHint')}</p>
                           )}
-                          {request.existingClientId && (
+                          {/* #1184 D5: a guide request whose document is a Portal guide's links that record, it does
+                              not complete the account's own; the document-in-use badge and hint above say it. */}
+                          {request.existingClientId && !linksPortalGuide(request) && (
                             <p className="mt-1 text-xs text-gray-700 dark:text-gray-300">{t('completes')}</p>
                           )}
                           {request.recordShared && (

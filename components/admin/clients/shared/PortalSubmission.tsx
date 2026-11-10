@@ -356,6 +356,13 @@ export function SubmissionBand({
             <Check className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
             {doneText}
           </p>
+          {/* #1184: the guide is approved and partner.apply_default_commission did not write its rate. */}
+          {result?.kind === 'approved' && result.commissionFailed ? (
+            <p className="flex items-start gap-2 text-amber-900 dark:text-amber-300">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+              {t('done.commissionFailed')}
+            </p>
+          ) : null}
           {approvedNow || nextHref ? (
             <div className="flex flex-wrap gap-2">
               {approvedNow ? (

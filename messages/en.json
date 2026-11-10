@@ -4335,6 +4335,8 @@
         "listedInApp": "Shows in the app",
         "listedLocked": "Only shows in the app with a meeting point.",
         "incompleteLocked": "Photo or bio missing. Check both before ticking.",
+        "photoLocked": "The guide's photo is missing. Check it before ticking.",
+        "bioLocked": "The guide's bio is missing. Check it before ticking.",
         "setMeetingPoint": "Set the meeting point",
         "listedOn": "Ticked at {time}.",
         "listedOff": "Unticked at {time}."

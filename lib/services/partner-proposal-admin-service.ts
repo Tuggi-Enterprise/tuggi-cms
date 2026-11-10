@@ -533,10 +533,11 @@ function commercialTermsOfChoice(answers: PartnerAnswers, commission: boolean): 
   const kind = partnerKindOf(answers)
   // BR-B2B-064 item 2 and BR-MONETIZACAO-039 items 6 and 6.c (#1184): every guide gets the default
   // rate of the partner without a place, by its document, and the number lives in ONE place, in
-  // the database. So the CMS sends NO rate for the guide: an absent rate is what that place fills,
-  // and a zero here would be a decision nobody took (039, 1st edge case). Before the `map_only`
-  // test, because a guide's submission sent `map_only` before #933's amendment.
-  if (kind === 'guide') return { monthly_fee_cents: null }
+  // the database (`partner.apply_default_commission`, called by the approval once the client is
+  // approved). So the CMS writes the guide's rate as NULL, said out loud: null is "no rate yet",
+  // what that function fills, and a zero here would be a decision nobody took (039, 1st edge
+  // case). Before the `map_only` test, because a guide's submission sent `map_only` before #933.
+  if (kind === 'guide') return { commission_rate: null, monthly_fee_cents: null }
   // BR-B2B-065 item 3: the transfer without a base has no plan and a commission of zero, WRITTEN as
   // zero, the same terms as the free tier, whatever `plan_choice` the portal sent.
   if (answers.plan_choice === 'map_only' || hasNoPlace(kind)) return { commission_rate: 0, monthly_fee_cents: null }

@@ -4998,6 +4998,8 @@
         "listedInApp": "Aparece no app",
         "listedLocked": "Só aparece no app com ponto de encontro.",
         "incompleteLocked": "Falta foto ou apresentação. Confira as duas antes de marcar.",
+        "photoLocked": "Falta a foto do guia. Confira a foto antes de marcar.",
+        "bioLocked": "Falta a apresentação do guia. Confira o texto antes de marcar.",
         "setMeetingPoint": "Definir o ponto de encontro",
         "listedOn": "Marcado às {time}.",
         "listedOff": "Desmarcado às {time}."
@@ -5833,6 +5835,7 @@
       "approvedGuide": "Aprovado. O perfil está no app.",
       "approvedReferral": "Aprovado. Parceiro ativo, só QR.",
       "guidePublishFailed": "Aprovado, mas o perfil não foi para o app. Clique em Publicar o perfil para tentar de novo.",
+      "commissionFailed": "O percentual de comissão do guia não foi gravado. Avise a tecnologia antes do primeiro repasse.",
       "openGuide": "Abrir o perfil no app"
     },
     "diff": {

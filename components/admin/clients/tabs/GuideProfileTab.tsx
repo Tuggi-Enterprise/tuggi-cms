@@ -37,8 +37,14 @@ import type { GuideProfile } from '@/lib/services/guide-profile-service'
 const BIO_MAX = 400
 const ADDRESS_MAX = 300
 const CITY_MAX = 80
-/** The route's answer to listing without a meeting point (`GUIDE_MEETING_POINT_REQUIRED`). */
-const MEETING_POINT_REQUIRED = 'meeting_point_required'
+/**
+ * The route's answers to listing refused by `cms_set_guide_listed` (TGP23 and its DETAIL, #1184):
+ * `GUIDE_MEETING_POINT_REQUIRED`, `GUIDE_PHOTO_REQUIRED`, `GUIDE_BIO_REQUIRED` → what is missing.
+ */
+const LIST_REFUSALS = { meeting_point_required: 'meeting_point', photo_required: 'photo', bio_required: 'bio' } as const
+type ListRefusal = (typeof LIST_REFUSALS)[keyof typeof LIST_REFUSALS]
+const listRefusalOf = (error: string | undefined): ListRefusal | null =>
+  error && Object.prototype.hasOwnProperty.call(LIST_REFUSALS, error) ? LIST_REFUSALS[error as keyof typeof LIST_REFUSALS] : null
 const REASONS = ['tourist_report', 'inactive', 'guide_request', 'other'] as const
 type Reason = (typeof REASONS)[number]
 const UNDO_MS = 10_000
@@ -83,7 +89,7 @@ export function GuideProfileTab({ clientId, submissionId, fallbackName, onPublis
   const [bioError, setBioError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [listedAt, setListedAt] = useState<{ listed: boolean; at: string } | null>(null)
-  const [listRefused, setListRefused] = useState(false)
+  const [listRefused, setListRefused] = useState<ListRefusal | null>(null)
   const [pointEditing, setPointEditing] = useState(false)
   const [point, setPoint] = useState<PointDraft>(EMPTY_POINT)
   /** What the map centres on: address and city as they were when the curator left the field, not per keystroke. */
@@ -206,20 +212,21 @@ export function GuideProfileTab({ clientId, submissionId, fallbackName, onPublis
 
   /**
    * BR-B2B-064 item 11.a: "Aparece no app", straight to `cms_set_guide_listed`, no dialog: the
-   * checkbox itself undoes. Refused for want of a point (another curator, a race): the same reason
-   * as the lock, and the checkbox goes back to what the server holds.
+   * checkbox itself undoes. Refused for want of a point, a photo or a bio (another curator, a
+   * race): the line of that reason, and the checkbox goes back to what the server holds.
    */
   async function setListed(listed: boolean) {
     setError(null)
     setListedAt(null)
     const outcome = await send('POST', { listed })
     if (!outcome.ok) {
-      if (outcome.error === MEETING_POINT_REQUIRED) setListRefused(true)
+      const refusal = listRefusalOf(outcome.error)
+      if (refusal) setListRefused(refusal)
       else setError(t('visibility.error'))
       await refetch()
       return
     }
-    setListRefused(false)
+    setListRefused(null)
     setListedAt({ listed, at: new Date().toISOString() })
     await refetch()
   }
@@ -266,7 +273,7 @@ export function GuideProfileTab({ clientId, submissionId, fallbackName, onPublis
       return
     }
     if (outcome.updatedAt) setPointSavedAt(outcome.updatedAt)
-    setListRefused(false)
+    setListRefused(null)
     setPointEditing(false)
     await refetch()
   }
@@ -329,9 +336,14 @@ export function GuideProfileTab({ clientId, submissionId, fallbackName, onPublis
   const listLocked = profile.meetingPoint === null
   // BR-B2B-064 item 9.a and BR-B2B-066 item 10.d (#1184): photo and bio are what the curator confers
   // before ticking, and the empty profile of the app guide has neither yet. Unticking stays free.
-  const nothingToConfer = profile.photoUrl === null || profile.bio === null
+  // A refusal of the database (TGP23 photo or bio) names the same gap even before the refetch lands.
+  const photoMissing = profile.photoUrl === null || listRefused === 'photo'
+  const bioMissing = profile.bio === null || listRefused === 'bio'
+  const nothingToConfer = photoMissing || bioMissing
+  const pointMissing = listLocked || listRefused === 'meeting_point'
   const tickLocked = listLocked || (nothingToConfer && !profile.listedInApp)
-  const lockLines = [listLocked || listRefused ? 'guide-listed-locked' : null, nothingToConfer ? 'guide-listed-incomplete' : null]
+  const incompleteLine = photoMissing && bioMissing ? 'incompleteLocked' : photoMissing ? 'photoLocked' : 'bioLocked'
+  const lockLines = [pointMissing ? 'guide-listed-locked' : null, nothingToConfer ? 'guide-listed-incomplete' : null]
     .filter(Boolean)
     .join(' ')
   const meetingPoint = profile.meetingPoint
@@ -388,7 +400,7 @@ export function GuideProfileTab({ clientId, submissionId, fallbackName, onPublis
             </Button>
           ) : null}
         </div>
-        {listLocked || listRefused ? (
+        {pointMissing ? (
           <p id="guide-listed-locked" className="mt-2 flex flex-wrap items-center gap-x-2 text-sm text-amber-900 dark:text-amber-300">
             {t('visibility.listedLocked')}
             <button type="button" className="font-bold text-primary-800 underline dark:text-tuggi-blue" onClick={goToMeetingPoint}>
@@ -398,7 +410,7 @@ export function GuideProfileTab({ clientId, submissionId, fallbackName, onPublis
         ) : null}
         {nothingToConfer ? (
           <p id="guide-listed-incomplete" className="mt-2 text-sm text-amber-900 dark:text-amber-300">
-            {t('visibility.incompleteLocked')}
+            {t(`visibility.${incompleteLine}`)}
           </p>
         ) : null}
         {!profile.consent ? <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">{t('visibility.noConsentLine')}</p> : null}

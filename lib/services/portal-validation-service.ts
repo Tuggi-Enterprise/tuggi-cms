@@ -112,6 +112,11 @@ export type PortalActOutcome =
        * the screen says so and offers "Publicar o perfil" (`publish_guide`).
        */
       guidePublishError?: string
+      /**
+       * #1184: the guide was approved and `partner.apply_default_commission` did not write its
+       * rate. The approval stands; the screen tells the curator the rate is not recorded.
+       */
+      commissionError?: string
     }
   | {
       ok: false
@@ -417,14 +422,37 @@ async function approveWithoutPlace(
   const approval = await approveRelationship(clientId, approverCmsUserId)
   if (!approval.ok) return { ok: false, httpStatus: 503, error: approval.error }
 
+  // BR-B2B-064 item 2, BR-MONETIZACAO-039 item 6.c (#1184): the guide's rate and mark, by the one
+  // writer, now that the client is approved (the function refuses any other status). The
+  // transfer keeps its zero and never calls it (the function refuses it too, TGP22 client_type).
+  const commission = kind === 'guide' ? await applyDefaultCommission(clientId) : null
+
   const outcome = await transition(submission.id, 'approved', actorUserId, null)
   if (!outcome.ok) return outcome
   if (kind !== 'guide') return { ...outcome, clientId }
 
+  const commissionError = commission ? { commissionError: commission } : {}
   const published = await publishGuide(submission.id, clientId, answers, operator, actorUserId)
   return published.ok
-    ? { ok: true, status: published.status, clientId }
-    : { ...outcome, clientId, guidePublishError: published.error }
+    ? { ok: true, status: published.status, clientId, ...commissionError }
+    : { ...outcome, clientId, guidePublishError: published.error, ...commissionError }
+}
+
+/**
+ * `partner.apply_default_commission` (#1184, service_role, idempotent): writes the default rate of a
+ * guide without one and its `commission_starts_at`. Returns `null` on success, else a short error
+ * code for the screen. A failure NEVER undoes the approval: the client is approved, and what is
+ * missing is the rate, which the screen says is not recorded. The log carries only the SQLSTATE
+ * and the DETAIL (`client_type`, `status`), never a name or a document.
+ */
+async function applyDefaultCommission(clientId: string): Promise<string | null> {
+  const { error } = await partner().rpc('apply_default_commission', { p_client_id: clientId })
+  if (!error) return null
+  const detail = (error as { details?: string | null }).details ?? null
+  console.error('[portal-validation] default commission not written', error.code, detail)
+  if (error.code === 'P0002') return 'commission_client_not_found'
+  if (error.code === 'TGP22') return detail ? `commission_invalid_${detail}` : 'commission_invalid'
+  return 'commission_write_failed'
 }
 
 /**
