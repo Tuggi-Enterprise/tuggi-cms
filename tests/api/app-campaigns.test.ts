@@ -5,9 +5,10 @@
  * Pinned here: admin only, nothing touches the database before the gate; the route writes
  * `drive.in_app_campaigns` on the service role with the parsed fields; a CHECK refusal comes back as
  * a code that reads as a sentence in the three CMS languages; the coupon of a gift campaign takes
- * the campaign's `ends_at` as `valid_until`, turns on with it and turns off with it (unless another
- * campaign that is on shares it); a coupon write that does not land is a 500, never a success; the
- * image door reads the type from the bytes.
+ * the campaign's `ends_at` as `valid_until` and follows the state of the campaign on every save, on
+ * with it and off with it (unless another campaign that is on shares it), and the coupon a save takes
+ * out of the campaign is turned off by the same rule; a coupon write that does not land is a 500,
+ * never a success; the image door reads the type from the bytes.
  *
  * Run with: npm run test:api
  */
@@ -347,9 +348,15 @@ test('#1192 BR-MONETIZACAO-047: linking a coupon to a campaign sets the coupon v
   assert.deepEqual(coupon.filters, [['eq', 'id', COUPON_ID]])
 })
 
-test('#1192 BR-MONETIZACAO-047: a gift campaign created off fills valid_until and leaves the coupon switch alone', async () => {
+test('#1192 BR-MONETIZACAO-047: a gift campaign created off fills valid_until and keeps its coupon off, unless another campaign that is on shares it', async () => {
   const res = await listRoute.POST(json('POST', { ...GIFT, is_active: false }), noCtx)
   assert.equal(res.status, 201)
+  assert.deepEqual(writes('coupons').map((o) => o.payload), [{ valid_until: ENDS_AT, is_active: false }])
+
+  ops = []
+  respond = (op) =>
+    op.table === 'in_app_campaigns' && op.filters.some(([f]) => f === 'neq') ? { data: [{ id: 'other' }] } : defaultAnswer(op)
+  assert.equal((await listRoute.POST(json('POST', { ...GIFT, is_active: false }), noCtx)).status, 201)
   assert.deepEqual(writes('coupons').map((o) => o.payload), [{ valid_until: ENDS_AT }])
 })
 
@@ -382,6 +389,83 @@ test('#1192: a coupon write that does not land is a 500 coupon_sync_failed, neve
   assert.deepEqual(body.error, { code: 'coupon_sync_failed' })
   assert.ok(body.campaign, 'the campaign that was written comes back, so the list shows it')
   assert.equal(tPt('errors.coupon_sync_failed'), 'A campanha foi salva, mas o cupom não foi atualizado. Salve de novo.')
+})
+
+const OLD_COUPON_ID = 'dddddddd-1111-4222-8333-444444444444'
+const giftRow = (over: Record<string, unknown> = {}) =>
+  campaignRow({ action_type: 'redeem_coupon', action_path: null, coupon_id: COUPON_ID, ends_at: ENDS_AT, ...over })
+const couponWrites = () => writes('coupons').map((o) => ({ id: o.filters.find(([, c]) => c === 'id')?.[2], payload: o.payload }))
+const isSharingLookup = (op: Op, couponId: string) =>
+  op.table === 'in_app_campaigns' && op.filters.some(([f]) => f === 'neq') && op.filters.some(([, c, v]) => c === 'coupon_id' && v === couponId)
+
+test('#1192: the coupon follows the state, not the transition: a save that failed on the coupon and is repeated turns the coupon off', async () => {
+  // First save: the campaign goes from on to off, the coupon write does not land.
+  let beforeRow: Record<string, unknown> = { id: CAMPAIGN_ID, is_active: true, action_type: 'redeem_coupon', coupon_id: COUPON_ID }
+  let couponLands = false
+  respond = (op) => {
+    if (op.table === 'in_app_campaigns' && op.op === 'select' && !op.filters.some(([f]) => f === 'neq')) return { data: beforeRow }
+    if (op.table === 'in_app_campaigns' && op.op === 'update') return { data: giftRow({ is_active: false }) }
+    if (op.table === 'coupons') return { data: couponLands ? { id: COUPON_ID } : null }
+    return defaultAnswer(op)
+  }
+  const failed = await itemRoute.PATCH(json('PATCH', { is_active: false }, `/${CAMPAIGN_ID}`), idCtx)
+  assert.equal(failed.status, 500)
+  assert.deepEqual((await failed.json()).error, { code: 'coupon_sync_failed' })
+
+  // Second save: the row already reads off, and the coupon is still turned off.
+  ops = []
+  beforeRow = { id: CAMPAIGN_ID, is_active: false, action_type: 'redeem_coupon', coupon_id: COUPON_ID }
+  couponLands = true
+  const repeated = await itemRoute.PATCH(json('PATCH', { is_active: false }, `/${CAMPAIGN_ID}`), idCtx)
+  assert.equal(repeated.status, 200)
+  assert.deepEqual(couponWrites(), [{ id: COUPON_ID, payload: { valid_until: ENDS_AT, is_active: false } }])
+
+  // The whole form saved off does the same.
+  ops = []
+  assert.equal((await itemRoute.PATCH(json('PATCH', { ...GIFT, is_active: false }, `/${CAMPAIGN_ID}`), idCtx)).status, 200)
+  assert.deepEqual(couponWrites(), [{ id: COUPON_ID, payload: { valid_until: ENDS_AT, is_active: false } }])
+})
+
+test('#1192: swapping the coupon of a campaign turns the old one off, unless another campaign that is on gives it', async () => {
+  const beforeRow = { id: CAMPAIGN_ID, action_type: 'redeem_coupon', coupon_id: OLD_COUPON_ID }
+  let oldShared = false
+  let after = giftRow({ is_active: true })
+  respond = (op) => {
+    if (isSharingLookup(op, OLD_COUPON_ID)) return { data: oldShared ? [{ id: 'other' }] : [] }
+    if (op.table === 'in_app_campaigns' && op.op === 'select' && !op.filters.some(([f]) => f === 'neq')) return { data: beforeRow }
+    if (op.table === 'in_app_campaigns' && op.op === 'update') return { data: after }
+    if (op.table === 'coupons') return { data: { id: op.filters.find(([, c]) => c === 'id')?.[2] } }
+    return defaultAnswer(op)
+  }
+  const res = await itemRoute.PATCH(json('PATCH', GIFT, `/${CAMPAIGN_ID}`), idCtx)
+  assert.equal(res.status, 200)
+  const reads = ops.filter((o) => o.table === 'in_app_campaigns' && o.op === 'select' && !o.filters.some(([f]) => f === 'neq'))
+  assert.equal(reads.length, 1)
+  assert.deepEqual(couponWrites(), [
+    { id: OLD_COUPON_ID, payload: { is_active: false } },
+    { id: COUPON_ID, payload: { valid_until: ENDS_AT, is_active: true } },
+  ])
+
+  // Another campaign that is on still gives the old coupon: it is left alone.
+  ops = []
+  oldShared = true
+  assert.equal((await itemRoute.PATCH(json('PATCH', GIFT, `/${CAMPAIGN_ID}`), idCtx)).status, 200)
+  assert.deepEqual(couponWrites(), [{ id: COUPON_ID, payload: { valid_until: ENDS_AT, is_active: true } }])
+
+  // The action leaves redeem_coupon for open_path: the old coupon goes off, and nothing else is written.
+  ops = []
+  oldShared = false
+  after = campaignRow({ is_active: true })
+  assert.equal((await itemRoute.PATCH(json('PATCH', OPEN_PATH, `/${CAMPAIGN_ID}`), idCtx)).status, 200)
+  assert.deepEqual(couponWrites(), [{ id: OLD_COUPON_ID, payload: { is_active: false } }])
+
+  // Turning the old coupon off does not land: a 500, never a success.
+  ops = []
+  const lands = respond
+  respond = (op) => (op.table === 'coupons' ? { data: null } : lands(op))
+  const failed = await itemRoute.PATCH(json('PATCH', OPEN_PATH, `/${CAMPAIGN_ID}`), idCtx)
+  assert.equal(failed.status, 500)
+  assert.deepEqual((await failed.json()).error, { code: 'coupon_sync_failed' })
 })
 
 test('#1192: PATCH of a campaign that does not exist is a 404, and a bad id never reaches the database', async () => {

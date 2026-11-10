@@ -3,7 +3,8 @@
  *
  * Body `{ is_active }` alone is the switch of the list; any other body is the whole form, parsed
  * like the `POST`. Either way the coupon of a gift campaign follows (`syncCampaignCoupon`): it reads
- * the row before writing because "turned off" is a transition, on before and off after.
+ * the row before writing to know the coupon the campaign gave until now, which is turned off when
+ * the save takes it out of the campaign.
  * Gate: `withAuth({ roles: ['admin'] })`, then the service role. Logs carry the SQLSTATE only.
  */
 
@@ -53,7 +54,7 @@ export const PATCH = withAuth<{ id: string }>({ roles: ['admin'] }, async (req, 
   const { data: before, error: readError } = await db
     .schema('drive')
     .from('in_app_campaigns')
-    .select('id, is_active')
+    .select('id, action_type, coupon_id')
     .eq('id', id)
     .maybeSingle()
   if (readError) {
@@ -75,7 +76,7 @@ export const PATCH = withAuth<{ id: string }>({ roles: ['admin'] }, async (req, 
   }
   if (!data) return refuse({ code: 'not_found' })
 
-  const sync = await syncCampaignCoupon(db, data, before.is_active === true)
+  const sync = await syncCampaignCoupon(db, data, before)
   if (!sync.ok) return NextResponse.json({ error: { code: 'coupon_sync_failed' }, campaign: data }, { status: 500 })
   return NextResponse.json({ campaign: data })
 })

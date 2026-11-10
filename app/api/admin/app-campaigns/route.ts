@@ -66,7 +66,7 @@ export const POST = withAuth({ roles: ['admin'] }, async (req) => {
     return refuse(error ? classifyCampaignWriteError(error) : { code: 'write_failed' })
   }
 
-  const sync = await syncCampaignCoupon(db, data, false)
+  const sync = await syncCampaignCoupon(db, data, null)
   if (!sync.ok) return NextResponse.json({ error: { code: 'coupon_sync_failed' }, campaign: data }, { status: 500 })
   return NextResponse.json({ campaign: data }, { status: 201 })
 })
