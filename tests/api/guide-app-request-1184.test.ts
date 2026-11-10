@@ -19,7 +19,8 @@
  *    the client is approved or with another id, or calling it for the transfer;
  *  · a failure of that call undoing the approval, or reaching the screen unsaid;
  *  · a TGP23 photo or bio refusal read as "no meeting point";
- *  · the queue telling the curator a guide link "completes the account's own record".
+ *  · a guide request with a document in use losing the badge, or losing "completes the account's
+ *    record" when the account has its own record (the queue of the guide is the queue of the others).
  *
  * Run with: npm run test:api
  */
@@ -474,7 +475,7 @@ test('BR-B2B-064 items 9.a and 11.a: TGP23 meeting_point, photo and bio each rea
   }
 })
 
-// ── The queue: a guide request that links a Portal guide ─────────────────────────────────────
+// ── The queue: a guide request with the document of a Portal guide ───────────────────────────
 
 function queueHtml(rows: Record<string, unknown>[]) {
   const messages = JSON.parse(readFileSync(resolve(ROOT, 'messages/pt.json'), 'utf8'))
@@ -496,18 +497,16 @@ function queueHtml(rows: Record<string, unknown>[]) {
   )
 }
 
-test('#1184 D5 · BR-B2B-066 item 5.a: the guide request that links a Portal guide shows the document in use, and not "completes the account record"', () => {
-  const PORTAL_GUIDE_ID = '88888888-8888-4888-8888-888888888888'
-  const linking = { ...GUIDE_ROW, document_in_use: true, existing_client_id: PORTAL_GUIDE_ID, record_shared: false }
-  const [row] = queue.parsePartnerRequestRows([linking]) ?? []
-  assert.equal(queue.linksPortalGuide(row), true)
-  const html = queueHtml([linking])
-  assert.match(html, /Documento já está em outro parceiro/)
-  assert.doesNotMatch(html, /Completa o cadastro que a conta já tem/)
+test('BR-B2B-064 (Portal guide who asks in the app) · BR-B2B-066 item 5.a: a guide request with the document in use shows the badge, and "completes" only when the account has its own record', () => {
+  // The Portal guide's document: the database marks it and never hands that guide over as the record (contract §4.1).
+  const portalDocument = { ...GUIDE_ROW, document_in_use: true, existing_client_id: null, record_shared: false }
+  const lone = queueHtml([portalDocument])
+  assert.match(lone, /Documento já está em outro parceiro/)
+  assert.doesNotMatch(lone, /Completa o cadastro que a conta já tem/)
 
-  // A creator completing its own record keeps the line.
-  const creator = { ...RPC_ROWS[0], document_in_use: false, existing_client_id: PORTAL_GUIDE_ID, record_shared: false }
-  const [own] = queue.parsePartnerRequestRows([creator]) ?? []
-  assert.equal(queue.linksPortalGuide(own), false)
-  assert.match(queueHtml([creator]), /Completa o cadastro que a conta já tem/)
+  // The same mark with the account's own record: the guide reads like the other types, both lines.
+  const OWN_ID = '88888888-8888-4888-8888-888888888888'
+  const own = queueHtml([{ ...portalDocument, existing_client_id: OWN_ID }])
+  assert.match(own, /Documento já está em outro parceiro/)
+  assert.match(own, /Completa o cadastro que a conta já tem/)
 })
