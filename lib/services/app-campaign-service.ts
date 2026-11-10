@@ -12,9 +12,16 @@
  *   - the coupon the campaign gave before this save, when it is no longer the one it gives (swapped
  *     for another, or the action left `redeem_coupon`), is turned off by the same "unless shared" rule.
  *
- * Not atomic with the campaign write (no transaction across PostgREST calls, and no migration in
- * this card): the campaign is written first, and a coupon write that fails comes back as
- * `coupon_sync_failed`, so the operator saves again and the next save repairs the coupon.
+ * Not atomic with the campaign write (no transaction across PostgREST calls). The order makes a
+ * retry repair everything (#1193, security review of d5c956c8):
+ *   1. `releaseLeavingCoupon` BEFORE the campaign write. The row still names the old coupon, so if
+ *      turning it off fails the campaign is left as it was and the next save sees the same swap.
+ *      Written after, the row would already name the new coupon and the retry would never see the
+ *      old one again.
+ *   2. the campaign write.
+ *   3. `syncCampaignCoupon`, the coupon the campaign gives now: it reads only the row, so a retry
+ *      repeats it.
+ * Either coupon step that fails comes back as `coupon_sync_failed` (500), never a success.
  * Server only: runs on the service role after `withAuth` proved an admin.
  */
 
@@ -73,20 +80,28 @@ async function writeCoupon(db: Db, couponId: string, patch: Record<string, unkno
   return true
 }
 
-export async function syncCampaignCoupon(
+/**
+ * Step 1: the coupon the row gives now (`previous`) and the save is about to take out (`next` gives
+ * another, or none) is turned off, unless another campaign that is on still gives it. Runs before
+ * the campaign write; nothing to do on create, nor when the save keeps the coupon.
+ */
+export async function releaseLeavingCoupon(
   db: Db,
-  campaign: CampaignCouponState,
-  previous: PreviousCampaignCoupon
+  campaignId: string,
+  previous: PreviousCampaignCoupon,
+  next: PreviousCampaignCoupon
 ): Promise<Sync> {
-  const current = giftCoupon(campaign)
   const left = giftCoupon(previous)
+  if (!left || left === giftCoupon(next)) return { ok: true }
+  const shared = await sharedByAnotherActiveCampaign(db, left, campaignId)
+  if (shared === null) return { ok: false }
+  if (!shared && !(await writeCoupon(db, left, { is_active: false }))) return { ok: false }
+  return { ok: true }
+}
 
-  if (left && left !== current) {
-    const shared = await sharedByAnotherActiveCampaign(db, left, campaign.id)
-    if (shared === null) return { ok: false }
-    if (!shared && !(await writeCoupon(db, left, { is_active: false }))) return { ok: false }
-  }
-
+/** Step 3: the coupon the written campaign gives follows its state and its `ends_at`. */
+export async function syncCampaignCoupon(db: Db, campaign: CampaignCouponState): Promise<Sync> {
+  const current = giftCoupon(campaign)
   if (!current) return { ok: true }
   const patch: { valid_until: string | null; is_active?: boolean } = { valid_until: campaign.ends_at }
   if (campaign.is_active) {

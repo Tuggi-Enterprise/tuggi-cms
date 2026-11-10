@@ -5250,6 +5250,7 @@
       "invalid_window": "O fim precisa vir depois do início.",
       "not_found": "Esta campanha não existe mais. Recarregue a lista.",
       "coupon_sync_failed": "A campanha foi salva, mas o cupom não foi atualizado. Salve de novo.",
+      "coupon_release_failed": "O cupom anterior não foi desligado, e a campanha ficou como estava. Salve de novo.",
       "write_failed": "Não deu para salvar. Tente de novo.",
       "invalid_image": "Envie uma imagem JPEG, PNG ou WebP.",
       "image_too_large": "A imagem passa de 2 MB. Diminua e envie de novo.",

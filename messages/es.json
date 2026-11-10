@@ -4569,6 +4569,7 @@
       "invalid_window": "El fin debe venir después del inicio.",
       "not_found": "Esta campaña ya no existe. Recarga la lista.",
       "coupon_sync_failed": "La campaña se guardó, pero el cupón no se actualizó. Guarda de nuevo.",
+      "coupon_release_failed": "El cupón anterior no se desactivó y la campaña quedó como estaba. Guarda de nuevo.",
       "write_failed": "No se pudo guardar. Inténtalo de nuevo.",
       "invalid_image": "Sube una imagen JPEG, PNG o WebP.",
       "image_too_large": "La imagen pasa de 2 MB. Redúcela y súbela de nuevo.",

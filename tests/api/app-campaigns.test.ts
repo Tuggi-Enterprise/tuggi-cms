@@ -272,7 +272,7 @@ test('#1192 BR-IDIOMA-001: every refusal code has a sentence in pt, en and es, a
   const codes = [
     'invalid_body', 'invalid_internal_name', 'invalid_format', 'invalid_priority', 'invalid_countries', 'invalid_content',
     'incomplete_language', 'text_too_long', 'invalid_image_url', 'invalid_action', 'invalid_action_path', 'missing_coupon',
-    'coupon_not_found', 'invalid_date', 'invalid_window', 'not_found', 'coupon_sync_failed', 'write_failed',
+    'coupon_not_found', 'invalid_date', 'invalid_window', 'not_found', 'coupon_sync_failed', 'coupon_release_failed', 'write_failed',
     'invalid_image', 'image_too_large', 'upload_failed',
   ]
   const keys = (o: unknown, p = ''): string[] =>
@@ -459,13 +459,59 @@ test('#1192: swapping the coupon of a campaign turns the old one off, unless ano
   assert.equal((await itemRoute.PATCH(json('PATCH', OPEN_PATH, `/${CAMPAIGN_ID}`), idCtx)).status, 200)
   assert.deepEqual(couponWrites(), [{ id: OLD_COUPON_ID, payload: { is_active: false } }])
 
-  // Turning the old coupon off does not land: a 500, never a success.
+  // Turning the old coupon off does not land: a 500, never a success, and the campaign is not written.
   ops = []
   const lands = respond
   respond = (op) => (op.table === 'coupons' ? { data: null } : lands(op))
   const failed = await itemRoute.PATCH(json('PATCH', OPEN_PATH, `/${CAMPAIGN_ID}`), idCtx)
   assert.equal(failed.status, 500)
-  assert.deepEqual((await failed.json()).error, { code: 'coupon_sync_failed' })
+  assert.deepEqual((await failed.json()).error, { code: 'coupon_release_failed' })
+  assert.deepEqual(writes('in_app_campaigns'), [])
+})
+
+test('#1193: a save whose old coupon failed to turn off leaves the campaign as it was, and saving again turns the old coupon off', async () => {
+  // The row as the database holds it: it only changes when the campaign update lands.
+  let row: Record<string, unknown> = giftRow({ coupon_id: OLD_COUPON_ID, is_active: true })
+  let oldCouponLands = false
+  respond = (op) => {
+    if (op.table === 'in_app_campaigns' && op.filters.some(([f]) => f === 'neq')) return { data: [] }
+    if (op.table === 'in_app_campaigns' && op.op === 'select') return { data: row }
+    if (op.table === 'in_app_campaigns' && op.op === 'update') {
+      row = { ...row, ...(op.payload as Record<string, unknown>) }
+      return { data: row }
+    }
+    const couponId = op.filters.find(([, c]) => c === 'id')?.[2]
+    if (op.table === 'coupons' && couponId === OLD_COUPON_ID && !oldCouponLands) return { data: null }
+    if (op.table === 'coupons') return { data: { id: couponId } }
+    return defaultAnswer(op)
+  }
+
+  // First save swaps OLD for COUPON_ID; turning OLD off does not land.
+  const failed = await itemRoute.PATCH(json('PATCH', GIFT, `/${CAMPAIGN_ID}`), idCtx)
+  assert.equal(failed.status, 500)
+  const body = await failed.json()
+  assert.deepEqual(body.error, { code: 'coupon_release_failed' })
+  assert.equal(body.campaign, undefined, 'nothing was written, so no row comes back')
+  assert.deepEqual(writes('in_app_campaigns'), [])
+  assert.deepEqual(couponWrites(), [{ id: OLD_COUPON_ID, payload: { is_active: false } }])
+  assert.equal(row.coupon_id, OLD_COUPON_ID)
+  assert.equal(
+    tPt('errors.coupon_release_failed'),
+    'O cupom anterior não foi desligado, e a campanha ficou como estava. Salve de novo.'
+  )
+
+  // The same save again: the row still names OLD, so OLD is turned off before the campaign changes.
+  ops = []
+  oldCouponLands = true
+  const repeated = await itemRoute.PATCH(json('PATCH', GIFT, `/${CAMPAIGN_ID}`), idCtx)
+  assert.equal(repeated.status, 200)
+  assert.deepEqual(couponWrites(), [
+    { id: OLD_COUPON_ID, payload: { is_active: false } },
+    { id: COUPON_ID, payload: { valid_until: ENDS_AT, is_active: true } },
+  ])
+  const order = ops.filter((o) => o.op === 'update').map((o) => o.table)
+  assert.deepEqual(order, ['coupons', 'in_app_campaigns', 'coupons'])
+  assert.equal(row.coupon_id, COUPON_ID)
 })
 
 test('#1192: PATCH of a campaign that does not exist is a 404, and a bad id never reaches the database', async () => {

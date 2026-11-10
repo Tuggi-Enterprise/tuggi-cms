@@ -4587,6 +4587,7 @@
       "invalid_window": "The end must come after the start.",
       "not_found": "This campaign no longer exists. Reload the list.",
       "coupon_sync_failed": "The campaign was saved, but the coupon was not updated. Save again.",
+      "coupon_release_failed": "The previous coupon was not turned off, and the campaign was left as it was. Save again.",
       "write_failed": "Could not save. Try again.",
       "invalid_image": "Upload a JPEG, PNG or WebP image.",
       "image_too_large": "The image is over 2 MB. Make it smaller and upload again.",

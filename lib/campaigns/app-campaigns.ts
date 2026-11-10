@@ -187,6 +187,7 @@ export type CampaignErrorCode =
   | 'invalid_window'
   | 'not_found'
   | 'coupon_sync_failed'
+  | 'coupon_release_failed'
   | 'write_failed'
   | 'invalid_image'
   | 'image_too_large'
@@ -354,7 +355,7 @@ export function classifyCampaignWriteError(error: { code?: string | null; messag
 
 export function campaignErrorStatus(error: CampaignError): number {
   if (error.code === 'not_found') return 404
-  if (error.code === 'coupon_sync_failed' || error.code === 'write_failed' || error.code === 'upload_failed') return 500
+  if (error.code === 'coupon_sync_failed' || error.code === 'coupon_release_failed' || error.code === 'write_failed' || error.code === 'upload_failed') return 500
   return 400
 }
 
