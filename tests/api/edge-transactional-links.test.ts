@@ -257,3 +257,64 @@ test('#919: the copy of a contract accepted in the portal points at the portal C
   assert.equal(response.status, 200)
   assert.deepEqual(hrefs(sent[0].html), ['https://partner.tuggi.app/status/contrato'])
 })
+
+// --- #1181: the partner request without a place ------------------------------------------
+
+const LANGS = ['pt', 'en', 'es', 'fr', 'it'] as const
+const PARTNER_TYPES = ['partner_received', 'partner_approved', 'partner_rejected'] as const
+
+test('#1181 · BR-B2B-066: received, approved and rejected each carry one button to our app, in all five languages', async () => {
+  // The request status (and the rejection reason) lives in the app, so every partner e-mail
+  // leads there. Before #1181 only `approved` had a button.
+  for (const type of PARTNER_TYPES) {
+    for (const lang of LANGS) {
+      sent = []
+      const response = await send({ type, to: 'ana@exemplo.com', lang, data: { partner_name: 'Ana', reason: 'Foto ilegível.' } })
+      assert.equal(response.status, 200, `${type}/${lang} failed`)
+      assert.deepEqual(hrefs(sent[0].html), ['https://tuggi.app'], `${type}/${lang} has no app button`)
+      const label = sent[0].html.match(/<a href="[^"]*" style="[^"]*">([^<]+)<\/a>/)?.[1] ?? ''
+      assert.ok(label.trim().length > 0, `${type}/${lang} button has no label`)
+    }
+  }
+})
+
+test('#1181: the rejected button says to fix it in the app, and the received one opens Tuggi', async () => {
+  sent = []
+  await send({ type: 'partner_rejected', to: 'a@b.com', lang: 'pt', data: { reason: 'Foto ilegível.' } })
+  assert.match(sent[0].html, />Corrigir no app<\/a>/)
+  sent = []
+  await send({ type: 'partner_received', to: 'a@b.com', lang: 'en', data: {} })
+  assert.match(sent[0].html, />Open Tuggi<\/a>/)
+})
+
+test('#1181 · BR-B2B-066 item 5.c: the team alert without an e-mail drops the line, and prints no placeholder', async () => {
+  // `core.dispatch_partner_team_alert` sends `email` NULL: the address stays in the CMS queue.
+  sent = []
+  await send({ type: 'partner_new', data: { partner_name: 'Ana Souza', client_type: 'creator', email: null, city: 'Búzios' } })
+  assert.equal(sent.length, 1)
+  assert.deepEqual(sent[0].to, ['suporte@tuggi.app'])
+  assert.equal(sent[0].subject, 'Novo pedido de parceiro: Ana Souza')
+  const html = sent[0].html
+  assert.match(html, /Novo pedido de parceiro<\/h1>/)
+  assert.match(html, /<b>Nome:<\/b> Ana Souza/)
+  assert.match(html, /<b>Tipo:<\/b> creator/)
+  assert.match(html, /<b>Região:<\/b> Búzios/)
+  assert.match(html, /Aprove ou recuse na fila de pedidos do CMS\./)
+  assert.doesNotMatch(html, /E-mail de contato/)
+  assert.ok(!html.includes('—'), 'an empty field still prints a dash')
+})
+
+test('#1181: the team alert shows the contact e-mail when it comes, and drops any empty field', async () => {
+  sent = []
+  await send({ type: 'partner_new', data: { client_type: 'driver', email: 'ze@exemplo.com', city: '  ' } })
+  assert.equal(sent[0].subject, 'Novo pedido de parceiro: driver')
+  assert.match(sent[0].html, /<b>E-mail de contato:<\/b> ze@exemplo\.com/)
+  assert.doesNotMatch(sent[0].html, /Nome:|Região:/)
+  assert.ok(!sent[0].html.includes('—'))
+
+  // A name with markup is escaped in the body and stays raw in the subject header.
+  sent = []
+  await send({ type: 'partner_new', data: { partner_name: 'Bar & Cia <b>' } })
+  assert.equal(sent[0].subject, 'Novo pedido de parceiro: Bar & Cia <b>')
+  assert.match(sent[0].html, /<b>Nome:<\/b> Bar &amp; Cia &lt;b&gt;/)
+})

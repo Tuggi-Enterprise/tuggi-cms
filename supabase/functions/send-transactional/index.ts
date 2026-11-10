@@ -72,7 +72,7 @@ const corsHeaders = {
 const RESEND_URL = 'https://api.resend.com/emails';
 const TUGGI_BLUE = '#00A8E8';
 
-/** Where the app lives, for the only CTA of the `approved` e-mail. */
+/** Where the app lives, for the CTA of the partner e-mails (received, approved, rejected). */
 const DEFAULT_APP_ORIGIN = 'https://tuggi.app';
 
 /**
@@ -149,23 +149,42 @@ function shell(title: string, bodyHtml: string, preheader = ''): string {
   </div></body></html>`;
 }
 
-// Internal team alert — always pt (not user-facing).
+/** A payload value as one line of plain text: absent, null and blank all become ''. */
+function plain(value: unknown): string {
+  return String(value ?? '').replace(/\s+/g, ' ').trim();
+}
+
+// Internal team alert, always pt (not user-facing). #1181: the database sends it at the
+// acceptance of a partner request without a place (`core.dispatch_partner_team_alert`), with
+// `email` NULL because the address stays in the CMS queue. An empty field drops its line
+// instead of printing a placeholder.
 function renderTeamAlert(data: Record<string, unknown>): {
   subject: string;
   html: string;
 } {
-  const name = esc(data.partner_name ?? data.name ?? '');
-  const ctype = esc(data.client_type ?? '');
+  const name = plain(data.partner_name ?? data.name);
+  const ctype = plain(data.client_type);
+  const rows = (
+    [
+      ['Nome', name],
+      ['Tipo', ctype],
+      ['Região', plain(data.city)],
+      ['E-mail de contato', plain(data.email)],
+    ] as const
+  )
+    .filter(([, value]) => value)
+    .map(([label, value]) => `<b>${label}:</b> ${esc(value)}`)
+    .join('<br/>\n          ');
+  const headline = name || ctype;
+
   return {
-    subject: `Novo parceiro: ${name || ctype || 'cadastro'}`,
+    // Subject is a header, not HTML: the raw value, never the escaped one.
+    subject: headline ? `Novo pedido de parceiro: ${headline}` : 'Novo pedido de parceiro',
     html: shell(
-      'Novo cadastro de parceiro',
-      `<p>Um novo parceiro se cadastrou e está aguardando análise.</p>
-       <p><b>Nome:</b> ${name || '—'}<br/>
-          <b>Tipo:</b> ${ctype || '—'}<br/>
-          <b>Email:</b> ${esc(data.email ?? '—')}<br/>
-          <b>Cidade:</b> ${esc(data.city ?? '—')}</p>
-       <p>Analise no CMS para aprovar ou rejeitar.</p>`
+      'Novo pedido de parceiro',
+      `<p>Um pedido de parceiro sem local chegou com o aceite do termo e espera análise.</p>
+       ${rows ? `<p>${rows}</p>` : ''}
+       <p>Aprove ou recuse na fila de pedidos do CMS.</p>`
     ),
   };
 }
@@ -191,11 +210,9 @@ function renderLocalized(
 
   // `ctaButton` and not the band colour: white on #00A8E8 measures 2.70:1 and fails even the
   // 3:1 of the non-text criterion. This button carried that defect until 2026-08-21, while
-  // the two contract templates beside it had already been corrected.
-  const cta =
-    event === 'approved' && s.email.cta
-      ? ctaButton(ownOrigin('APP_URL', DEFAULT_APP_ORIGIN), s.email.cta)
-      : '';
+  // the two contract templates beside it had already been corrected. #1181: every event has
+  // its button, all to the app, where the request status (and the rejection reason) lives.
+  const cta = ctaButton(ownOrigin('APP_URL', DEFAULT_APP_ORIGIN), s.email.cta);
 
   return {
     subject: s.email.subject,

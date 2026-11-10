@@ -29,7 +29,7 @@ export interface PartnerStrings {
     subject: string;
     heading: string;
     paragraphs: string[]; // paragraphs[0] may contain %NAME%
-    cta?: string; // approved: button label
+    cta: string; // button label, to the app (every event, #1181)
     reasonLabel?: string; // rejected: label before the reason
   };
 }
@@ -47,6 +47,7 @@ const PT: Record<PartnerEvent, PartnerStrings> = {
         'Olá%NAME%, recebemos o seu pedido de parceria com o aceite do termo, e ele foi para a análise da equipe.',
         'A resposta chega por e-mail e aparece no app, no mesmo lugar onde você fez o pedido.',
       ],
+      cta: 'Abrir o Tuggi',
     },
   },
   approved: {
@@ -78,6 +79,7 @@ const PT: Record<PartnerEvent, PartnerStrings> = {
         'Você pode corrigir e enviar de novo pelo app quando quiser.',
       ],
       reasonLabel: 'Motivo:',
+      cta: 'Corrigir no app',
     },
   },
 };
@@ -95,6 +97,7 @@ const EN: Record<PartnerEvent, PartnerStrings> = {
         'Hi%NAME%, we received your partnership request and your acceptance of the agreement, and it’s now with our team for review.',
         'You’ll get the answer by email, and it will also show up in the app, in the same place you sent the request.',
       ],
+      cta: 'Open Tuggi',
     },
   },
   approved: {
@@ -126,6 +129,7 @@ const EN: Record<PartnerEvent, PartnerStrings> = {
         'You can fix it and send it again from the app whenever you like.',
       ],
       reasonLabel: 'Reason:',
+      cta: 'Fix it in the app',
     },
   },
 };
@@ -143,6 +147,7 @@ const ES: Record<PartnerEvent, PartnerStrings> = {
         'Hola%NAME%, recibimos tu solicitud de alianza con la aceptación del acuerdo, y ya pasó a revisión del equipo.',
         'La respuesta llega por correo y aparece en la app, en el mismo lugar donde hiciste la solicitud.',
       ],
+      cta: 'Abrir Tuggi',
     },
   },
   approved: {
@@ -174,6 +179,7 @@ const ES: Record<PartnerEvent, PartnerStrings> = {
         'Puedes corregirla y enviarla de nuevo desde la app cuando quieras.',
       ],
       reasonLabel: 'Motivo:',
+      cta: 'Corregir en la app',
     },
   },
 };
@@ -191,6 +197,7 @@ const FR: Record<PartnerEvent, PartnerStrings> = {
         'Bonjour%NAME%, nous avons reçu ta demande de partenariat et ton acceptation du contrat, et l’équipe va maintenant l’examiner.',
         'La réponse arrive par e-mail et s’affiche dans l’app, à l’endroit où tu as fait ta demande.',
       ],
+      cta: 'Ouvrir Tuggi',
     },
   },
   approved: {
@@ -222,6 +229,7 @@ const FR: Record<PartnerEvent, PartnerStrings> = {
         'Tu peux la corriger et la renvoyer depuis l’app quand tu veux.',
       ],
       reasonLabel: 'Motif\u00A0:',
+      cta: 'Corriger dans l’app',
     },
   },
 };
@@ -239,6 +247,7 @@ const IT: Record<PartnerEvent, PartnerStrings> = {
         'Ciao%NAME%, abbiamo ricevuto la tua richiesta di partnership con l’accettazione dell’accordo, e ora passa all’esame del team.',
         'La risposta arriva via email e compare nell’app, nello stesso punto in cui hai fatto la richiesta.',
       ],
+      cta: 'Apri Tuggi',
     },
   },
   approved: {
@@ -270,6 +279,7 @@ const IT: Record<PartnerEvent, PartnerStrings> = {
         'Puoi correggerla e inviarla di nuovo dall’app quando vuoi.',
       ],
       reasonLabel: 'Motivo:',
+      cta: 'Correggi nell’app',
     },
   },
 };
