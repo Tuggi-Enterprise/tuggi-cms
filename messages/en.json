@@ -109,7 +109,8 @@
     "push_results": "Push results",
     "story_feedback": "Text votes",
     "route_review": "Route approval",
-    "public_names": "Public names"
+    "public_names": "Public names",
+    "app_campaigns": "In-app campaigns"
   },
   "Pages": {
     "Login": {
@@ -4418,6 +4419,179 @@
         "gastronomic": "Food",
         "bilingual": "Bilingual"
       }
+    }
+  },
+  "AppCampaigns": {
+    "title": "In-app campaigns",
+    "subtitle": "Map carousel, launch sheet and Explore card. Turn them on and off without an app release.",
+    "newCampaign": "New campaign",
+    "loading": "Loading…",
+    "empty": "No campaigns yet. Create the first one.",
+    "clickToEdit": "Click to edit",
+    "activate": "Turn on",
+    "deactivate": "Turn off",
+    "allCountries": "All",
+    "noDate": "no date",
+    "headers": {
+      "name": "Name",
+      "format": "Format",
+      "status": "Status",
+      "window": "Period",
+      "countries": "Countries",
+      "action": "Action",
+      "priority": "Priority"
+    },
+    "status": {
+      "running": "Live",
+      "scheduled": "Scheduled",
+      "ended": "Ended",
+      "off": "Off"
+    },
+    "formats": {
+      "map_carousel": "Map carousel",
+      "launch_modal": "Launch sheet",
+      "explore_card": "Explore card"
+    },
+    "actionGift": "Gift: {coupon}",
+    "destinations": {
+      "plans": "Plans and passes",
+      "explore": "Explore",
+      "scoreboard": "Weekly scoreboard",
+      "stamps": "Caravan (in the Passport)",
+      "earn": "Earn more hours",
+      "trips": "Passport",
+      "notifications": "Inbox",
+      "my_routes": "My routes",
+      "route": "A route",
+      "event": "An event",
+      "place": "A place",
+      "poi": "A point of interest",
+      "other": "Current path: {path}"
+    },
+    "languages": {
+      "pt": "Portuguese",
+      "en": "English",
+      "es": "Spanish",
+      "fr": "French",
+      "it": "Italian"
+    },
+    "fields": {
+      "title": "Title",
+      "body": "Body",
+      "cta_label": "Button"
+    },
+    "form": {
+      "createTitle": "New campaign",
+      "editTitle": "Edit {name}",
+      "internalName": "Internal name",
+      "internalNameHelp": "Only the CMS shows it. Tourists never see it.",
+      "format": "Format",
+      "priority": "Priority",
+      "priorityHelp": "Higher shows first.",
+      "countries": "Countries",
+      "countriesPlaceholder": "BR, PT",
+      "countriesHelp": "Two-letter codes separated by commas. Empty means every country.",
+      "texts": "Text per language",
+      "textsHelp": "Always write pt and en. People using the app in another language see en; with neither pt nor en for their language, the campaign does not show.",
+      "titleHint": "What the person gets.",
+      "bodyHint": "The fact that makes them act now: a real deadline, or what changes for them.",
+      "ctaHint": "Start with a verb and say what the tap does. No period, emoji or exclamation mark.",
+      "never": "Never write a price, currency or percentage, a coupon code, access in days, a number from another rule, or \"free\". Urgency only if it is true.",
+      "image": "Image",
+      "imageHelp": "{ratio}, {width} × {height} px. No text in the image: it is the same in all five languages and screen readers cannot read it.",
+      "imageUpload": "Upload image",
+      "imageReplace": "Replace image",
+      "imageRemove": "Remove image",
+      "imageUploading": "Uploading…",
+      "imageRatioWarning": "This image is {width} × {height} px. The format asks for {ratio}.",
+      "action": "Button action",
+      "actionOpenPath": "Open a screen",
+      "actionRedeem": "Give a gift",
+      "destination": "Screen",
+      "destinationId": "Id (uuid)",
+      "destinationIdHelp": "Copy the id of the route, event, place or point from the CMS.",
+      "coupon": "Coupon",
+      "couponPlaceholder": "Choose a coupon",
+      "couponOption": "{code} · {grant} · {redeemed} of {max} redemptions",
+      "couponOff": "off",
+      "days": "days",
+      "couponsEmpty": "No coupons. Create one on the coupons screen.",
+      "couponHelp": "Use a coupon for this campaign only. On save, the coupon's validity becomes the campaign's end. Turning the campaign on turns the coupon on, and turning it off turns the coupon off.",
+      "couponNumberHelp": "If the text mentions hours, check that the number matches the coupon.",
+      "startsAt": "Start",
+      "endsAt": "End",
+      "windowHelp": "Both optional. No start: live as soon as it is on; no end: until it is turned off.",
+      "isActive": "On",
+      "isActiveHelp": "When off, it stays saved and does not show in the app.",
+      "preview": "Preview",
+      "previewEmpty": "Write the title and the button to see the preview.",
+      "cancel": "Cancel",
+      "create": "Create campaign",
+      "save": "Save",
+      "created": "Campaign created.",
+      "saved": "Campaign saved."
+    },
+    "examples": {
+      "plans": {
+        "pt": {
+          "title": "Black Friday no Tuggi",
+          "body": "Passes de horas com desconto até 30/11. As horas que você compra não expiram.",
+          "cta_label": "Ver os descontos"
+        },
+        "en": {
+          "title": "Black Friday on Tuggi",
+          "body": "Hour passes on sale until Nov 30. The hours you buy never expire.",
+          "cta_label": "See the deals"
+        }
+      },
+      "gift": {
+        "pt": {
+          "title": "Black Friday: 5 horas para você",
+          "body": "Um presente para a sua próxima viagem. Entra no seu saldo assim que você tocar.",
+          "cta_label": "Receber 5 horas"
+        },
+        "en": {
+          "title": "Black Friday: 5 hours on us",
+          "body": "A gift for your next trip. It goes straight to your balance.",
+          "cta_label": "Claim 5 hours"
+        }
+      },
+      "caravan": {
+        "pt": {
+          "title": "Convide amigos e ganhe horas",
+          "body": "Amigos que começam a usar o guia rendem horas para você. Divida metade com eles.",
+          "cta_label": "Convidar amigos"
+        },
+        "en": {
+          "title": "Invite friends, earn hours",
+          "body": "Friends who start using the guide earn you hours. Share half with them.",
+          "cta_label": "Invite friends"
+        }
+      }
+    },
+    "errors": {
+      "invalid_body": "The form could not be read. Reload the page and try again.",
+      "invalid_internal_name": "Give the campaign an internal name.",
+      "invalid_format": "Choose a format.",
+      "invalid_priority": "Priority must be a whole number.",
+      "invalid_countries": "Countries: use two-letter codes, like BR or PT, separated by commas.",
+      "invalid_content": "Write the text in at least one language.",
+      "incomplete_language": "{lang}: fill in the title and the button, or clear the whole language.",
+      "text_too_long": "{lang}: {field} is over the {max}-character limit.",
+      "invalid_image_url": "The image address must start with https://. Upload the image again.",
+      "invalid_action": "Choose the button action.",
+      "invalid_action_path": "Choose the screen the button opens. Route, event, place and point need the id (uuid).",
+      "missing_coupon": "Choose the gift coupon.",
+      "coupon_not_found": "This coupon no longer exists. Choose another one.",
+      "invalid_date": "Invalid start or end date.",
+      "invalid_window": "The end must come after the start.",
+      "not_found": "This campaign no longer exists. Reload the list.",
+      "coupon_sync_failed": "The campaign was saved, but the coupon was not updated. Save again.",
+      "write_failed": "Could not save. Try again.",
+      "invalid_image": "Upload a JPEG, PNG or WebP image.",
+      "image_too_large": "The image is over 2 MB. Make it smaller and upload again.",
+      "upload_failed": "Could not upload the image. Try again.",
+      "network": "No connection to the server. Try again."
     }
   },
   "Coupons": {

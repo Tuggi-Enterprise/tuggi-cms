@@ -193,6 +193,8 @@ test('o catálogo do admin é exatamente este — apagar um destino tem de doer'
   // Lista explícita, e não uma contagem: um item removido por engano some sem barulho, e o
   // menu é justamente onde ninguém percebe a ausência de algo que raramente se usa.
   assert.deepEqual(hrefs(ADMIN).sort(), [
+    // The campaigns of the app (#1192).
+    '/admin/app-campaigns',
     '/admin/audit-logs',
     '/admin/clients',
     '/admin/coupons',
