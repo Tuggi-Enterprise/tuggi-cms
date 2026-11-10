@@ -176,8 +176,10 @@ export async function copyFacadeToProfilePhoto(
   if (!isJpeg(bytes)) return { ok: false, error: 'photo_not_jpeg' }
   const { error } = await storage
     .from(PROFILE_PHOTOS_BUCKET)
-    .upload(paths.to, bytes, { contentType: 'image/jpeg', upsert: false })
-  if (error && !/exist|duplicate/i.test(error.message ?? '')) {
+    // upsert: an object the account planted at this path beforehand is overwritten with the facade
+    // the curator approved (contract parceiro-sem-local.md 8.6 item 3, security finding A3 of #1185).
+    .upload(paths.to, bytes, { contentType: 'image/jpeg', upsert: true })
+  if (error) {
     console.error('[guide-profile] photo copy failed', (error as { statusCode?: string }).statusCode ?? 'unknown')
     return { ok: false, error: 'photo_copy_failed' }
   }

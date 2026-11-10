@@ -284,7 +284,7 @@ test('BR-B2B-069 item 2.b: an account without a photo gets the facade as profile
     `upload:profile-photos/${ACCOUNT}/${FACADE_UUID}.jpg`,
   ])
   assert.equal(w.uploadOptions?.contentType, 'image/jpeg')
-  assert.equal(w.uploadOptions?.upsert, false)
+  assert.equal(w.uploadOptions?.upsert, true, 'A3: a planted object at the path is overwritten, never kept')
 })
 
 test('BR-B2B-069 item 2.b: the account keeps its own photo, and a republish copies nothing', async () => {
