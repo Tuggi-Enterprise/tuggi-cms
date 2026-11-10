@@ -59,6 +59,16 @@ function fake(
       },
       remove: async () => true,
     },
+    guidePhotos: {
+      upload: async (path: string) => {
+        log.push(`guideUpload:${path}`)
+        return true
+      },
+      remove: async (path: string) => {
+        log.push(`guideRemove:${path}`)
+        return true
+      },
+    },
     auth: {
       ensureUser: async () => {
         log.push('ensureUser')
@@ -537,4 +547,76 @@ test('#1138: app_request_accept refuses a malformed accept, ip or user agent, an
   }
   assert.equal(f.calls.length, 0)
   for (const rpc of ['partner_request_link_get', 'partner_request_link_terms', 'partner_request_link_accept']) assert.ok(mod.DRAFT_RPCS.includes(rpc), rpc)
+})
+
+// #1184 — the guide approved in the app completes the profile on `/perfil-guia/[token]` (BR-B2B-066
+// item 10.c, BR-B2B-064 item 12; `parceiro-sem-local.md` §3.6).
+const GUIDE_CLIENT = 'c1c1c1c1-1184-4184-8184-118411841184'
+const GUIDE_PHOTO = `${GUIDE_CLIENT}/a0a0a0a0-1184-4184-8184-118411841184.jpg`
+const GUIDE_ROW = {
+  display_name: 'Ana Souza', bio: '', photo_path: GUIDE_PHOTO, photo_url: 'https://x/p.jpg', languages: [], specialties: [], whatsapp: '5522998765432',
+  meeting_point_address: null, meeting_point_city: null, meeting_point_lat: null, meeting_point_lng: null,
+  listed_in_app: false, hidden: false, instagram: null, tiktok: null, youtube: null, facebook: null, public_contact_consent: false, published: true,
+}
+const GUIDE_GET = { guide_profile_link_get: { data: { ...GUIDE_ROW, client_id: GUIDE_CLIENT.toUpperCase(), expires_at: '2026-11-10T13:00:00Z' } } }
+
+test('#1184 (BR-B2B-066 item 10.c): guide_link_get hands the Worker the profile keys only, never client_id or expires_at', async () => {
+  const f = fake(GUIDE_GET)
+  assert.deepEqual(await mod.handle(f.deps, { action: 'guide_link_get', token_sha256: TOKEN }, ''), { status: 200, body: GUIDE_ROW })
+  assert.deepEqual(f.calls, [{ fn: 'guide_profile_link_get', args: { p_token_sha256: TOKEN } }])
+  for (const rpc of ['guide_profile_link_get', 'guide_profile_link_update']) assert.ok(mod.DRAFT_RPCS.includes(rpc), rpc)
+})
+
+test('#1184 (BR-B2B-064 item 12): guide_link_update sends the changes as they came, and refuses a key outside the list before the database', async () => {
+  const f = fake({ guide_profile_link_update: { data: { ...GUIDE_ROW, bio: 'Sou guia.', client_id: GUIDE_CLIENT } } })
+  const ok = await mod.handle(f.deps, { action: 'guide_link_update', token_sha256: TOKEN, changes: { bio: 'Sou guia.' } }, '')
+  assert.deepEqual(ok, { status: 200, body: { ...GUIDE_ROW, bio: 'Sou guia.' } })
+  assert.deepEqual(f.calls, [{ fn: 'guide_profile_link_update', args: { p_token_sha256: TOKEN, p_changes: { bio: 'Sou guia.' } } }])
+  const g = fake()
+  for (const changes of [undefined, {}, { display_name: 'Outro' }, { bio: 'x', client_id: GUIDE_CLIENT }]) {
+    assert.deepEqual(await mod.handle(g.deps, { action: 'guide_link_update', token_sha256: TOKEN, changes }, ''), { status: 400, body: { error: 'invalid', field: 'changes' } })
+  }
+  assert.equal(g.calls.length, 0)
+  const refused = await mod.handle(fake({ guide_profile_link_update: { error: { code: 'TGP22', details: 'profile_photo' } } }).deps, { action: 'guide_link_update', token_sha256: TOKEN, changes: { profile_photo: 'd2d2d2d2-1184-4184-8184-118411841184/a0a0a0a0-1184-4184-8184-118411841184.jpg' } }, '')
+  assert.deepEqual(refused, { status: 422, body: { error: 'invalid', field: 'profile_photo' } })
+})
+
+test('#1184 (BR-B2B-064 item 12): TGP30 is one not_found on reading, saving, uploading and removing, and nothing touches the bucket', async () => {
+  const dead = { guide_profile_link_get: { error: { code: 'TGP30' } }, guide_profile_link_update: { error: { code: 'TGP30' } } }
+  for (const body of [
+    { action: 'guide_link_get', token_sha256: TOKEN },
+    { action: 'guide_link_update', token_sha256: TOKEN, changes: { bio: 'x' } },
+    { action: 'guide_link_photo_upload', token_sha256: TOKEN, image_base64: JPEG },
+    { action: 'guide_link_photo_remove', token_sha256: TOKEN, path: `${GUIDE_CLIENT}/b0b0b0b0-1184-4184-8184-118411841184.jpg` },
+  ]) {
+    const f = fake(dead)
+    assert.deepEqual(await mod.handle(f.deps, body, ''), { status: 404, body: { error: 'not_found' } }, body.action)
+    assert.ok(!f.log.some((l) => l.startsWith('guide')), body.action)
+  }
+})
+
+test('#1184: the photo goes under the link client id, drawn here; a path in the body is ignored, and a non-JPEG is refused before the database', async () => {
+  const f = fake(GUIDE_GET)
+  const r = await mod.handle(f.deps, { action: 'guide_link_photo_upload', token_sha256: TOKEN, image_base64: JPEG, path: 'd2d2d2d2-1184-4184-8184-118411841184/x.jpg' }, '')
+  assert.deepEqual(r, { status: 200, body: { path: `${GUIDE_CLIENT}/44444444-2222-4333-8444-555555555555.jpg` } })
+  assert.deepEqual(f.log, ['rpc:guide_profile_link_get', `guideUpload:${GUIDE_CLIENT}/44444444-2222-4333-8444-555555555555.jpg`])
+  const g = fake(GUIDE_GET)
+  assert.deepEqual(await mod.handle(g.deps, { action: 'guide_link_photo_upload', token_sha256: TOKEN, image_base64: Buffer.from('GIF89a').toString('base64') }, ''), { status: 400, body: { error: 'invalid', field: 'image' } })
+  assert.equal(g.calls.length, 0)
+})
+
+test('#1184: removing takes only a loose photo of the link guide, never another prefix nor the current photo', async () => {
+  const loose = `${GUIDE_CLIENT}/b0b0b0b0-1184-4184-8184-118411841184.jpg`
+  const other = `d2d2d2d2-1184-4184-8184-118411841184/b0b0b0b0-1184-4184-8184-118411841184.jpg`
+  const ok = fake(GUIDE_GET)
+  assert.deepEqual(await mod.handle(ok.deps, { action: 'guide_link_photo_remove', token_sha256: TOKEN, path: loose }, ''), { status: 200, body: { ok: true } })
+  assert.ok(ok.log.includes(`guideRemove:${loose}`))
+  for (const path of [other, GUIDE_PHOTO]) {
+    const f = fake(GUIDE_GET)
+    assert.deepEqual(await mod.handle(f.deps, { action: 'guide_link_photo_remove', token_sha256: TOKEN, path }, ''), { status: 403, body: { error: 'refused' } }, path)
+    assert.ok(!f.log.some((l) => l.startsWith('guideRemove')), path)
+  }
+  for (const path of [`../${loose}`, `${GUIDE_CLIENT}/facade/b0b0b0b0-1184-4184-8184-118411841184.jpg`, 42]) {
+    assert.deepEqual(await mod.handle(fake(GUIDE_GET).deps, { action: 'guide_link_photo_remove', token_sha256: TOKEN, path }, ''), { status: 400, body: { error: 'invalid', field: 'path' } })
+  }
 })

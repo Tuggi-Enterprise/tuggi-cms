@@ -30,6 +30,8 @@ export const PHOTO_BUCKET = 'place-submission-photos';
 /** Bucket cap per object (migration `20261004130000`), the same as `tuggi-places` `PHOTO_MAX_BYTES`. */
 export const PHOTO_MAX_BYTES = 2 * 1024 * 1024;
 export const SIGNED_URL_TTL_S = 3600;
+/** #1184: the public bucket of the guide's photo, `<client_id>/<uuid>.jpg` (`partner-proposal-answers.md` §8.6). */
+export const GUIDE_PHOTO_BUCKET = 'guide-photos';
 
 /** The fixed list. Adding a name here is a contract change (`places-portal-rascunho.md`). */
 export const DRAFT_RPCS = [
@@ -55,6 +57,10 @@ export const DRAFT_RPCS = [
   'partner_request_link_get',
   'partner_request_link_terms',
   'partner_request_link_accept',
+  // #1184: the guide approved in the app completes the profile on `/perfil-guia/[token]`
+  // (`parceiro-sem-local.md` §3.6), with the token's hash and no portal session.
+  'guide_profile_link_get',
+  'guide_profile_link_update',
 ] as const;
 export type DraftRpc = (typeof DRAFT_RPCS)[number];
 
@@ -67,6 +73,11 @@ export type Deps = {
   storage: {
     list(prefix: string): Promise<{ name: string; created_at: string | null }[]>;
     sign(paths: string[]): Promise<Record<string, string>>;
+    upload(path: string, bytes: Uint8Array): Promise<boolean>;
+    remove(path: string): Promise<boolean>;
+  };
+  /** #1184: the guide's photo bucket, with the service role; the path is chosen here, never by the browser. */
+  guidePhotos: {
     upload(path: string, bytes: Uint8Array): Promise<boolean>;
     remove(path: string): Promise<boolean>;
   };
@@ -116,6 +127,8 @@ const IP = /^[0-9a-fA-F:.]{2,45}$/;
 const USER_AGENT_MAX = 1024;
 const PHOTO_PATH = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/(facade|gallery)\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(jpg|jpeg|png|webp)$/;
 const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
+/** #1184: a guide photo, `<client_id>/<uuid>.<ext>`, the shape `core.portal_update_guide_profile` accepts. */
+const GUIDE_PHOTO_PATH = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(jpg|jpeg|png|webp)$/;
 /** Shape only (printable, no space, ≤ 64); `partner.portal_draft_quote` judges the code. */
 const VOUCHER = /^[\x21-\x7e]{1,64}$/;
 
@@ -369,6 +382,39 @@ const LINK_GET_KEYS = ['state', 'accepted_at', 'expires_at', 'plan_choice', 'tra
 const APP_REQUEST_GET_KEYS = ['state', 'accepted_at', 'expires_at', 'partner_type', 'document_type', 'document', 'full_name', 'legal_name', 'representative_cpf', 'whatsapp', 'contact_email'];
 
 const firstRow = (data: unknown): Record<string, unknown> | null => obj(Array.isArray(data) ? data[0] : data);
+
+/**
+ * #1184: what the page of the guide may read of `guide_profile_link_get` and `_update` (the shape of
+ * `core.portal_get_guide_profile`). `client_id` and `expires_at` stay here: the client id only
+ * scopes the photo path, and the browser never names it.
+ */
+const GUIDE_PROFILE_KEYS = [
+  'display_name', 'bio', 'photo_path', 'photo_url', 'languages', 'specialties', 'whatsapp',
+  'meeting_point_address', 'meeting_point_city', 'meeting_point_lat', 'meeting_point_lng',
+  'listed_in_app', 'hidden', 'instagram', 'tiktok', 'youtube', 'facebook', 'public_contact_consent', 'published',
+];
+
+/** #1184: the keys the guide writes (BR-B2B-064 items 5 and 12), the same list as the panel; the database checks each value. */
+const GUIDE_CHANGE_KEYS = new Set([
+  'bio', 'profile_photo', 'languages', 'specialties', 'whatsapp', 'meeting_point', 'public_contact_consent',
+  'instagram', 'tiktok', 'youtube', 'facebook',
+]);
+
+function guideProfileResult(data: unknown): Result {
+  const row = firstRow(data);
+  if (!row || typeof row.display_name !== 'string') return { status: 502, body: { error: 'unavailable' } };
+  return { status: 200, body: Object.fromEntries(GUIDE_PROFILE_KEYS.filter((k) => row[k] !== undefined).map((k) => [k, row[k]])) };
+}
+
+/** #1184: the link's client id and current photo, read again on every photo action (`TGP30` → `not_found`). */
+async function guideOfLink(deps: Deps, token: string): Promise<{ ok: true; clientId: string; photoPath: string | null } | { ok: false; result: Result }> {
+  const g = await call(deps, 'guide_profile_link_get', { p_token_sha256: token });
+  if (!g.ok) return g;
+  const row = firstRow(g.data);
+  const clientId = typeof row?.client_id === 'string' ? row.client_id.toLowerCase() : '';
+  if (!UUID.test(clientId)) return { ok: false, result: { status: 502, body: { error: 'unavailable' } } };
+  return { ok: true, clientId, photoPath: typeof row?.photo_path === 'string' && row.photo_path ? row.photo_path : null };
+}
 
 /** A `jsonb` page state reduced to a fixed list of keys. No `state` → `502`. */
 function pickState(data: unknown, keys: string[]): Result {
@@ -710,6 +756,39 @@ export async function handle(deps: Deps, raw: unknown, jwt: string): Promise<Res
         p_user_agent: b.user_agent,
       });
       return r.ok ? acceptedResult(r.data) : r.result;
+    }
+    case 'guide_link_get': {
+      // #1184 (BR-B2B-066 item 10.c): the profile by the link. Unknown, expired or replaced: TGP30 → not_found.
+      const r = await call(deps, 'guide_profile_link_get', { p_token_sha256: token });
+      return r.ok ? guideProfileResult(r.data) : r.result;
+    }
+    case 'guide_link_update': {
+      // #1184 (BR-B2B-064 item 12): the same keys as the panel; the database runs the same validators
+      // as `portal_update_guide_profile` and keeps the photo under the link's `<client_id>/`.
+      const changes = obj(b.changes);
+      const keys = changes ? Object.keys(changes) : [];
+      if (!changes || !keys.length || !keys.every((k) => GUIDE_CHANGE_KEYS.has(k))) return bad('changes');
+      const r = await call(deps, 'guide_profile_link_update', { p_token_sha256: token, p_changes: changes });
+      return r.ok ? guideProfileResult(r.data) : r.result;
+    }
+    case 'guide_link_photo_upload': {
+      // #1184: the path is `<client_id of the link>/<uuid>.jpg`, drawn here; the browser sends only the JPEG.
+      const bytes = typeof b.image_base64 === 'string' ? decodeBase64(b.image_base64) : null;
+      if (!bytes || !isJpeg(bytes)) return bad('image');
+      const g = await guideOfLink(deps, token!);
+      if (!g.ok) return g.result;
+      const path = `${g.clientId}/${deps.uuid().toLowerCase()}.jpg`;
+      if (!GUIDE_PHOTO_PATH.test(path)) return { status: 502, body: { error: 'unavailable' } };
+      return (await deps.guidePhotos.upload(path, bytes)) ? { status: 200, body: { path } } : { status: 502, body: { error: 'unavailable' } };
+    }
+    case 'guide_link_photo_remove': {
+      // #1184: only a loose photo of the link's guide (the replaced one, or one never saved). The
+      // current photo is refused, as the bucket's RLS refuses it to the panel's owner.
+      if (typeof b.path !== 'string' || !GUIDE_PHOTO_PATH.test(b.path)) return bad('path');
+      const g = await guideOfLink(deps, token!);
+      if (!g.ok) return g.result;
+      if (!b.path.startsWith(`${g.clientId}/`) || b.path === g.photoPath) return { status: 403, body: { error: 'refused' } };
+      return (await deps.guidePhotos.remove(b.path)) ? { status: 200, body: { ok: true } } : { status: 502, body: { error: 'unavailable' } };
     }
     case 'claim': {
       if (typeof b.claim_token !== 'string' || !CLAIM_TOKEN.test(b.claim_token)) return bad('claim_token');
