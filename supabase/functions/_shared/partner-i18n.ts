@@ -2,8 +2,23 @@
 // send-transactional and firebase-push-notification Edge Functions so the copy
 // stays in ONE place across all project languages.
 //
-// Events: 'received' (registration acknowledged), 'approved', 'rejected'.
-// %NAME% in the first email paragraph is replaced with the partner name (or '').
+// Audience: the partner without a place (creator, influencer, driver) who asked
+// in the app with CPF or CNPJ (BR-B2B-066, BR-USUARIO-052 item 4). Push and
+// email both lead to the status screen (`tuggi://partner-status`).
+//
+// Events (#1181):
+//   'received' fires at the acceptance of the agreement, when the request reaches
+//              the team (BR-B2B-066 item 5.c). The flow calls it a request, never
+//              a registration.
+//   'approved' says nothing about Tuggi Pro: the approval grants no plan
+//              (BR-B2B-066 item 2). Claims stay inside the BR-B2B-066 ceiling:
+//              QR and @ attribute from the approval, commission at the agreed
+//              percentage on later purchases, no fixed value, no payment date.
+//   'rejected' the email renders the curator's reason (payload key `reason`)
+//              after the paragraphs, behind `reasonLabel`. The push has no
+//              variable, so it points to the app, where the reason is shown.
+// %NAME% in the first email paragraph is replaced with ' ' + partner name (or '').
+// fr uses "tu", like the app's partner_request.* screen the push opens.
 
 export type PartnerEvent = 'received' | 'approved' | 'rejected';
 export type Lang = 'pt' | 'en' | 'es' | 'fr' | 'it';
@@ -22,46 +37,45 @@ export interface PartnerStrings {
 const PT: Record<PartnerEvent, PartnerStrings> = {
   received: {
     push: {
-      title: 'Cadastro recebido ✅',
-      body: 'Recebemos seu cadastro de parceiro. Está em análise — avisaremos em breve.',
+      title: 'Pedido recebido',
+      body: 'O seu pedido de parceria foi para a equipe. Avisamos quando houver resposta.',
     },
     email: {
-      subject: 'Recebemos seu cadastro de parceiro Tuggi ✅',
-      heading: 'Cadastro recebido!',
+      subject: 'Recebemos o seu pedido de parceria',
+      heading: 'Pedido recebido',
       paragraphs: [
-        'Olá%NAME%, recebemos seu cadastro de parceiro Tuggi e ele já está em análise.',
-        'Você será avisado(a) por email e por notificação no app assim que tivermos uma resposta.',
-        'Obrigado por querer fazer parte da rede de parceiros Tuggi!',
+        'Olá%NAME%, recebemos o seu pedido de parceria com o aceite do termo, e ele foi para a análise da equipe.',
+        'A resposta chega por e-mail e aparece no app, no mesmo lugar onde você fez o pedido.',
       ],
     },
   },
   approved: {
     push: {
-      title: 'Parceria aprovada! 🎉',
-      body: 'Seu cadastro foi aprovado e você ganhou o Tuggi Pro. Veja seu QR Code no app.',
+      title: 'Parceria aprovada',
+      body: 'A partir de agora, as compras de quem chega ao Tuggi pela primeira vez pelo seu QR ou @ rendem comissão para você.',
     },
     email: {
-      subject: 'Sua parceria com a Tuggi foi aprovada! 🎉',
-      heading: 'Parceria aprovada!',
+      subject: 'Sua parceria com o Tuggi foi aprovada',
+      heading: 'Parceria aprovada',
       paragraphs: [
-        'Olá%NAME%, sua parceria com a Tuggi foi aprovada e você recebeu o Tuggi Pro! 🎉',
-        'Abra o app Tuggi para ver seu QR Code e aproveitar todos os benefícios Pro.',
-        'Bem-vindo(a) à rede de parceiros Tuggi.',
+        'Olá%NAME%, o seu pedido foi aprovado e a parceria já está valendo.',
+        'A partir de agora, quem chega ao Tuggi pela primeira vez pelo seu QR ou pelo seu @ fica ligado a você, e as compras dessas pessoas rendem comissão no percentual combinado com a equipe.',
+        'O seu QR e o seu @ estão no app, prontos para divulgar.',
       ],
       cta: 'Abrir o Tuggi',
     },
   },
   rejected: {
     push: {
-      title: 'Sobre seu cadastro Tuggi',
-      body: 'Houve uma atualização no seu cadastro de parceiro.',
+      title: 'Pedido não aprovado',
+      body: 'Veja no app o motivo e envie de novo quando quiser.',
     },
     email: {
-      subject: 'Sobre seu cadastro de parceiro Tuggi',
-      heading: 'Cadastro não aprovado',
+      subject: 'Seu pedido de parceria não foi aprovado',
+      heading: 'Pedido não aprovado',
       paragraphs: [
-        'Olá%NAME%, infelizmente seu cadastro de parceiro não foi aprovado desta vez.',
-        'Se tiver dúvidas, responda este email.',
+        'Olá%NAME%, a equipe analisou o seu pedido de parceria e ele não foi aprovado desta vez.',
+        'Você pode corrigir e enviar de novo pelo app quando quiser.',
       ],
       reasonLabel: 'Motivo:',
     },
@@ -71,46 +85,45 @@ const PT: Record<PartnerEvent, PartnerStrings> = {
 const EN: Record<PartnerEvent, PartnerStrings> = {
   received: {
     push: {
-      title: 'Registration received ✅',
-      body: 'We got your partner registration. It’s under review — we’ll be in touch soon.',
+      title: 'Request received',
+      body: 'Your partnership request is with our team. We’ll let you know when there’s an answer.',
     },
     email: {
-      subject: 'We received your Tuggi partner registration ✅',
-      heading: 'Registration received!',
+      subject: 'We received your partnership request',
+      heading: 'Request received',
       paragraphs: [
-        'Hi%NAME%, we received your Tuggi partner registration and it’s now under review.',
-        'We’ll notify you by email and with an in-app notification as soon as we have an answer.',
-        'Thank you for wanting to join the Tuggi partner network!',
+        'Hi%NAME%, we received your partnership request and your acceptance of the agreement, and it’s now with our team for review.',
+        'You’ll get the answer by email, and it will also show up in the app, in the same place you sent the request.',
       ],
     },
   },
   approved: {
     push: {
-      title: 'Partnership approved! 🎉',
-      body: 'Your registration was approved and you got Tuggi Pro. See your QR code in the app.',
+      title: 'Partnership approved',
+      body: 'From now on, purchases by people who come to Tuggi for the first time through your QR code or @ earn you commission.',
     },
     email: {
-      subject: 'Your Tuggi partnership was approved! 🎉',
-      heading: 'Partnership approved!',
+      subject: 'Your Tuggi partnership is approved',
+      heading: 'Partnership approved',
       paragraphs: [
-        'Hi%NAME%, your Tuggi partnership was approved and you’ve received Tuggi Pro! 🎉',
-        'Open the Tuggi app to see your QR code and enjoy all your Pro benefits.',
-        'Welcome to the Tuggi partner network.',
+        'Hi%NAME%, your request was approved and the partnership is now active.',
+        'From now on, people who come to Tuggi for the first time through your QR code or your @ are tied to you, and their purchases earn you commission at the percentage agreed with our team.',
+        'Your QR code and your @ are in the app, ready to share.',
       ],
       cta: 'Open Tuggi',
     },
   },
   rejected: {
     push: {
-      title: 'About your Tuggi registration',
-      body: 'There’s an update on your partner registration.',
+      title: 'Request not approved',
+      body: 'See the reason in the app and send it again whenever you like.',
     },
     email: {
-      subject: 'About your Tuggi partner registration',
-      heading: 'Registration not approved',
+      subject: 'Your partnership request was not approved',
+      heading: 'Request not approved',
       paragraphs: [
-        'Hi%NAME%, unfortunately your partner registration was not approved this time.',
-        'If you have any questions, just reply to this email.',
+        'Hi%NAME%, our team reviewed your partnership request and it was not approved this time.',
+        'You can fix it and send it again from the app whenever you like.',
       ],
       reasonLabel: 'Reason:',
     },
@@ -120,46 +133,45 @@ const EN: Record<PartnerEvent, PartnerStrings> = {
 const ES: Record<PartnerEvent, PartnerStrings> = {
   received: {
     push: {
-      title: 'Registro recibido ✅',
-      body: 'Recibimos tu registro de socio. Está en revisión — te avisaremos pronto.',
+      title: 'Solicitud recibida',
+      body: 'Tu solicitud de alianza ya está con el equipo. Te avisamos cuando haya respuesta.',
     },
     email: {
-      subject: 'Recibimos tu registro de socio Tuggi ✅',
-      heading: '¡Registro recibido!',
+      subject: 'Recibimos tu solicitud de alianza',
+      heading: 'Solicitud recibida',
       paragraphs: [
-        'Hola%NAME%, recibimos tu registro de socio Tuggi y ya está en revisión.',
-        'Te avisaremos por correo y con una notificación en la app en cuanto tengamos una respuesta.',
-        '¡Gracias por querer formar parte de la red de socios Tuggi!',
+        'Hola%NAME%, recibimos tu solicitud de alianza con la aceptación del acuerdo, y ya pasó a revisión del equipo.',
+        'La respuesta llega por correo y aparece en la app, en el mismo lugar donde hiciste la solicitud.',
       ],
     },
   },
   approved: {
     push: {
-      title: '¡Asociación aprobada! 🎉',
-      body: 'Tu registro fue aprobado y obtuviste Tuggi Pro. Mira tu código QR en la app.',
+      title: 'Alianza aprobada',
+      body: 'Desde ahora, las compras de quien llega a Tuggi por primera vez por tu QR o tu @ te dan comisión.',
     },
     email: {
-      subject: '¡Tu asociación con Tuggi fue aprobada! 🎉',
-      heading: '¡Asociación aprobada!',
+      subject: 'Tu alianza con Tuggi está aprobada',
+      heading: 'Alianza aprobada',
       paragraphs: [
-        'Hola%NAME%, ¡tu asociación con Tuggi fue aprobada y recibiste Tuggi Pro! 🎉',
-        'Abre la app Tuggi para ver tu código QR y disfrutar todos los beneficios Pro.',
-        'Bienvenido(a) a la red de socios Tuggi.',
+        'Hola%NAME%, tu solicitud fue aprobada y la alianza ya está vigente.',
+        'Desde ahora, quien llega a Tuggi por primera vez por tu QR o tu @ queda vinculado a ti, y sus compras te dan comisión según el porcentaje acordado con el equipo.',
+        'Tu QR y tu @ están en la app, listos para compartir.',
       ],
       cta: 'Abrir Tuggi',
     },
   },
   rejected: {
     push: {
-      title: 'Sobre tu registro Tuggi',
-      body: 'Hay una actualización en tu registro de socio.',
+      title: 'Solicitud no aprobada',
+      body: 'Mira el motivo en la app y envíala de nuevo cuando quieras.',
     },
     email: {
-      subject: 'Sobre tu registro de socio Tuggi',
-      heading: 'Registro no aprobado',
+      subject: 'Tu solicitud de alianza no fue aprobada',
+      heading: 'Solicitud no aprobada',
       paragraphs: [
-        'Hola%NAME%, lamentablemente tu registro de socio no fue aprobado esta vez.',
-        'Si tienes dudas, responde a este correo.',
+        'Hola%NAME%, el equipo revisó tu solicitud de alianza y esta vez no fue aprobada.',
+        'Puedes corregirla y enviarla de nuevo desde la app cuando quieras.',
       ],
       reasonLabel: 'Motivo:',
     },
@@ -169,48 +181,47 @@ const ES: Record<PartnerEvent, PartnerStrings> = {
 const FR: Record<PartnerEvent, PartnerStrings> = {
   received: {
     push: {
-      title: 'Inscription reçue ✅',
-      body: 'Nous avons reçu votre inscription partenaire. En cours d’examen — à très vite.',
+      title: 'Demande reçue',
+      body: 'Ta demande de partenariat a été transmise à l’équipe. Nous te prévenons dès qu’il y a une réponse.',
     },
     email: {
-      subject: 'Nous avons reçu votre inscription partenaire Tuggi ✅',
-      heading: 'Inscription reçue !',
+      subject: 'Nous avons reçu ta demande de partenariat',
+      heading: 'Demande reçue',
       paragraphs: [
-        'Bonjour%NAME%, nous avons reçu votre inscription partenaire Tuggi et elle est en cours d’examen.',
-        'Vous serez prévenu(e) par e-mail et par une notification dans l’app dès que nous aurons une réponse.',
-        'Merci de vouloir rejoindre le réseau de partenaires Tuggi !',
+        'Bonjour%NAME%, nous avons reçu ta demande de partenariat et ton acceptation du contrat, et l’équipe va maintenant l’examiner.',
+        'La réponse arrive par e-mail et s’affiche dans l’app, à l’endroit où tu as fait ta demande.',
       ],
     },
   },
   approved: {
     push: {
-      title: 'Partenariat approuvé ! 🎉',
-      body: 'Votre inscription a été approuvée et vous avez reçu Tuggi Pro. Voir votre QR code dans l’app.',
+      title: 'Partenariat validé',
+      body: 'Désormais, les achats de ceux qui arrivent sur Tuggi pour la première fois par ton QR ou ton @ te rapportent une commission.',
     },
     email: {
-      subject: 'Votre partenariat avec Tuggi a été approuvé ! 🎉',
-      heading: 'Partenariat approuvé !',
+      subject: 'Ton partenariat avec Tuggi est validé',
+      heading: 'Partenariat validé',
       paragraphs: [
-        'Bonjour%NAME%, votre partenariat avec Tuggi a été approuvé et vous avez reçu Tuggi Pro ! 🎉',
-        'Ouvrez l’app Tuggi pour voir votre QR code et profiter de tous les avantages Pro.',
-        'Bienvenue dans le réseau de partenaires Tuggi.',
+        'Bonjour%NAME%, ta demande a été validée et le partenariat est actif dès maintenant.',
+        'Désormais, ceux qui arrivent sur Tuggi pour la première fois par ton QR ou ton @ te sont rattachés, et leurs achats te rapportent une commission au pourcentage convenu avec l’équipe.',
+        'Ton QR et ton @ sont dans l’app, prêts à être partagés.',
       ],
       cta: 'Ouvrir Tuggi',
     },
   },
   rejected: {
     push: {
-      title: 'À propos de votre inscription Tuggi',
-      body: 'Il y a une mise à jour sur votre inscription partenaire.',
+      title: 'Demande non validée',
+      body: 'Consulte le motif dans l’app et renvoie ta demande quand tu veux.',
     },
     email: {
-      subject: 'À propos de votre inscription partenaire Tuggi',
-      heading: 'Inscription non approuvée',
+      subject: 'Ta demande de partenariat n’a pas été validée',
+      heading: 'Demande non validée',
       paragraphs: [
-        'Bonjour%NAME%, malheureusement votre inscription partenaire n’a pas été approuvée cette fois.',
-        'Pour toute question, répondez simplement à cet e-mail.',
+        'Bonjour%NAME%, l’équipe a examiné ta demande de partenariat et elle n’a pas été validée cette fois.',
+        'Tu peux la corriger et la renvoyer depuis l’app quand tu veux.',
       ],
-      reasonLabel: 'Motif :',
+      reasonLabel: 'Motif\u00A0:',
     },
   },
 };
@@ -218,46 +229,45 @@ const FR: Record<PartnerEvent, PartnerStrings> = {
 const IT: Record<PartnerEvent, PartnerStrings> = {
   received: {
     push: {
-      title: 'Registrazione ricevuta ✅',
-      body: 'Abbiamo ricevuto la tua registrazione partner. È in revisione — a presto.',
+      title: 'Richiesta ricevuta',
+      body: 'La tua richiesta di partnership è passata al team. Ti avvisiamo quando c’è una risposta.',
     },
     email: {
-      subject: 'Abbiamo ricevuto la tua registrazione partner Tuggi ✅',
-      heading: 'Registrazione ricevuta!',
+      subject: 'Abbiamo ricevuto la tua richiesta di partnership',
+      heading: 'Richiesta ricevuta',
       paragraphs: [
-        'Ciao%NAME%, abbiamo ricevuto la tua registrazione partner Tuggi ed è già in revisione.',
-        'Ti avviseremo via email e con una notifica nell’app non appena avremo una risposta.',
-        'Grazie per voler far parte della rete di partner Tuggi!',
+        'Ciao%NAME%, abbiamo ricevuto la tua richiesta di partnership con l’accettazione dell’accordo, e ora passa all’esame del team.',
+        'La risposta arriva via email e compare nell’app, nello stesso punto in cui hai fatto la richiesta.',
       ],
     },
   },
   approved: {
     push: {
-      title: 'Partnership approvata! 🎉',
-      body: 'La tua registrazione è stata approvata e hai ricevuto Tuggi Pro. Vedi il QR code nell’app.',
+      title: 'Partnership approvata',
+      body: 'Da ora, gli acquisti di chi arriva su Tuggi per la prima volta dal tuo QR o dal tuo @ ti fanno guadagnare una commissione.',
     },
     email: {
-      subject: 'La tua partnership con Tuggi è stata approvata! 🎉',
-      heading: 'Partnership approvata!',
+      subject: 'La tua partnership con Tuggi è approvata',
+      heading: 'Partnership approvata',
       paragraphs: [
-        'Ciao%NAME%, la tua partnership con Tuggi è stata approvata e hai ricevuto Tuggi Pro! 🎉',
-        'Apri l’app Tuggi per vedere il tuo QR code e goderti tutti i vantaggi Pro.',
-        'Benvenuto(a) nella rete di partner Tuggi.',
+        'Ciao%NAME%, la tua richiesta è stata approvata e la partnership è già attiva.',
+        'Da ora, chi arriva su Tuggi per la prima volta dal tuo QR o dal tuo @ resta collegato a te, e i suoi acquisti ti fanno guadagnare una commissione alla percentuale concordata con il team.',
+        'Il tuo QR e il tuo @ sono nell’app, pronti da condividere.',
       ],
       cta: 'Apri Tuggi',
     },
   },
   rejected: {
     push: {
-      title: 'Sulla tua registrazione Tuggi',
-      body: 'C’è un aggiornamento sulla tua registrazione partner.',
+      title: 'Richiesta non approvata',
+      body: 'Guarda il motivo nell’app e inviala di nuovo quando vuoi.',
     },
     email: {
-      subject: 'Sulla tua registrazione partner Tuggi',
-      heading: 'Registrazione non approvata',
+      subject: 'La tua richiesta di partnership non è stata approvata',
+      heading: 'Richiesta non approvata',
       paragraphs: [
-        'Ciao%NAME%, purtroppo la tua registrazione partner non è stata approvata questa volta.',
-        'Per qualsiasi domanda, rispondi a questa email.',
+        'Ciao%NAME%, il team ha esaminato la tua richiesta di partnership e questa volta non è stata approvata.',
+        'Puoi correggerla e inviarla di nuovo dall’app quando vuoi.',
       ],
       reasonLabel: 'Motivo:',
     },
