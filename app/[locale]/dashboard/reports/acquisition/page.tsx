@@ -9,6 +9,7 @@ import { useTranslations } from 'next-intl'
 import { StatCard, StatCardRow } from '@/components/ui/StatCard'
 import { WidgetCard, SectionHeader } from '@/components/dashboard/WidgetCard'
 import { RankRow } from '@/components/dashboard/reports/acquisition/RankRow'
+import { AcquisitionFunnel } from '@/components/dashboard/reports/acquisition/AcquisitionFunnel'
 import { useAcquisition, useAcquisitionMonths } from '@/lib/hooks/use-acquisition'
 import type { AcquisitionCity, AcquisitionCountry } from '@/lib/services/acquisition-service'
 import { splitCities, splitCountries, rankMax, dailyAverage, hasOriginCoverage } from '@/lib/acquisition/split'
@@ -324,6 +325,9 @@ export default function AcquisitionReportPage() {
           })}
         </p>
       )}
+
+      {/* the funnel from store to sign-up (#1171): its own read, so a failure there leaves the geography intact */}
+      <AcquisitionFunnel month={month} platforms={acq?.platforms} />
     </div>
   )
 }

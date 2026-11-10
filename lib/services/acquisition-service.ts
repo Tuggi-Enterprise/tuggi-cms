@@ -1,4 +1,5 @@
 import { getSupabaseClient } from '@/lib/core/supabase-client'
+import { parseAcquisitionFunnel, type AcquisitionFunnel } from '@/lib/acquisition/funnel'
 
 // ============================================================================
 // acquisition-service — de onde vieram os usuários novos, com conta ou convidado.
@@ -193,6 +194,21 @@ export const acquisitionService = {
       console.error('Error fetching acquisition:', error?.message || error)
       return { success: false, error: error?.message || 'Unknown error' }
     }
+  },
+
+  /**
+   * The acquisition funnel of a month (#1171): stores, website and search, from
+   * `social.acquisition_funnel` (contract banco-para-cms Parte 28). Admin only, by the RLS of `social.*`;
+   * the reading of `null` lives in `lib/acquisition/funnel.ts`.
+   */
+  async getFunnel(month: string): Promise<{ success: boolean; data?: AcquisitionFunnel; error?: string }> {
+    const supabase = getSupabaseClient()
+    const { data, error } = await supabase.schema('social').rpc('acquisition_funnel', { p_month: month })
+    if (error) {
+      console.error('Error fetching acquisition funnel:', error.code ?? error.message)
+      return { success: false, error: error.message }
+    }
+    return { success: true, data: parseAcquisitionFunnel(data) }
   },
 
   /** Meses com dados, do mais recente para o mais antigo. Popula o filtro. */

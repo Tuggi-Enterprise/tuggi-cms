@@ -953,7 +953,121 @@
           "country_unidentified": "Country not identified",
           "country_hint": "The boundary catalogue holds seven countries. Users born elsewhere have no country even with a coordinate.",
           "platform_unknown": "Not recorded",
-          "platform_hint": "The system of the device the user started on, not the current one."
+          "platform_hint": "The system of the device the user started on, not the current one.",
+          "funnel_section": {
+            "title": "From store to sign-up",
+            "subtitle": "What each source counts, and since when."
+          },
+          "store_names": {
+            "app_store": "App Store",
+            "play_store": "Google Play"
+          },
+          "stores": {
+            "title": "Funnel by store",
+            "subtitle": "From store impression to entering the app, App Store and Google Play side by side.",
+            "impressions": "Store impressions",
+            "impressions_hint": "Times the app showed up in the store, in search, lists or features. Counted by the store.",
+            "page_views": "Page views",
+            "page_views_hint": "Times the app's store page was opened. Counted by the store.",
+            "downloads": "Downloads",
+            "downloads_hint": "Downloads counted by the store itself.",
+            "installs": "Installs (GA4)",
+            "installs_hint": "First app open after install, counted by the app's GA4. Reinstalling on the same device counts again.",
+            "entered": "Entered",
+            "entered_hint": "Got past the Terms this month, with an account or as a guest, by the system of the device they started on. Same base as New users.",
+            "entered_unassigned": "{count} with no system recorded are left out of both columns.",
+            "ruler_break": "Counts from different sources, no percentage",
+            "ruler_break_hint": "The store counts the download, GA4 counts the first app open and our database counts who got past the Terms. Someone who downloads and never opens stays only in the store, and a reinstall counts again in GA4. That is why the numbers don't match and are not divided by each other.",
+            "play_no_impressions": "Google Play does not report impressions.",
+            "badge_bank": "database"
+          },
+          "sources": {
+            "title": "Where store visits come from",
+            "subtitle": "By source, in each store. Conversion is downloads over impressions on the App Store and over page views on Google Play.",
+            "col_source": "Source",
+            "col_conversion": "Page conversion",
+            "total": "Total",
+            "store_search": "Store search",
+            "store_search_hint": "Found the app by searching inside the store.",
+            "store_browse": "Store browsing",
+            "store_browse_hint": "The store's own lists, categories and features.",
+            "web_referrer": "Website link",
+            "web_referrer_hint": "A link on a web page, our site included.",
+            "app_referrer": "Another app",
+            "app_referrer_hint": "A link inside another app.",
+            "third_party": "External link",
+            "third_party_hint": "Google Play only: came from outside the store, through a site or an app. Play does not tell them apart.",
+            "other": "Other",
+            "other_hint": "Source the store does not report or that fits none of the rows above."
+          },
+          "site": {
+            "title": "Website, by channel",
+            "subtitle": "Sessions, users and store button clicks, from the website's GA4.",
+            "col_channel": "Channel",
+            "col_sessions": "Sessions",
+            "col_users": "Users",
+            "col_users_hint": "Sum of each day's users, from GA4. Someone who returns on another day counts again, so it is not a count of people.",
+            "col_clicks_app_store": "App Store clicks",
+            "col_clicks_play_store": "Google Play clicks",
+            "clicks_hint": "Taps on a store button on the website, from the click_store event.",
+            "channels": {
+              "Direct": "Direct",
+              "Direct_hint": "Typed address, bookmark or a link with no known source.",
+              "Organic_Search": "Organic search",
+              "Organic_Search_hint": "Search engine result, not an ad.",
+              "Organic_Social": "Organic social",
+              "Organic_Social_hint": "Link on a social network, not an ad.",
+              "AI_Assistant": "AI assistants",
+              "Email": "Email",
+              "Referral": "Other websites",
+              "Referral_hint": "A link on another site that is not a search engine or social network.",
+              "Unassigned": "Unassigned",
+              "Unassigned_hint": "GA4 got the session without data to classify it.",
+              "other": "Other",
+              "other_hint": "The remaining GA4 channels, added up: {channels}."
+            },
+            "campaigns_link": "See Instagram by campaign"
+          },
+          "search": {
+            "title": "Search",
+            "subtitle": "What people typed before reaching us.",
+            "play_title": "Google Play search terms",
+            "play_caption": "The 20 terms with the most downloads this month. App Store is left out: the Apple report we collect has no search term.",
+            "col_term": "Term",
+            "empty_terms": "No search terms this month.",
+            "google_title": "Google queries",
+            "google_caption": "The 20 queries with the most clicks to the website, from Search Console.",
+            "col_query": "Query",
+            "col_clicks": "Clicks",
+            "col_impressions": "Impressions",
+            "col_position": "Avg. position",
+            "position_hint": "The site's average place in Google results. 1 is the top.",
+            "empty_queries": "No queries this month."
+          },
+          "uninstalls": {
+            "col_installs_store": "Installs (store)",
+            "installs_store_hint": "Counted by the store, not GA4. That is why they differ from the installs in the funnel.",
+            "col_uninstalls": "Uninstalls"
+          },
+          "funnel_failed": "Could not load this month's funnel. Try again.",
+          "coverage": {
+            "floor_badge": "floor",
+            "since_badge": "since {date}",
+            "no_data_badge": "no data",
+            "partial": "{source}: collected since {date}. The numbers are a floor: the full month may have more.",
+            "through": "{source}: data through {date}. The numbers are a floor: the full month may have more.",
+            "no_rows": "{source}: no day collected this month yet.",
+            "none_not_configured": "{source}: no data, the collector is not set up yet.",
+            "none_before_start": "{source}: no data this month, collection starts on {date}.",
+            "lag": "The last few days may still go up: Apple closes a day within 3 days and Google Play within 7.",
+            "source": {
+              "apple_store": "App Store",
+              "play": "Google Play",
+              "site_channels": "Website GA4",
+              "search_console": "Search Console",
+              "ga4": "App GA4"
+            }
+          }
         },
         "ranking": {
           "title": "Scoring scoreboard"

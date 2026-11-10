@@ -12,7 +12,7 @@
  * columns print "sem dado", not zero.
  */
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Megaphone } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import {
@@ -44,6 +44,9 @@ export function sortCampaigns(rows: CampaignRow[], sort: SortState<SortKey> | nu
     return (va - vb) * sort.dir
   })
 }
+
+/** The anchor of this section, linked from the Acquisition page's website card (#1171). */
+export const CAMPAIGNS_ANCHOR = 'campaigns'
 
 export function SocialCampaigns({ data }: { data: OverviewPayload }) {
   const t = useTranslations('Pages.Social.campaigns')
@@ -77,42 +80,50 @@ export function SocialCampaigns({ data }: { data: OverviewPayload }) {
       fmtInt(v)
     )
 
+  // The Acquisition page links here (`/admin/social#campaigns`, #1171). The section renders after the
+  // overview read answers, past the moment the browser looks for the anchor, so it scrolls itself.
+  useEffect(() => {
+    if (window.location.hash === `#${CAMPAIGNS_ANCHOR}`) document.getElementById(CAMPAIGNS_ANCHOR)?.scrollIntoView({ block: 'start' })
+  }, [])
+
   return (
-    <SocialCard title={t('title')} icon={Megaphone} note={t('note')}>
-      {appleNote && <p className={`mb-3 text-xs ${DIM}`}>{appleNote}</p>}
-      {data.campaigns.length === 0 ? (
-        <p className="text-sm italic text-gray-500">{t('empty')}</p>
-      ) : (
-        <DenseTableScroller label={t('table_label')} maxHeightClassName="max-h-[28rem]">
-          <table className="w-max min-w-full border-collapse">
-            <thead>
-              <tr>
-                <th scope="col" className={`${HEAD_SOLO} w-[200px]`}>
-                  {t('col_campaign')}
-                </th>
-                {head('clicks_app_store', t('col_clicks_app_store'), storeHint)}
-                {head('clicks_play_store', t('col_clicks_play_store'), storeHint)}
-                {head('downloads_ios', downloadsLabel, appleNote ?? t('downloads_hint'))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.campaign} className="border-t border-gray-100 dark:border-gray-800">
-                  <td className={`${CELL} max-w-[200px] truncate font-mono text-xs`} title={r.campaign}>
-                    {r.campaign}
-                  </td>
-                  <td className={NUM}>{cell(data.clicks_by_store ? r.clicks_app_store : null, storeHint)}</td>
-                  <td className={NUM}>{cell(data.clicks_by_store ? r.clicks_play_store : null, storeHint)}</td>
-                  <td className={NUM}>
-                    {r.downloads_ios === null ? <span className={DIM}>{UNKNOWN_VALUE}</span> : fmtInt(r.downloads_ios)}
-                  </td>
+    <div id={CAMPAIGNS_ANCHOR} className="scroll-mt-20">
+      <SocialCard title={t('title')} icon={Megaphone} note={t('note')}>
+        {appleNote && <p className={`mb-3 text-xs ${DIM}`}>{appleNote}</p>}
+        {data.campaigns.length === 0 ? (
+          <p className="text-sm italic text-gray-500">{t('empty')}</p>
+        ) : (
+          <DenseTableScroller label={t('table_label')} maxHeightClassName="max-h-[28rem]">
+            <table className="w-max min-w-full border-collapse">
+              <thead>
+                <tr>
+                  <th scope="col" className={`${HEAD_SOLO} w-[200px]`}>
+                    {t('col_campaign')}
+                  </th>
+                  {head('clicks_app_store', t('col_clicks_app_store'), storeHint)}
+                  {head('clicks_play_store', t('col_clicks_play_store'), storeHint)}
+                  {head('downloads_ios', downloadsLabel, appleNote ?? t('downloads_hint'))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </DenseTableScroller>
-      )}
-      <p className={`mt-2 text-[11px] ${DIM}`}>{t('footer')}</p>
-    </SocialCard>
+              </thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={r.campaign} className="border-t border-gray-100 dark:border-gray-800">
+                    <td className={`${CELL} max-w-[200px] truncate font-mono text-xs`} title={r.campaign}>
+                      {r.campaign}
+                    </td>
+                    <td className={NUM}>{cell(data.clicks_by_store ? r.clicks_app_store : null, storeHint)}</td>
+                    <td className={NUM}>{cell(data.clicks_by_store ? r.clicks_play_store : null, storeHint)}</td>
+                    <td className={NUM}>
+                      {r.downloads_ios === null ? <span className={DIM}>{UNKNOWN_VALUE}</span> : fmtInt(r.downloads_ios)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </DenseTableScroller>
+        )}
+        <p className={`mt-2 text-[11px] ${DIM}`}>{t('footer')}</p>
+      </SocialCard>
+    </div>
   )
 }

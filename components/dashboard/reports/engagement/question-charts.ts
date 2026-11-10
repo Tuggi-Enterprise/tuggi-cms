@@ -50,6 +50,8 @@ export interface StepFunnelRow {
   muted: boolean
   /** Tooltip and screen reader: what the row says in words. */
   title: string
+  /** The badge of a hollow row when it is not the funnel's default (`ga4`): two instruments, two badges (#1171). */
+  badge?: string
 }
 
 /** Height of a row and the room around the bars, px (spec §E4). */

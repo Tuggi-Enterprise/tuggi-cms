@@ -38,13 +38,27 @@ function TooltipBox({ active, payload }: { active?: boolean; payload?: Array<{ p
   return <div className="max-w-xs rounded-xl bg-white px-3 py-2 text-xs text-gray-800 shadow-lg">{d.title}</div>
 }
 
+/** Width of one character of the value text (11 px monospace) and of the badge (9 px plus letter spacing), px. */
+const VALUE_CHAR_PX = 6.8
+const BADGE_CHAR_PX = 6.5
+const VALUE_GAP_PX = 6
+
+/**
+ * The room right of the bars, px: 88 by default, wider when the longest text would be cut, because the
+ * text of the longest bar sits past its end ("≥ 1.020 · 24,3%" of a floor, #1171).
+ */
+export function valueMargin(rows: StepFunnelRow[], ga4: string): number {
+  const need = Math.max(0, ...rows.map((r) => r.display.length * VALUE_CHAR_PX + (r.hollow ? VALUE_GAP_PX + (r.badge ?? ga4).length * BADGE_CHAR_PX : 0)))
+  return Math.max(88, Math.ceil(need + 2 * VALUE_GAP_PX))
+}
+
 export function StepFunnel({ label, rows, max, ga4 }: { label: string; rows: StepFunnelRow[]; max: number; ga4: string }) {
   const wide = useWide()
   const axis = wide ? 128 : 96
   return (
     <div role="img" aria-label={label} data-testid="step-funnel">
       <ResponsiveContainer width="100%" height={stepFunnelHeight(rows.length)}>
-        <BarChart data={rows.map((r) => ({ ...r, end: Math.max(1, max) / 1000 }))} layout="vertical" margin={{ top: 8, right: 88, bottom: 8, left: 0 }} barCategoryGap={8}>
+        <BarChart data={rows.map((r) => ({ ...r, end: Math.max(1, max) / 1000 }))} layout="vertical" margin={{ top: 8, right: valueMargin(rows, ga4), bottom: 8, left: 0 }} barCategoryGap={8}>
           <XAxis type="number" hide domain={[0, Math.max(1, max)]} />
           <YAxis
             type="category"
@@ -87,7 +101,7 @@ export function StepFunnel({ label, rows, max, ga4 }: { label: string; rows: Ste
                     {/* the other instrument says so beside its number, in the badge's grey (spec §E6) */}
                     {r.hollow && (
                       <tspan dx={6} fontSize={9} fontWeight={400} fill="#6b7280" letterSpacing={1}>
-                        {ga4}
+                        {r.badge ?? ga4}
                       </tspan>
                     )}
                   </text>

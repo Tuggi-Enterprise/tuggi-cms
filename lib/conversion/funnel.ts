@@ -102,7 +102,7 @@ export function rateOfEntered(value: number, entered: number): number | null {
 /** "N installed and did not enter": only when installs is measured and not a floor. */
 
 /** A share of a base; a zero or unknown base prints no rate (DS-COMPONENTE-084 item 2). */
-function rateOf(value: number | null, base: number | null): number | null {
+export function rateOf(value: number | null, base: number | null): number | null {
   return value === null || base === null || base <= 0 ? null : value / base
 }
 
@@ -178,10 +178,11 @@ export function readPurchaseFunnel(f: ConversionFunnel): PurchaseFunnelView {
 
 // ── Step funnels of Parte E (#1161, spec §E6) ────────────────────────────────────────────────
 
-export type StepSource = 'bank' | 'ga4'
+export type StepSource = 'bank' | 'ga4' | 'store'
 /** `unknown`: no number (no source, not sent, failed or filtered); `reason` says which. */
 export type StepState = 'measured' | 'floor' | 'unknown'
-export type StepReason = 'before_source' | 'no_source' | 'source_failed' | 'filter' | 'loading'
+/** `not_measured`: the source never takes this step (Google Play has no impressions); it is never the base. */
+export type StepReason = 'before_source' | 'no_source' | 'source_failed' | 'filter' | 'loading' | 'not_measured'
 
 export interface StepInput {
   key: string
@@ -226,7 +227,8 @@ export interface StepFunnelView {
  * `SUMMARY_MIN_BASE` or more (DS-COMPONENTE-100 item 1) and no tie after rounding to whole points.
  */
 export function readStepFunnel(source: StepSource, inputs: StepInput[]): StepFunnelView {
-  const full = inputs.filter((s) => s.source === source)
+  // A step the source does not measure is not the start of its funnel: the base is the first one it takes.
+  const full = inputs.filter((s) => s.source === source && s.reason !== 'not_measured')
   const base = full[0]?.value ?? null
   let previous: number | null = null
   const steps: FunnelStep[] = inputs.map((s) => {

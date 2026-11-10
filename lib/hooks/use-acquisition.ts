@@ -24,3 +24,22 @@ export function useAcquisitionMonths() {
     staleTime: 30 * 60 * 1000,
   })
 }
+
+/**
+ * The acquisition funnel of a month (#1171). The collectors write once a day, so a short cache buys no
+ * new data; a failure stays a failure (`success: false`), never an empty month.
+ */
+export function useAcquisitionFunnel(month: string) {
+  return useQuery({
+    queryKey: ['acquisition-funnel', month],
+    queryFn: async () => {
+      const res = await acquisitionService.getFunnel(month)
+      if (!res.success || !res.data) throw new Error(res.error ?? 'acquisition_funnel failed')
+      return res.data
+    },
+    staleTime: 10 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+    retry: 1,
+    enabled: !!month,
+  })
+}

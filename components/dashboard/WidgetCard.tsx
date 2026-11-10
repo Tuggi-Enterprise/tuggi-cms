@@ -79,7 +79,7 @@ export function SectionHeader({
       ) : href ? (
         <Link
           href={href}
-          className="group flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-gray-400 hover:text-tuggi-blue transition-colors shrink-0"
+          className="group flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-gray-500 dark:text-gray-400 hover:text-primary-800 dark:hover:text-tuggi-blue transition-colors shrink-0"
         >
           {linkLabel}
           <ArrowRight className="h-3 w-3 transition-transform group-hover:translate-x-0.5" />

@@ -951,7 +951,121 @@
           "country_unidentified": "País não identificado",
           "country_hint": "O catálogo de fronteiras tem sete países. Usuários nascidos fora deles ficam sem país mesmo tendo coordenada.",
           "platform_unknown": "Não registrado",
-          "platform_hint": "Sistema do aparelho em que o usuário começou, não o atual."
+          "platform_hint": "Sistema do aparelho em que o usuário começou, não o atual.",
+          "funnel_section": {
+            "title": "Da loja ao cadastro",
+            "subtitle": "O que cada fonte conta, e desde quando."
+          },
+          "store_names": {
+            "app_store": "App Store",
+            "play_store": "Google Play"
+          },
+          "stores": {
+            "title": "Funil por loja",
+            "subtitle": "Da impressão na loja até entrar no app, App Store e Google Play lado a lado.",
+            "impressions": "Impressões na loja",
+            "impressions_hint": "Vezes que o app apareceu na loja, em busca, lista ou destaque. Contado pela loja.",
+            "page_views": "Visitas à página",
+            "page_views_hint": "Vezes que a página do app na loja foi aberta. Contado pela loja.",
+            "downloads": "Downloads",
+            "downloads_hint": "Downloads contados pela própria loja.",
+            "installs": "Instalações (GA4)",
+            "installs_hint": "Primeira abertura do app depois de instalar, contada pelo GA4 do app. Reinstalar no mesmo aparelho conta de novo.",
+            "entered": "Entrou",
+            "entered_hint": "Passou dos Termos no mês, com conta ou como convidado, pelo sistema do aparelho em que começou. A mesma base de Novos usuários.",
+            "entered_unassigned": "{count} sem sistema registrado ficam fora das duas colunas.",
+            "ruler_break": "Contagens de fontes diferentes, sem porcentagem",
+            "ruler_break_hint": "A loja conta o download, o GA4 conta a primeira abertura do app e o banco conta quem passou dos Termos. Quem baixa e não abre fica só na loja, e quem reinstala conta de novo no GA4. Por isso os números não batem e não se dividem um pelo outro.",
+            "play_no_impressions": "O Google Play não informa impressões.",
+            "badge_bank": "banco"
+          },
+          "sources": {
+            "title": "De onde vem a visita na loja",
+            "subtitle": "Por origem, em cada loja. A conversão é downloads sobre impressões na App Store e sobre visitas no Google Play.",
+            "col_source": "Origem",
+            "col_conversion": "Conversão da página",
+            "total": "Total",
+            "store_search": "Busca na loja",
+            "store_search_hint": "Achou o app buscando dentro da loja.",
+            "store_browse": "Navegação na loja",
+            "store_browse_hint": "Listas, categorias e destaques da própria loja.",
+            "web_referrer": "Link em site",
+            "web_referrer_hint": "Link numa página da web, inclusive o nosso site.",
+            "app_referrer": "Outro app",
+            "app_referrer_hint": "Link dentro de outro app.",
+            "third_party": "Link externo",
+            "third_party_hint": "Só no Google Play: veio de fora da loja, por site ou app. O Play não separa um do outro.",
+            "other": "Outros",
+            "other_hint": "Origem que a loja não informa ou que não cabe nas linhas acima."
+          },
+          "site": {
+            "title": "Site, por canal",
+            "subtitle": "Sessões, usuários e cliques nos botões das lojas, pelo GA4 do site.",
+            "col_channel": "Canal",
+            "col_sessions": "Sessões",
+            "col_users": "Usuários",
+            "col_users_hint": "Soma dos usuários de cada dia, pelo GA4. Quem volta em outro dia conta de novo, então não é o número de pessoas.",
+            "col_clicks_app_store": "Cliques App Store",
+            "col_clicks_play_store": "Cliques Google Play",
+            "clicks_hint": "Toques num botão da loja no site, pelo evento click_store.",
+            "channels": {
+              "Direct": "Direto",
+              "Direct_hint": "Endereço digitado, favorito ou link sem origem conhecida.",
+              "Organic_Search": "Busca orgânica",
+              "Organic_Search_hint": "Resultado de buscador, sem anúncio.",
+              "Organic_Social": "Redes sociais",
+              "Organic_Social_hint": "Link em rede social, sem anúncio.",
+              "AI_Assistant": "Assistentes de IA",
+              "Email": "E-mail",
+              "Referral": "Outros sites",
+              "Referral_hint": "Link em outro site que não é buscador nem rede social.",
+              "Unassigned": "Sem canal",
+              "Unassigned_hint": "O GA4 recebeu a sessão sem dado para classificar.",
+              "other": "Outros",
+              "other_hint": "Os demais canais do GA4, somados: {channels}."
+            },
+            "campaigns_link": "Ver Instagram por campanha"
+          },
+          "search": {
+            "title": "Busca",
+            "subtitle": "O que as pessoas digitaram antes de chegar até nós.",
+            "play_title": "Termos no Google Play",
+            "play_caption": "Os 20 termos com mais downloads no mês. A App Store fica de fora: o relatório da Apple que coletamos não traz o termo.",
+            "col_term": "Termo",
+            "empty_terms": "Nenhum termo de busca no mês.",
+            "google_title": "Consultas no Google",
+            "google_caption": "As 20 consultas com mais cliques para o site, pelo Search Console.",
+            "col_query": "Consulta",
+            "col_clicks": "Cliques",
+            "col_impressions": "Impressões",
+            "col_position": "Posição média",
+            "position_hint": "Lugar médio do site no resultado do Google. 1 é o topo.",
+            "empty_queries": "Nenhuma consulta no mês."
+          },
+          "uninstalls": {
+            "col_installs_store": "Instalações (loja)",
+            "installs_store_hint": "Contadas pela loja, não pelo GA4. Por isso diferem das instalações do funil.",
+            "col_uninstalls": "Desinstalações"
+          },
+          "funnel_failed": "Não foi possível carregar o funil deste mês. Tente de novo.",
+          "coverage": {
+            "floor_badge": "piso",
+            "since_badge": "desde {date}",
+            "no_data_badge": "sem dado",
+            "partial": "{source}: coleta desde {date}. Os números são piso: o mês inteiro pode ter mais.",
+            "through": "{source}: dados até {date}. Os números são piso: o mês inteiro pode ter mais.",
+            "no_rows": "{source}: nenhum dia coletado neste mês ainda.",
+            "none_not_configured": "{source}: sem dado, o coletor ainda não foi configurado.",
+            "none_before_start": "{source}: sem dado neste mês, a coleta começa em {date}.",
+            "lag": "Os últimos dias ainda podem subir: a Apple fecha o dia em até 3 dias e o Google Play em até 7.",
+            "source": {
+              "apple_store": "App Store",
+              "play": "Google Play",
+              "site_channels": "GA4 do site",
+              "search_console": "Search Console",
+              "ga4": "GA4 do app"
+            }
+          }
         },
         "ranking": {
           "title": "Placar de pontuação"
