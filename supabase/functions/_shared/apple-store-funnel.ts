@@ -5,13 +5,18 @@
 // Source Type, into `social.store_listing_daily`; and how many installs and deletes per day into
 // `social.store_installs_daily`. Same ONGOING request, same key and same helpers as `apple-downloads.ts`.
 //
-// Import-free: `fetch`, the clock and the database are parameters. Checked 2026-11-09 against the
-// official documentation (developer.apple.com/documentation/analytics-reports: app-store-discovery-and-
-// engagement, app-download, app-installs). The report `name` in the API carries the level suffix
-// ("Some reports have two content levels, Standard or Detailed, which the report's name reflects with a
-// suffix"); the installs report is titled "App Store Installations and Deletions" in the documentation.
-// No real segment was read when this was written: if the first one differs from the names below, the
-// file wins, and the fixtures of `_tests/apple-store-funnel.test.ts` follow it.
+// Import-free: `fetch`, the clock and the database are parameters.
+//
+// Report names, checked 2026-11-09. The documentation (developer.apple.com/documentation/analytics-reports:
+// app-store-discovery-and-engagement, app-download, app-installs) gives the titles ("App Store Downloads",
+// "App Store Installations and Deletions") and says the `name` in the API carries the level suffix, but
+// not the literal `name`. The first run (2026-11-10) listed "App Store Discovery and Engagement Standard"
+// and no "App Store Downloads Standard", so the title is not the name. The names below are the ones the
+// open-source ingestr connector reads in production (bruin-data/ingestr, pkg/source/appstore/appstore.go:
+// "App Downloads Detailed", "App Store Installation and Deletion Detailed",
+// "App Store Discovery and Engagement Detailed"), at the Standard level. When one is not listed, the
+// detail names every report the request lists in that report's category, so the next run shows the
+// right name.
 
 import {
   type AppleConfig,
@@ -30,10 +35,20 @@ import {
 /** The three Standard reports, by the `name` App Store Connect lists them under. */
 export const STORE_REPORTS = {
   discovery: 'App Store Discovery and Engagement Standard',
-  downloads: 'App Store Downloads Standard',
+  downloads: 'App Downloads Standard',
   installs: 'App Store Installation and Deletion Standard',
 } as const;
 export type StoreReport = keyof typeof STORE_REPORTS;
+
+/**
+ * The `category` of each report (the enum of `AnalyticsReport.attributes`; the documentation files
+ * Downloads under App Store Commerce and Installations and Deletions under App Usage).
+ */
+export const STORE_REPORT_CATEGORIES: Record<StoreReport, string> = {
+  discovery: 'APP_STORE_ENGAGEMENT',
+  downloads: 'COMMERCE',
+  installs: 'APP_USAGE',
+};
 
 export type StoreSource = 'store_search' | 'store_browse' | 'web_referrer' | 'app_referrer' | 'other';
 
@@ -187,20 +202,34 @@ export interface StoreFunnelDeps {
   coveredFrom: string | null;
 }
 
-/** Every report the request lists, following `links.next`. */
+/** Every report the request lists, by name, following `links.next`. */
 async function listReports(fetchFn: FetchFn, token: string, requestId: string) {
-  const found = new Map<string, string>();
+  const found = new Map<string, { id: string; category: string | null }>();
   let path: string | null = `/v1/analyticsReportRequests/${requestId}/reports?limit=200`;
   for (let page = 0; path && page < 10; page++) {
     const body: Record<string, unknown> = await asc(fetchFn, token, path);
     for (const r of dataOf(body)) {
       const name = r.attributes?.name;
-      if (typeof name === 'string' && typeof r.id === 'string') found.set(name, r.id);
+      const category = r.attributes?.category;
+      if (typeof name === 'string' && typeof r.id === 'string') {
+        found.set(name, { id: r.id, category: typeof category === 'string' ? category : null });
+      }
     }
     const next = (body.links as { next?: unknown } | undefined)?.next;
     path = typeof next === 'string' && next.startsWith(ASC_HOST) ? next.slice(ASC_HOST.length) : null;
   }
   return found;
+}
+
+/**
+ * What the request lists in a category, names only, for the detail of a missing report: the next run
+ * shows the right name if ours is wrong. A listing without categories falls back to every name.
+ */
+export function missingHint(listed: Map<string, { category: string | null }>, category: string): string {
+  const all = [...listed.entries()];
+  const typed = all.some(([, r]) => r.category !== null);
+  const names = all.filter(([, r]) => !typed || r.category === category).map(([n]) => n).sort();
+  return `${typed ? category : 'listed'}: ${names.length > 0 ? names.join(', ') : 'none'}`;
 }
 
 export async function collectAppleStoreFunnel(deps: StoreFunnelDeps): Promise<StoreFunnelResult> {
@@ -253,10 +282,10 @@ export async function collectAppleStoreFunnel(deps: StoreFunnelDeps): Promise<St
 
   for (const key of Object.keys(STORE_REPORTS) as StoreReport[]) {
     const name = STORE_REPORTS[key];
-    const reportId = listed.get(name);
+    const reportId = listed.get(name)?.id;
     if (!reportId) {
       result.reports[key] = 'missing';
-      result.errors.push(`${name}: apple_report_missing`);
+      result.errors.push(`${name}: apple_report_missing (${missingHint(listed, STORE_REPORT_CATEGORIES[key])})`);
       continue;
     }
     try {

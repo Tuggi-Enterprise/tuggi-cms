@@ -5,14 +5,16 @@
  * Two daily instances per report; the later one (processed 2026-11-08) corrects 2026-11-06.
  */
 import { assert, assertEquals } from './assert.ts';
-import { APPLE_APP_ID, type AppleConfig, ASC_HOST } from '../_shared/apple-downloads.ts';
+import { APPLE_APP_ID, APPLE_REPORT_NAME, type AppleConfig, ASC_HOST } from '../_shared/apple-downloads.ts';
 import {
   collectAppleStoreFunnel,
   type InstallsWrite,
   type ListingRow,
   parseDiscovery,
   parseInstalls,
+  missingHint,
   parseStoreDownloads,
+  STORE_REPORT_CATEGORIES,
   STORE_REPORTS,
   storeSource,
 } from '../_shared/apple-store-funnel.ts';
@@ -41,7 +43,17 @@ const REPORT_IDS: Record<string, string> = {
   [STORE_REPORTS.discovery]: 'rep-discovery',
   [STORE_REPORTS.downloads]: 'rep-downloads',
   [STORE_REPORTS.installs]: 'rep-installs',
-  'App Store Downloads Detailed': 'rep-detailed',
+  [APPLE_REPORT_NAME]: 'rep-detailed',
+};
+
+/** The `category` App Store Connect gives each report, as the API lists it. */
+const CATEGORIES: Record<string, string> = {
+  [STORE_REPORTS.discovery]: 'APP_STORE_ENGAGEMENT',
+  [STORE_REPORTS.downloads]: 'COMMERCE',
+  [STORE_REPORTS.installs]: 'APP_USAGE',
+  [APPLE_REPORT_NAME]: 'COMMERCE',
+  'App Store Purchases Standard': 'COMMERCE',
+  'App Sessions Standard': 'APP_USAGE',
 };
 
 interface RigOptions {
@@ -69,7 +81,10 @@ function rig(opts: RigOptions = {}) {
       return json({ data: [{ id: 'req-1', attributes: { accessType: 'ONGOING', stoppedDueToInactivity: false } }] });
     }
     if (u.pathname === '/v1/analyticsReportRequests/req-1/reports') {
-      const all = names.map((name) => ({ id: REPORT_IDS[name] ?? `rep-${name}`, attributes: { name } }));
+      const all = names.map((name) => ({
+        id: REPORT_IDS[name] ?? `rep-${name}`,
+        attributes: { name, category: CATEGORIES[name] ?? 'FRAMEWORK_USAGE' },
+      }));
       const half = Math.ceil(all.length / 2);
       if (u.searchParams.get('cursor') === '2') return json({ data: all.slice(half) });
       if (u.searchParams.has('filter[name]')) {
@@ -355,7 +370,7 @@ Deno.test('#1168: a full run writes both tables and covered_from; a later refuse
   assertEquals([row?.status, row?.covered_from], ['error', '2026-11-05']);
   assert(
     String(row?.detail).includes(
-      'App Store Downloads Standard: apple_403 FORBIDDEN_ERROR: The API key [redacted] in use',
+      'App Downloads Standard: apple_403 FORBIDDEN_ERROR: The API key [redacted] in use',
     ),
     String(row?.detail),
   );
@@ -404,14 +419,21 @@ Deno.test('#1168: Apple refusing everything records error with its words, keeps 
   assertEquals(run('daily')?.status, 'ok');
 });
 
-Deno.test('#1168: a report the request does not list is an error naming it; the other two are written', async () => {
+Deno.test('#1168: a report the request does not list is an error naming it and what its category lists; the other two are written', async () => {
   const { s, tables, run } = store();
-  const names = [STORE_REPORTS.discovery, STORE_REPORTS.installs, 'App Store Downloads Detailed'];
+  const names = [
+    STORE_REPORTS.discovery,
+    STORE_REPORTS.installs,
+    APPLE_REPORT_NAME,
+    'App Store Purchases Standard',
+    'App Sessions Standard',
+  ];
   const report = await runSocialCollect(deps(s, { config: await config(), fetch: rig({ names }).fetch }));
   assertEquals(report.apple_store, 'partial');
+  // Only names of the downloads category (COMMERCE), never an id, a key or a report of another category.
   assertEquals([run('apple_store')?.status, run('apple_store')?.detail], [
     'error',
-    'App Store Downloads Standard: apple_report_missing',
+    'App Downloads Standard: apple_report_missing (COMMERCE: App Downloads Detailed, App Store Purchases Standard)',
   ]);
   assertEquals(run('apple_store')?.covered_from, '2026-11-05');
   // Without the downloads report the column stays out of the upsert (null in the table), never 0.
@@ -422,4 +444,24 @@ Deno.test('#1168: a report the request does not list is an error naming it; the 
     downloads: undefined,
   });
   assertEquals(tables.store_installs_daily.size, 3);
+});
+
+Deno.test('#1168: the names adopted for the API, and the hint of a missing report by category, none, or every name', () => {
+  assertEquals(STORE_REPORTS, {
+    discovery: 'App Store Discovery and Engagement Standard',
+    downloads: 'App Downloads Standard',
+    installs: 'App Store Installation and Deletion Standard',
+  });
+  assertEquals(APPLE_REPORT_NAME, 'App Downloads Detailed');
+  assertEquals(STORE_REPORT_CATEGORIES.downloads, 'COMMERCE');
+  const typed = new Map([
+    ['App Sessions Standard', { category: 'APP_USAGE' }],
+    ['App Store Installation and Deletion Standard', { category: 'APP_USAGE' }],
+    ['App Downloads Detailed', { category: 'COMMERCE' }],
+  ]);
+  assertEquals(missingHint(typed, 'APP_USAGE'), 'APP_USAGE: App Sessions Standard, App Store Installation and Deletion Standard');
+  assertEquals(missingHint(typed, 'APP_STORE_ENGAGEMENT'), 'APP_STORE_ENGAGEMENT: none');
+  // A listing that carries no category names every report, so the hint is never empty by our filter.
+  const untyped = new Map([['B report', { category: null }], ['A report', { category: null }]]);
+  assertEquals(missingHint(untyped, 'COMMERCE'), 'listed: A report, B report');
 });

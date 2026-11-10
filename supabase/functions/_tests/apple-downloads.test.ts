@@ -6,6 +6,7 @@
 import { assert, assertEquals } from './assert.ts';
 import {
   APPLE_APP_ID,
+  APPLE_REPORT_NAME,
   type AppleConfig,
   appleConfig,
   type AppleRow,
@@ -61,7 +62,7 @@ function asc(opts: AscOptions = {}) {
     if (u.pathname === `/v1/apps/${APPLE_APP_ID}/analyticsReportRequests`) return json({ data: opts.requests ?? [] });
     if (u.pathname === '/v1/analyticsReportRequests' && init?.method === 'POST') return json({ data: { id: 'req-new', type: 'analyticsReportRequests' } }, 201);
     if (/^\/v1\/analyticsReportRequests\/[^/]+\/reports$/.test(u.pathname)) {
-      return json({ data: opts.report === false ? [] : [{ id: 'rep-1', attributes: { name: 'App Store Downloads Detailed', category: 'COMMERCE' } }] });
+      return json({ data: opts.report === false ? [] : [{ id: 'rep-1', attributes: { name: APPLE_REPORT_NAME, category: 'COMMERCE' } }] });
     }
     if (u.pathname === '/v1/analyticsReports/rep-1/instances') {
       return json({ data: [{ id: 'i2', attributes: { granularity: 'DAILY', processingDate: '2026-11-03' } }, { id: 'i1', attributes: { granularity: 'DAILY', processingDate: '2026-11-02' } }] });
@@ -122,7 +123,7 @@ Deno.test('#1062: the first run creates the ONGOING request, reads every instanc
   ]);
   // The pre-signed file URL gets no token; every App Store Connect call does.
   for (const c of rig.calls) assertEquals([c.url, c.auth?.startsWith('Bearer ') ?? false], [c.url, !c.url.includes('segments.example.com')]);
-  assert(rig.calls.some((c) => c.url.includes('filter[name]=App%20Store%20Downloads%20Detailed')), 'not the detailed report');
+  assert(rig.calls.some((c) => c.url.includes('filter[name]=App%20Downloads%20Detailed')), 'not the detailed report');
 });
 
 Deno.test('#1062: a live request is reused, a stopped one replaced; no report yet is pending', async () => {

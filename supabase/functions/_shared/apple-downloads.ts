@@ -28,7 +28,12 @@
 /** Tuggi on the App Store (`App Apple Identifier`). */
 export const APPLE_APP_ID = '6744379818';
 export const ASC_HOST = 'https://api.appstoreconnect.apple.com';
-export const APPLE_REPORT_NAME = 'App Store Downloads Detailed';
+/**
+ * The `name` App Store Connect lists the report under: not the documentation title ("App Store
+ * Downloads"), see the header of `apple-store-funnel.ts` (#1168, the first run listed no
+ * "App Store Downloads Standard").
+ */
+export const APPLE_REPORT_NAME = 'App Downloads Detailed';
 export const FIRST_TIME_DOWNLOAD = 'first-time download';
 export const APPLE_ENV = {
   keyId: 'APPLE_ASC_KEY_ID',
