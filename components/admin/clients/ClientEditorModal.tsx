@@ -259,7 +259,8 @@ export function ClientEditorModal({
   }, [])
 
   const review = validation.review
-  const partnerKind = partnerKindOf(review?.answers)
+  // #1184: the guide of the app request has no submission; its `client_type` names the kind.
+  const partnerKind = partnerKindOf(review?.answers, client?.client_type)
   const reviewAnswers = review?.answers
   const headerName = useMemo(() => {
     if (preRegistration) return reviewAnswers?.trade_name || tValidation('noTradeName')
@@ -283,8 +284,8 @@ export function ClientEditorModal({
     setError(null)
     setSuccess(null)
 
-    // Auto-set tax_id_type from country (preserve legacy behaviour). Creator, influencer and driver
-    // take it from the document, CPF or CNPJ (#1139): the country's `cnpj` over a CPF is refused by
+    // Auto-set tax_id_type from country (preserve legacy behaviour). Creator, influencer, driver and
+    // guide take it from the document, CPF or CNPJ (#1139, #1184): the country's `cnpj` over a CPF is refused by
     // the database, and saving the commission of an approved app partner would fail with it.
     const payload: Partial<Client> = { ...edited }
     const clientType = payload.client_type ?? client?.client_type ?? null
@@ -606,7 +607,7 @@ export function ClientEditorModal({
               </div>
             )}
             {activeTab === 'guide' && partnerKind === 'guide' && clientId ? (
-              <GuideProfileTab clientId={clientId} submissionId={review?.id ?? null} onPublished={() => void validation.refetch()} />
+              <GuideProfileTab clientId={clientId} submissionId={review?.id ?? null} fallbackName={headerName} onPublished={() => void validation.refetch()} />
             ) : null}
             {activeTab === 'places' && partnerKind === 'place' && (
               <PlacesTab

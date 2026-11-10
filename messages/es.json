@@ -4307,7 +4307,7 @@
         "hiddenReason": "Motivo: {reason}",
         "hide": "Ocultar en la app",
         "show": "Mostrar en la app",
-        "noConsentLine": "El guía retiró la autorización en el portal. Solo él puede volver a aparecer.",
+        "noConsentLine": "El guía aún no autorizó aparecer, o retiró la autorización. Solo él puede autorizar.",
         "hiddenDone": "Oculto en la app.",
         "shownDone": "De vuelta en la app.",
         "undo": "Deshacer",
@@ -4316,6 +4316,7 @@
         "unlisted": "Fuera de la app",
         "listedInApp": "Aparece en la app",
         "listedLocked": "Solo aparece en la app con punto de encuentro.",
+        "incompleteLocked": "Falta foto o presentación. Revisa las dos antes de marcar.",
         "setMeetingPoint": "Definir el punto de encuentro",
         "listedOn": "Marcado a las {time}.",
         "listedOff": "Desmarcado a las {time}."

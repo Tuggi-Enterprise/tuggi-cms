@@ -45,15 +45,20 @@ export interface GuideMeetingPoint {
   lng: number
 }
 
+/**
+ * Name, bio, photo and WhatsApp are `null` in the EMPTY profile the approval of an app request
+ * creates (BR-B2B-066 item 10.b, #1184): the guide fills them later, through the portal page opened
+ * in the app. A portal guide's profile is born with all of them.
+ */
 export interface GuideProfile {
   clientId: string
-  displayName: string
-  bio: string
-  photoPath: string
-  photoUrl: string
+  displayName: string | null
+  bio: string | null
+  photoPath: string | null
+  photoUrl: string | null
   languages: string[]
   specialties: string[]
-  whatsapp: string
+  whatsapp: string | null
   consent: boolean
   hidden: boolean
   hiddenReason: string | null
@@ -152,6 +157,11 @@ export async function loadGuideProfileFacts(clientIds: string[]): Promise<Map<st
   return facts
 }
 
+/** A text column of the profile, or `null` when the guide has not sent it yet (empty profile, #1184). */
+function filled(value: string | null | undefined): string | null {
+  return typeof value === 'string' && value.trim() !== '' ? value : null
+}
+
 export type GuideProfileRead = { ok: true; profile: GuideProfile | null } | { ok: false }
 
 export async function loadGuideProfile(clientId: string): Promise<GuideProfileRead> {
@@ -170,12 +180,12 @@ export async function loadGuideProfile(clientId: string): Promise<GuideProfileRe
   }
   const row = profileRead.data as {
     client_id: string
-    display_name: string
-    bio: string
-    photo_path: string
-    languages: string[]
-    specialties: string[]
-    whatsapp: string
+    display_name: string | null
+    bio: string | null
+    photo_path: string | null
+    languages: string[] | null
+    specialties: string[] | null
+    whatsapp: string | null
     public_contact_consent: boolean
     hidden: boolean
     hidden_reason: string | null
@@ -191,13 +201,13 @@ export async function loadGuideProfile(clientId: string): Promise<GuideProfileRe
     ok: true,
     profile: {
       clientId: row.client_id,
-      displayName: row.display_name,
-      bio: row.bio,
-      photoPath: row.photo_path,
-      photoUrl: guidePhotoUrl(row.photo_path),
+      displayName: filled(row.display_name),
+      bio: filled(row.bio),
+      photoPath: filled(row.photo_path),
+      photoUrl: filled(row.photo_path) ? guidePhotoUrl(row.photo_path as string) : null,
       languages: row.languages ?? [],
       specialties: row.specialties ?? [],
-      whatsapp: row.whatsapp,
+      whatsapp: filled(row.whatsapp),
       consent: row.public_contact_consent,
       hidden: row.hidden,
       hiddenReason: row.hidden_reason,

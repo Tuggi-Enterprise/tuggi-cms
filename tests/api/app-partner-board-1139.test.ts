@@ -209,7 +209,7 @@ test('BR-B2B-057 item 3 on the board: only the record approved by the request le
   assert.ok(hand?.gateMissing.includes('acceptance'))
   assert.equal(hand?.partnerKind, undefined)
 
-  assert.deepEqual(fake.markReads, [[['client_type', ['creator', 'influencer', 'driver']], ['status', 'approved']]], 'one read, by type, never by ids')
+  assert.deepEqual(fake.markReads, [[['client_type', ['creator', 'influencer', 'driver', 'tour_guide']], ['status', 'approved']]], 'one read, by type, never by ids')
 })
 
 test('a failed read of the mark fails the board instead of guessing a path', async () => {

@@ -306,9 +306,11 @@ test('BR-B2B-037 item 4: a guide linked by CNPJ keeps the slug its client alread
   assert.equal(w.clientInsert, null)
 })
 
-test('BR-B2B-064 item 2: the guide is born with commission zero, written as zero', async () => {
+test('BR-B2B-064 item 2 and BR-MONETIZACAO-039 item 6.c (#1184): the guide is born with no rate from the CMS, the database writes the default', async () => {
   await validation.approvePortalSubmission(SUB, operator, 'op', CMS_OP, NOW)
-  assert.equal(w.clientInsert?.commission_rate, 0)
+  // Until 2026-11-10 the guide was born with zero, written as zero; the rule now gives every guide
+  // the default, whose number lives only in the database.
+  assert.equal(w.clientInsert && 'commission_rate' in w.clientInsert, false)
   assert.equal(w.clientInsert?.client_type, 'tour_guide')
 })
 

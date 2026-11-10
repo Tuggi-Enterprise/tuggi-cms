@@ -530,10 +530,16 @@ export type ClientWriteOutcome =
  * nobody chose, all of them promoted from a proposal.
  */
 function commercialTermsOfChoice(answers: PartnerAnswers, commission: boolean): Record<string, unknown> {
-  // BR-B2B-064 item 2 and BR-B2B-065 item 3: the partner without a place has no plan and a
-  // commission of zero, WRITTEN as zero — the same terms as the free tier, whatever `plan_choice`
-  // the portal sent (`no_place`, or `map_only` before #933's amendment).
-  if (answers.plan_choice === 'map_only' || hasNoPlace(partnerKindOf(answers))) return { commission_rate: 0, monthly_fee_cents: null }
+  const kind = partnerKindOf(answers)
+  // BR-B2B-064 item 2 and BR-MONETIZACAO-039 items 6 and 6.c (#1184): every guide gets the default
+  // rate of the partner without a place, by its document, and the number lives in ONE place, in
+  // the database. So the CMS sends NO rate for the guide: an absent rate is what that place fills,
+  // and a zero here would be a decision nobody took (039, 1st edge case). Before the `map_only`
+  // test, because a guide's submission sent `map_only` before #933's amendment.
+  if (kind === 'guide') return { monthly_fee_cents: null }
+  // BR-B2B-065 item 3: the transfer without a base has no plan and a commission of zero, WRITTEN as
+  // zero, the same terms as the free tier, whatever `plan_choice` the portal sent.
+  if (answers.plan_choice === 'map_only' || hasNoPlace(kind)) return { commission_rate: 0, monthly_fee_cents: null }
   // #1053, BR-B2B-044 item 6 and BR-MONETIZACAO-039 item 2: the paid plan accepted on the
   // `locais-2026-10-v11` on has no commission, WRITTEN as zero, never left absent.
   if (!commission) return { commission_rate: 0 }

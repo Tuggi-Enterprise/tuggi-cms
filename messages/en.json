@@ -4325,7 +4325,7 @@
         "hiddenReason": "Reason: {reason}",
         "hide": "Hide from the app",
         "show": "Show in the app",
-        "noConsentLine": "The guide withdrew the consent in the portal. Only the guide can appear again.",
+        "noConsentLine": "The guide has not consented to appear yet, or withdrew the consent. Only the guide can consent.",
         "hiddenDone": "Hidden from the app.",
         "shownDone": "Back in the app.",
         "undo": "Undo",
@@ -4334,6 +4334,7 @@
         "unlisted": "Out of the app",
         "listedInApp": "Shows in the app",
         "listedLocked": "Only shows in the app with a meeting point.",
+        "incompleteLocked": "Photo or bio missing. Check both before ticking.",
         "setMeetingPoint": "Set the meeting point",
         "listedOn": "Ticked at {time}.",
         "listedOff": "Unticked at {time}."

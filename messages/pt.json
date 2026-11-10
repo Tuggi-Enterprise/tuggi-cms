@@ -4838,7 +4838,8 @@
         "types": {
           "creator": "Criador",
           "influencer": "Influencer",
-          "driver": "Motorista"
+          "driver": "Motorista",
+          "tour_guide": "Guia de turismo"
         },
         "documentTypes": {
           "cpf": "CPF",
@@ -4987,7 +4988,7 @@
         "hiddenReason": "Motivo: {reason}",
         "hide": "Ocultar do app",
         "show": "Mostrar no app",
-        "noConsentLine": "O guia tirou a autorização no portal. Só ele pode voltar a aparecer.",
+        "noConsentLine": "O guia ainda não autorizou aparecer, ou tirou a autorização. Só ele pode autorizar.",
         "hiddenDone": "Oculto do app.",
         "shownDone": "De volta ao app.",
         "undo": "Desfazer",
@@ -4996,6 +4997,7 @@
         "unlisted": "Fora do app",
         "listedInApp": "Aparece no app",
         "listedLocked": "Só aparece no app com ponto de encontro.",
+        "incompleteLocked": "Falta foto ou apresentação. Confira as duas antes de marcar.",
         "setMeetingPoint": "Definir o ponto de encontro",
         "listedOn": "Marcado às {time}.",
         "listedOff": "Desmarcado às {time}."

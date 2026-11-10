@@ -143,7 +143,7 @@ test('a failed queue read is a 503, never an empty queue', async () => {
 })
 
 test('a malformed row is dropped instead of drawn', () => {
-  const rows = queue.parsePartnerRequestRows([{ ...RPC_ROWS[0], partner_type: 'tour_guide' }, { ...RPC_ROWS[0], document: '' }, RPC_ROWS[2]])
+  const rows = queue.parsePartnerRequestRows([{ ...RPC_ROWS[0], partner_type: 'transfer' }, { ...RPC_ROWS[0], document: '' }, RPC_ROWS[2]])
   assert.deepEqual(rows?.map((r) => r.requestId), [14])
   assert.equal(queue.parsePartnerRequestRows({}), null)
 })

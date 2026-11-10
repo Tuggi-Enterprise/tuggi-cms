@@ -9,6 +9,11 @@
  * `/api/admin/clients/{id}/guide-profile`; nothing here decides what the app lists — that is
  * `core.app_get_nearby_guides`, which reads `listed_in_app`, `hidden`, the consent and the point.
  *
+ * The guide of the app request (#1184, BR-B2B-066 item 10) lands here with an EMPTY profile and
+ * no submission: no "Publicar o perfil", every missing field reads as a dash, and the tick stays
+ * locked until there is a photo and a bio to confer (BR-B2B-064 item 9.a: in the app path the
+ * conference comes before the tick, not before the approval).
+ *
  * Out of this tab, and said so: the queue of photo and bio changes sent by the guide (spec §5,
  * item 4). The portal RPC of #933 edits both directly, so there is nothing pending to approve.
  */
@@ -55,12 +60,14 @@ const clock = (iso: string) => new Date(iso).toLocaleTimeString('pt-BR', { hour:
 
 interface Props {
   clientId: string
-  /** The portal submission behind the guide — what "Publicar o perfil" publishes. */
+  /** The portal submission behind the guide — what "Publicar o perfil" publishes. `null` for the app guide. */
   submissionId: string | null
+  /** The record's name, for the dialog and the map while the guide has not sent its own (#1184). */
+  fallbackName: string
   onPublished: () => void
 }
 
-export function GuideProfileTab({ clientId, submissionId, onPublished }: Props) {
+export function GuideProfileTab({ clientId, submissionId, fallbackName, onPublished }: Props) {
   const t = useTranslations('Clients.guide')
   const [load, setLoad] = useState<Load>({ state: 'loading' })
   const [busy, setBusy] = useState(false)
@@ -307,7 +314,8 @@ export function GuideProfileTab({ clientId, submissionId, onPublished }: Props) 
 
   const reasonLabel = (stored: string | null) =>
     stored && (REASONS as readonly string[]).includes(stored) && stored !== 'other' ? t(`reasons.${stored}` as 'reasons.inactive') : (stored ?? '')
-  const whatsappHref = `https://wa.me/${profile.whatsapp}`
+  const whatsappHref = profile.whatsapp ? `https://wa.me/${profile.whatsapp}` : null
+  const name = profile.displayName ?? fallbackName
   const badge = BADGE[
     guideVisibilityOf({
       hidden: profile.hidden,
@@ -319,6 +327,13 @@ export function GuideProfileTab({ clientId, submissionId, onPublished }: Props) 
   // Only the missing point locks the tick (spec §9.1): hidden or without consent, the badge says
   // why the guide is not listed, and the tick counts once the other condition is back.
   const listLocked = profile.meetingPoint === null
+  // BR-B2B-064 item 9.a and BR-B2B-066 item 10.d (#1184): photo and bio are what the curator confers
+  // before ticking, and the empty profile of the app guide has neither yet. Unticking stays free.
+  const nothingToConfer = profile.photoUrl === null || profile.bio === null
+  const tickLocked = listLocked || (nothingToConfer && !profile.listedInApp)
+  const lockLines = [listLocked || listRefused ? 'guide-listed-locked' : null, nothingToConfer ? 'guide-listed-incomplete' : null]
+    .filter(Boolean)
+    .join(' ')
   const meetingPoint = profile.meetingPoint
   // A guide without a point (published before 2026-11-10) opens the section already editing.
   const pointOpen = pointEditing || meetingPoint === null
@@ -343,8 +358,8 @@ export function GuideProfileTab({ clientId, submissionId, onPublished }: Props) 
             <Checkbox
               id="guide-listed-in-app"
               checked={profile.listedInApp}
-              disabled={busy || listLocked}
-              aria-describedby={listLocked || listRefused ? 'guide-listed-locked' : undefined}
+              disabled={busy || tickLocked}
+              aria-describedby={lockLines || undefined}
               onCheckedChange={(value) => void setListed(value === true)}
             />
             <Label htmlFor="guide-listed-in-app" className="font-semibold text-gray-900 dark:text-white">
@@ -379,6 +394,11 @@ export function GuideProfileTab({ clientId, submissionId, onPublished }: Props) 
             <button type="button" className="font-bold text-primary-800 underline dark:text-tuggi-blue" onClick={goToMeetingPoint}>
               {t('visibility.setMeetingPoint')}
             </button>
+          </p>
+        ) : null}
+        {nothingToConfer ? (
+          <p id="guide-listed-incomplete" className="mt-2 text-sm text-amber-900 dark:text-amber-300">
+            {t('visibility.incompleteLocked')}
           </p>
         ) : null}
         {!profile.consent ? <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">{t('visibility.noConsentLine')}</p> : null}
@@ -437,7 +457,7 @@ export function GuideProfileTab({ clientId, submissionId, onPublished }: Props) 
               editable
               latitude={point.lat}
               longitude={point.lng}
-              name={profile.displayName}
+              name={name}
               address={pointQuery}
               captions={{
                 locating: t('meetingPoint.captions.locating'),
@@ -465,7 +485,7 @@ export function GuideProfileTab({ clientId, submissionId, onPublished }: Props) 
               <ReadField label={t('meetingPoint.address')}>{meetingPoint?.address}</ReadField>
               <ReadField label={t('meetingPoint.city')}>{meetingPoint?.city}</ReadField>
             </div>
-            <LocationPicker editable={false} latitude={meetingPoint?.lat} longitude={meetingPoint?.lng} name={profile.displayName} />
+            <LocationPicker editable={false} latitude={meetingPoint?.lat} longitude={meetingPoint?.lng} name={name} />
             <div className="flex items-center gap-3">
               <Button variant="outline" onClick={() => startPointEdit(profile)}>
                 {t('meetingPoint.edit')}
@@ -483,8 +503,14 @@ export function GuideProfileTab({ clientId, submissionId, onPublished }: Props) 
       {/* 3 · data, beside the 160 px photo */}
       <RecordSection icon={<UserRound className="h-4 w-4 text-tuggi-blue" />} title={t('data.title')}>
         <div className="flex flex-col gap-6 sm:flex-row">
-          {/* eslint-disable-next-line @next/next/no-img-element -- public object of guide-photos, any size */}
-          <img src={profile.photoUrl} alt={t('data.photoAlt', { name: profile.displayName })} width={160} height={160} className="h-40 w-40 shrink-0 rounded-full object-cover" />
+          {profile.photoUrl ? (
+            /* eslint-disable-next-line @next/next/no-img-element -- public object of guide-photos, any size */
+            <img src={profile.photoUrl} alt={t('data.photoAlt', { name })} width={160} height={160} className="h-40 w-40 shrink-0 rounded-full object-cover" />
+          ) : (
+            <span className="flex h-40 w-40 shrink-0 items-center justify-center rounded-full bg-gray-100 dark:bg-gray-800" aria-hidden="true">
+              <UserRound className="h-12 w-12 text-gray-400" />
+            </span>
+          )}
           <div className={cn(FIELD_GRID, 'flex-1')}>
             <ReadField label={t('data.name')}>{profile.displayName}</ReadField>
             <ReadField label={t('data.languages')}>{profile.languages.join(', ').toUpperCase()}</ReadField>
@@ -492,21 +518,23 @@ export function GuideProfileTab({ clientId, submissionId, onPublished }: Props) 
               {profile.specialties.map((id) => (t.has(`specialties.${id}`) ? t(`specialties.${id}` as 'specialties.city_tour') : id)).join(', ')}
             </ReadField>
             <ReadField label={t('data.whatsapp')}>
-              <span className="flex flex-wrap items-center gap-3">
-                <span className="font-mono">+{profile.whatsapp}</span>
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1 text-xs font-bold text-primary-800 dark:text-tuggi-blue"
-                  onClick={() => void navigator.clipboard.writeText(`+${profile.whatsapp}`).then(() => setCopied(true))}
-                >
-                  <Copy className="h-3.5 w-3.5" aria-hidden="true" />
-                  {copied ? t('data.copied') : t('data.copy')}
-                </button>
-                <a className="inline-flex items-center gap-1 text-xs font-bold text-primary-800 underline dark:text-tuggi-blue" href={whatsappHref} target="_blank" rel="noreferrer">
-                  <MessageCircle className="h-3.5 w-3.5" aria-hidden="true" />
-                  {t('data.testWhatsapp')}
-                </a>
-              </span>
+              {profile.whatsapp && whatsappHref ? (
+                <span className="flex flex-wrap items-center gap-3">
+                  <span className="font-mono">+{profile.whatsapp}</span>
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 text-xs font-bold text-primary-800 dark:text-tuggi-blue"
+                    onClick={() => void navigator.clipboard.writeText(`+${profile.whatsapp}`).then(() => setCopied(true))}
+                  >
+                    <Copy className="h-3.5 w-3.5" aria-hidden="true" />
+                    {copied ? t('data.copied') : t('data.copy')}
+                  </button>
+                  <a className="inline-flex items-center gap-1 text-xs font-bold text-primary-800 underline dark:text-tuggi-blue" href={whatsappHref} target="_blank" rel="noreferrer">
+                    <MessageCircle className="h-3.5 w-3.5" aria-hidden="true" />
+                    {t('data.testWhatsapp')}
+                  </a>
+                </span>
+              ) : null}
             </ReadField>
             <ReadField label={t('data.consent')}>{profile.consent ? t('data.consentYes') : t('data.consentNo')}</ReadField>
           </div>
@@ -549,9 +577,9 @@ export function GuideProfileTab({ clientId, submissionId, onPublished }: Props) 
           </div>
         ) : (
           <div className="space-y-2 text-sm">
-            <p className="whitespace-pre-wrap text-gray-900 dark:text-white">{profile.bio}</p>
+            <p className="whitespace-pre-wrap text-gray-900 dark:text-white">{profile.bio ?? '-'}</p>
             <div className="flex items-center gap-3">
-              <Button variant="outline" onClick={() => { setDraft(profile.bio); setEditing(true); setSavedAt(null) }}>
+              <Button variant="outline" onClick={() => { setDraft(profile.bio ?? ''); setEditing(true); setSavedAt(null) }}>
                 {t('bio.edit')}
               </Button>
               {savedAt ? (
@@ -566,7 +594,7 @@ export function GuideProfileTab({ clientId, submissionId, onPublished }: Props) 
 
       <DialogShell
         open={dialog}
-        title={t('hideDialog.title', { name: profile.displayName })}
+        title={t('hideDialog.title', { name })}
         busy={busy}
         onClose={() => setDialog(false)}
         initialFocusRef={reasonRef}

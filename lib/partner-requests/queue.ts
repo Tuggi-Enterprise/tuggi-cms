@@ -1,6 +1,7 @@
 /**
- * The queue of requests of partners without a place (creator, influencer, driver) that came from
- * the app — #1139, BR-B2B-066 items 2 and 5, BR-USUARIO-052 item 4.d. Contract
+ * The queue of requests of partners without a place (creator, influencer, driver and, since #1184,
+ * tour guide) that came from the app — #1139, BR-B2B-066 items 1, 2 and 5, BR-USUARIO-052 item 4.d.
+ * Contract
  * `docs/contracts/parceiro-sem-local.md` §4.
  *
  * The database decides everything: who is in the queue (only with the acceptance), whether the

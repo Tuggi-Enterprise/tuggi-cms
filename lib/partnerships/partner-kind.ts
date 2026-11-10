@@ -1,7 +1,7 @@
 /**
- * Which kind of partner a submission is — the ONE place in the CMS that reads the category to
- * decide the path (#936, BR-B2B-054 items 4 and 5, BR-B2B-064, BR-B2B-065). The queue, the
- * conference, the approval, the record tabs and the directory ask this; nobody else tests the
+ * Which kind of partner a submission or a client is — the ONE place in the CMS that reads the
+ * category to decide the path (#936, BR-B2B-054 items 4 and 5, BR-B2B-064, BR-B2B-065). The queue,
+ * the conference, the approval, the record tabs and the directory ask this; nobody else tests the
  * category.
  *
  * Mirror of `partner.place_answers_have_address(answers)` in the database (contract
@@ -9,7 +9,7 @@
  * `has_service_address = 'false'`.
  *
  *  · `place`         — the place path: a POI, a plan, the triage of BR-B2B-011;
- *  · `guide`         — the tour guide: no POI, a public profile in "Guias nesta cidade";
+ *  · `guide`         — the tour guide: no POI, a public profile in "Parceiros";
  *  · `referral_only` — the transfer without a base: no POI, no listing, only the QR and the code.
  *
  * Pure: the screen and the server read it alike.
@@ -20,9 +20,18 @@ import type { ClientType } from '@/types/clients'
 
 export type PartnerKind = 'place' | 'guide' | 'referral_only'
 
-export function partnerKindOf(answers: PartnerAnswers | null | undefined): PartnerKind {
+/**
+ * `clientType` is the client's `client_type`, when the caller has the client. BR-B2B-066 items 1 and
+ * 10, BR-B2B-064 item 1 (#1184): the guide of the app request is born `tour_guide` with an empty
+ * profile and NO portal submission, so there are no answers to read; both paths lead to the same
+ * guide record, and this is the one derivation that says so.
+ */
+export function partnerKindOf(
+  answers: PartnerAnswers | null | undefined,
+  clientType: string | null | undefined = null
+): PartnerKind {
   const category = answers?.category
-  if (category === 'tour_guide') return 'guide'
+  if (category === 'tour_guide' || clientType === 'tour_guide') return 'guide'
   if (category === 'transfer' && answers?.has_service_address === 'false') return 'referral_only'
   return 'place'
 }
@@ -62,10 +71,12 @@ export function placesTabOf(kind: PartnerKind): 'places' | 'guide' | null {
 }
 
 /**
- * BR-B2B-066 item 1: the three partners without a place that ask in the app (creator, influencer,
- * driver). Contract `parceiro-sem-local.md` §2.1 `p_partner_type`.
+ * BR-B2B-066 item 1: the four partners without a place that ask in the app (creator, influencer,
+ * driver and, since #1184, tour guide), each with a CPF or a CNPJ (item 4). Contract
+ * `parceiro-sem-local.md` §2.1 `p_partner_type`. The guide also enters by the portal (BR-B2B-064
+ * item 1), and its portal record carries the same document rule.
  */
-export const APP_PARTNER_TYPES = ['creator', 'influencer', 'driver'] as const satisfies readonly ClientType[]
+export const APP_PARTNER_TYPES = ['creator', 'influencer', 'driver', 'tour_guide'] as const satisfies readonly ClientType[]
 
 export type AppPartnerType = (typeof APP_PARTNER_TYPES)[number]
 
@@ -75,7 +86,8 @@ export function isAppPartnerType(value: unknown): value is AppPartnerType {
 
 /**
  * #1139, BR-B2B-066 item 2: a creator, influencer or driver approved BY THE APP REQUEST, with no
- * place, is a partner without a place. Its acceptance arrived with the request, the creator has no
+ * place, is a partner without a place. Not the guide (#1184): it has a profile to complete and a
+ * curator's tick, so it is not the QR-and-code-only row this answers for. Its acceptance arrived with the request, the creator has no
  * slug apart from its @, and nothing of the place pipeline (create the place, publish it, the gate
  * of BR-B2B-057) is owed: the board shows it as the transfer without a base, QR and code only.
  *
@@ -90,6 +102,7 @@ export function isApprovedAppPartnerWithoutPlace(
 ): boolean {
   return (
     isAppPartnerType(client.clientType) &&
+    client.clientType !== 'tour_guide' &&
     client.status === 'approved' &&
     client.commissionStartsAt !== null &&
     placeCount === 0

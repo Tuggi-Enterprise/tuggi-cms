@@ -36,7 +36,8 @@ test('BR-B2B-066 item 4: a CNPJ partner, numeric or alphanumeric, gets cnpj', ()
 test('every other client keeps the document of its country', () => {
   assert.equal(taxConfigOfClient('venue', 'Brazil', '529.982.247-25').type, 'cnpj')
   assert.equal(taxConfigOfClient('venue', 'Portugal', null).type, 'nipc')
-  assert.equal(taxConfigOfClient('tour_guide', 'Brazil', '52998224725').type, 'cnpj')
+  // #1184: the guide left this list; it carries a CPF or a CNPJ like the other app types (BR-B2B-066 item 4).
+  assert.equal(taxConfigOfClient('hotel', 'Brazil', '52998224725').type, 'cnpj')
 })
 
 test('the editor sends the type of the document, not of the country, for the app partner', () => {
