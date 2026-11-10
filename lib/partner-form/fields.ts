@@ -84,6 +84,8 @@ export type PortalFieldId =
   | 'bio'
   | 'profile_photo'
   | 'public_contact_consent'
+  // #1177: the guide's one meeting point, a JSON-serialised {address, city, lat, lng} (contract §8.1).
+  | 'meeting_point'
 
 export interface PartnerAnswerField {
   id: PartnerFieldId

@@ -5,8 +5,12 @@
  *
  * GET   → `{ profile: GuideProfile | null }` (`null` = not published yet).
  * PATCH `{ "bio": string }` → `{ updatedAt }` — the curator rewrites the bio (1 to 400).
+ * PATCH `{ "meetingPoint": { address, city, lat, lng } }` → `{ updatedAt }` — the curator sets the
+ *       meeting point (#1179, BR-B2B-064 item 11.c).
  * POST  `{ "hidden": true, "reason": GuideHideReason, "other"?: string }` hides the guide from the
  *       app (reason required); `{ "hidden": false }` shows it again. Nothing is deleted.
+ * POST  `{ "listed": boolean }` → `{ listed }` — "Aparece no app" (#1179, BR-B2B-064 item 11.a).
+ *       Listing without a meeting point → 409 `meeting_point_required`.
  *
  * Every write runs with the operator's session: `core.cms_*` answers for the person on the screen.
  */
@@ -17,8 +21,11 @@ import { logAuditEvent } from '@/lib/services/audit-service'
 import {
   GUIDE_BIO_MAX,
   guideHideReasonText,
+  guideMeetingPointOf,
   loadGuideProfile,
   setGuideHidden,
+  setGuideListed,
+  setGuideMeetingPoint,
   updateGuideBio,
 } from '@/lib/services/guide-profile-service'
 
@@ -55,6 +62,23 @@ export const PATCH = withRateLimit(30, 60_000)(
     const clientId = await clientIdOf(ctx)
     if (!clientId) return NextResponse.json({ error: 'invalid_client_id' }, { status: 400 })
     const body = await bodyOf(req)
+    if (body && 'meetingPoint' in body) {
+      const point = guideMeetingPointOf(body.meetingPoint)
+      if (!point) return NextResponse.json({ error: 'invalid_meeting_point' }, { status: 400 })
+      const outcome = await setGuideMeetingPoint(auth.supabase, clientId, point)
+      if (!outcome.ok) return NextResponse.json({ error: outcome.error }, { status: outcome.httpStatus })
+      // No address in the audit line: it may be a home address the curator is replacing (no PII in logs).
+      await logAuditEvent({
+        request: req,
+        action: 'UPDATE_GUIDE_MEETING_POINT',
+        entity: 'CLIENT',
+        entityId: clientId,
+        userId: auth.user.id,
+        userEmail: auth.user.email ?? null,
+        description: `Guide ${clientId}: meeting point set by the curator`,
+      })
+      return NextResponse.json({ updatedAt: outcome.value })
+    }
     const bio = typeof body?.bio === 'string' ? body.bio.trim() : ''
     if (bio.length < 1 || bio.length > GUIDE_BIO_MAX) return NextResponse.json({ error: 'invalid_bio' }, { status: 400 })
 
@@ -78,6 +102,20 @@ export const POST = withRateLimit(30, 60_000)(
     const clientId = await clientIdOf(ctx)
     if (!clientId) return NextResponse.json({ error: 'invalid_client_id' }, { status: 400 })
     const body = await bodyOf(req)
+    if (body && typeof body.listed === 'boolean' && !('hidden' in body)) {
+      const listed = await setGuideListed(auth.supabase, clientId, body.listed)
+      if (!listed.ok) return NextResponse.json({ error: listed.error }, { status: listed.httpStatus })
+      await logAuditEvent({
+        request: req,
+        action: body.listed ? 'LIST_GUIDE_PROFILE' : 'UNLIST_GUIDE_PROFILE',
+        entity: 'CLIENT',
+        entityId: clientId,
+        userId: auth.user.id,
+        userEmail: auth.user.email ?? null,
+        description: body.listed ? `Guide ${clientId} listed in the app by the curator` : `Guide ${clientId} unlisted from the app by the curator`,
+      })
+      return NextResponse.json({ listed: listed.value })
+    }
     if (!body || typeof body.hidden !== 'boolean') return NextResponse.json({ error: 'invalid_body' }, { status: 400 })
 
     const reason = body.hidden ? guideHideReasonText(body.reason, body.other) : null

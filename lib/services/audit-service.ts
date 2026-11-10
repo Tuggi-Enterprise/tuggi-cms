@@ -63,11 +63,15 @@ export type AuditAction =
   | 'REQUEST_PORTAL_CHANGES'
   | 'REJECT_PORTAL_SUBMISSION'
   // The tour guide's public profile (#936, BR-B2B-064 items 10 and 11): publishing it, hiding or
-  // showing it in the app, and the curator's rewrite of the bio.
+  // showing it in the app, and the curator's rewrite of the bio. #1179: "Aparece no app" on and
+  // off, and the curator's meeting point.
   | 'PUBLISH_GUIDE_PROFILE'
   | 'HIDE_GUIDE_PROFILE'
   | 'SHOW_GUIDE_PROFILE'
   | 'UPDATE_GUIDE_BIO'
+  | 'LIST_GUIDE_PROFILE'
+  | 'UNLIST_GUIDE_PROFILE'
+  | 'UPDATE_GUIDE_MEETING_POINT'
   // The whole CPF of a portal signer, shown on the operator's explicit click (#812): the screen
   // carries only the mask, and this row is who saw the number and when.
   | 'REVEAL_PORTAL_CPF'

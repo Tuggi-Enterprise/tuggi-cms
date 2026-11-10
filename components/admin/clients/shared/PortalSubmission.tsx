@@ -560,6 +560,10 @@ export function SubmissionBlocks({
     .map((c) => [c.city, c.state].filter(Boolean).join('/'))
     .filter(Boolean)
     .join(', ')
+  // #1179 (BR-B2B-064 item 1): the guide's one meeting point replaces the cities, so the curator
+  // sees it before approving. `answers.meeting_point` is a JSON-serialised {address, city, lat, lng}.
+  const meetingPoint = parseJson<{ address?: string; city?: string }>(answers.meeting_point, {})
+  const meetingPointText = [meetingPoint.address, meetingPoint.city].filter(Boolean).join(', ')
   const subtypes = parseJson<string[]>(answers.subtypes, [])
   const whatsappDigits = (answers.whatsapp ?? '').replace(/\D/g, '')
   const whatsappLink = whatsappDigits ? (
@@ -631,7 +635,7 @@ export function SubmissionBlocks({
             )}
             <div className={FIELD_GRID}>
               <ReadField label={t('guide.displayName')}>{answers.trade_name}</ReadField>
-              <ReadField label={t('guide.cities')}>{serviceCities}</ReadField>
+              <ReadField label={t('guide.meetingPoint')}>{meetingPointText}</ReadField>
               <ReadField label={t('guide.bio')} fullWidth>
                 <span className="block whitespace-pre-wrap">{bio}</span>
                 <span className="mt-1 block text-xs text-gray-500">{t('guide.bioCount', { count: bio.length })}</span>

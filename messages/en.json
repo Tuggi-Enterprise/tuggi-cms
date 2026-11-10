@@ -4329,13 +4329,41 @@
         "hiddenDone": "Hidden from the app.",
         "shownDone": "Back in the app.",
         "undo": "Undo",
-        "error": "That did not work. Try again."
+        "error": "That did not work. Try again.",
+        "noMeetingPoint": "No meeting point",
+        "unlisted": "Out of the app",
+        "listedInApp": "Shows in the app",
+        "listedLocked": "Only shows in the app with a meeting point.",
+        "setMeetingPoint": "Set the meeting point",
+        "listedOn": "Ticked at {time}.",
+        "listedOff": "Unticked at {time}."
+      },
+      "meetingPoint": {
+        "title": "Meeting point",
+        "hint": "A public place, never the guide's home. If the guide sent a home address, replace it with the place agreed with them.",
+        "empty": "The guide has not given a meeting point yet.",
+        "address": "Address",
+        "city": "City",
+        "pin": "Pin",
+        "edit": "Edit",
+        "save": "Save",
+        "cancel": "Cancel",
+        "saved": "Saved at {time}",
+        "error": "Not saved: {reason}. The point is still here.",
+        "incomplete": "fill in the address and the city and drop the pin on the map",
+        "invalid": "check the address (up to 300 characters), the city (up to 80) and the pin",
+        "failed": "the server did not answer",
+        "captions": {
+          "locating": "Locating the address…",
+          "centered": "Map centred on the address. Click the map to mark the meeting point.",
+          "not_located": "The address was not found on the map. Find the place and click the map to mark the point.",
+          "no_address": "Type the address to centre the map, or find the place and click the map to mark the point."
+        }
       },
       "data": {
         "title": "Details",
         "photoAlt": "Photo of {name}",
         "name": "Name",
-        "cities": "Cities",
         "languages": "Languages",
         "specialties": "Specialties",
         "whatsapp": "WhatsApp",

@@ -54,6 +54,11 @@ export type PipelineState =
   // base is active with its QR and nothing more is due.
   | 'hidden_from_app'
   | 'referral_only'
+  // #1179, BR-B2B-064 items 10 and 11.a (amended on 2026-11-10): approving no longer lists. The
+  // published guide the curator has not ticked "Aparece no app" for, or without a meeting point.
+  // Terminal and not work: not every approved guide will be ticked, and work that never ends
+  // cannot live under the default filter.
+  | 'published_unlisted'
 
 /**
  * `partner.place_submissions.status` (BR-B2B-049). `draft` and `awaiting_payment` are not the
@@ -117,6 +122,7 @@ export const TERMINAL_STATES: PipelineState[] = ['discarded', 'refused_at_triage
 /** Every state, in pipeline order — the order the queue's counters are shown in. */
 export const PIPELINE_STATES: PipelineState[] = IN_PROGRESS_STATES.concat(
   'published',
+  'published_unlisted',
   'hidden_from_app',
   'referral_only',
   ...TERMINAL_STATES
@@ -184,28 +190,63 @@ export interface PipelineInput {
   appPartnerWithoutPlace?: boolean
 }
 
-/** What the queue needs from `partner.guide_profiles`: whether the app lists it. */
+/** What the queue and the record need from `partner.guide_profiles`: whether the app lists it. */
 export interface GuideProfileFacts {
   hidden: boolean
   /** `public_contact_consent`: the guide can withdraw it in the portal (BR-B2B-064 item 5). */
   consent: boolean
+  /** `listed_in_app`: the curator's "Aparece no app" (BR-B2B-064 item 11.a), born false. */
+  listedInApp: boolean
+  /** The four `meeting_point_*` columns are filled (they are all null or all filled). */
+  hasMeetingPoint: boolean
+}
+
+/**
+ * Why the app lists the guide or not, derived TOP DOWN in this one place (spec #936 §9.1). The
+ * record's badge and the queue's state both read it, so they cannot disagree.
+ *
+ *  · `no_consent`        the guide withdrew the consent (BR-B2B-064 item 5);
+ *  · `hidden`            the curator hid it with a reason, above the tick (item 11.b);
+ *  · `no_meeting_point`  no point yet, so the tick cannot be set (items 6 and 11.a);
+ *  · `unlisted`          everything in order, and the curator has not ticked it (item 11.a);
+ *  · `listed`            in the app, within the radius of the point (item 6).
+ *
+ * Pure and free of the service client, so the client component imports it too.
+ */
+export type GuideVisibility = 'no_consent' | 'hidden' | 'no_meeting_point' | 'unlisted' | 'listed'
+
+export function guideVisibilityOf(facts: GuideProfileFacts): GuideVisibility {
+  if (!facts.consent) return 'no_consent'
+  if (facts.hidden) return 'hidden'
+  if (!facts.hasMeetingPoint) return 'no_meeting_point'
+  return facts.listedInApp ? 'listed' : 'unlisted'
 }
 
 /**
  * The portal row of a partner without a place, once approved (`approved` or `live`). The gate of
  * BR-B2B-057 still comes first: entering `Publicado` needs slug, code and acceptance.
  *
- *  · guide without a profile           → `approved_awaiting_narration` ("falta publicar o perfil");
- *  · guide hidden, or without consent  → `hidden_from_app`;
- *  · guide listed                      → `published` — the profile active and visible (BR-B2B-064 item 10);
- *  · transfer without a base           → `referral_only` (BR-B2B-065).
+ *  · guide without a profile                → `approved_awaiting_narration` ("falta publicar o perfil");
+ *  · guide hidden, or without consent       → `hidden_from_app`;
+ *  · guide not ticked, or without a point   → `published_unlisted` (BR-B2B-064 item 10: approving does not list);
+ *  · guide listed                           → `published`;
+ *  · transfer without a base                → `referral_only` (BR-B2B-065).
  */
 function noPlaceApprovedState(input: PipelineInput): PipelineState {
   if (input.gateMissing.length > 0) return 'awaiting_acceptance'
   if (input.partnerKind === 'referral_only') return 'referral_only'
   const profile = input.guideProfile ?? null
   if (!profile) return 'approved_awaiting_narration'
-  return profile.hidden || !profile.consent ? 'hidden_from_app' : 'published'
+  switch (guideVisibilityOf(profile)) {
+    case 'no_consent':
+    case 'hidden':
+      return 'hidden_from_app'
+    case 'no_meeting_point':
+    case 'unlisted':
+      return 'published_unlisted'
+    case 'listed':
+      return 'published'
+  }
 }
 
 export function derivePipelineState(input: PipelineInput): PipelineState {
@@ -301,7 +342,10 @@ export function portalDetailTarget(
   state: PipelineState,
   ids: { submissionId: string; clientId: string | null }
 ): DetailTarget {
-  if ((state === 'published' || state === 'hidden_from_app' || state === 'referral_only') && ids.clientId) {
+  if (
+    (state === 'published' || state === 'published_unlisted' || state === 'hidden_from_app' || state === 'referral_only') &&
+    ids.clientId
+  ) {
     return { kind: 'client', clientId: ids.clientId, tab: 'partnership' }
   }
   return { kind: 'validation', submissionId: ids.submissionId }

@@ -4,31 +4,54 @@
  * "Perfil no app" — the tour guide's public profile in the client record (#936, spec §5;
  * BR-B2B-064 items 4, 5, 10 and 11). It takes the place of `Locais`: a guide has no place.
  *
- * Visibility on top, then the data, then the bio. Every write goes through
+ * Visibility on top, then the meeting point (#1179, spec §9: it locks "Aparece no app", so the
+ * reason and the fix sit in the same view), then the data, then the bio. Every write goes through
  * `/api/admin/clients/{id}/guide-profile`; nothing here decides what the app lists — that is
- * `core.app_get_nearby_guides`, which reads `hidden` and the consent.
+ * `core.app_get_nearby_guides`, which reads `listed_in_app`, `hidden`, the consent and the point.
  *
  * Out of this tab, and said so: the queue of photo and bio changes sent by the guide (spec §5,
  * item 4). The portal RPC of #933 edits both directly, so there is nothing pending to approve.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { useTranslations } from 'next-intl'
-import { AlertTriangle, Copy, Eye, EyeOff, Loader2, MessageCircle, Pencil, UserRound } from 'lucide-react'
+import { AlertTriangle, Copy, Eye, EyeOff, Loader2, MapPin, MessageCircle, Pencil, UserRound } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { DialogShell } from '@/components/admin/credit/DialogShell'
 import { FIELD_GRID, RecordSection } from '@/components/admin/clients/shared/RecordSection'
 import { ReadField } from '@/components/admin/clients/shared/EditField'
+import { LocationPicker } from '@/components/entity-management/LocationPicker'
+import { guideVisibilityOf, type GuideVisibility } from '@/lib/partnerships/pipeline'
 import { cn } from '@/lib/utils'
 import type { GuideProfile } from '@/lib/services/guide-profile-service'
 
 /** The same numbers as `guide-profile-service.ts`; that module pulls the service client, so not imported. */
 const BIO_MAX = 400
+const ADDRESS_MAX = 300
+const CITY_MAX = 80
+/** The route's answer to listing without a meeting point (`GUIDE_MEETING_POINT_REQUIRED`). */
+const MEETING_POINT_REQUIRED = 'meeting_point_required'
 const REASONS = ['tourist_report', 'inactive', 'guide_request', 'other'] as const
 type Reason = (typeof REASONS)[number]
 const UNDO_MS = 10_000
 
 type Load = { state: 'loading' } | { state: 'error' } | { state: 'ready'; profile: GuideProfile | null }
+type PointDraft = { address: string; city: string; lat: number | null; lng: number | null }
+const EMPTY_POINT: PointDraft = { address: '', city: '', lat: null, lng: null }
+
+/** The badge of each state of `guideVisibilityOf` (spec §9.1): amber asks for an act, grey is a decision. */
+const BADGE: Record<GuideVisibility, { key: string; className: string }> = {
+  no_consent: { key: 'visibility.noConsent', className: 'border-amber-300 bg-amber-50 text-amber-900' },
+  hidden: { key: 'visibility.hidden', className: 'border-gray-300 bg-gray-100 text-gray-800' },
+  no_meeting_point: { key: 'visibility.noMeetingPoint', className: 'border-amber-300 bg-amber-50 text-amber-900' },
+  unlisted: { key: 'visibility.unlisted', className: 'border-gray-300 bg-gray-100 text-gray-800' },
+  listed: { key: 'visibility.listed', className: 'border-green-300 bg-green-50 text-green-800' },
+}
+
+const clock = (iso: string) => new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
 
 interface Props {
   clientId: string
@@ -52,7 +75,16 @@ export function GuideProfileTab({ clientId, submissionId, onPublished }: Props) 
   const [savedAt, setSavedAt] = useState<string | null>(null)
   const [bioError, setBioError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const [listedAt, setListedAt] = useState<{ listed: boolean; at: string } | null>(null)
+  const [listRefused, setListRefused] = useState(false)
+  const [pointEditing, setPointEditing] = useState(false)
+  const [point, setPoint] = useState<PointDraft>(EMPTY_POINT)
+  /** What the map centres on: address and city as they were when the curator left the field, not per keystroke. */
+  const [pointQuery, setPointQuery] = useState('')
+  const [pointSavedAt, setPointSavedAt] = useState<string | null>(null)
+  const [pointError, setPointError] = useState<string | null>(null)
   const reasonRef = useRef<HTMLSelectElement | null>(null)
+  const addressRef = useRef<HTMLInputElement | null>(null)
   const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const url = `/api/admin/clients/${clientId}/guide-profile`
@@ -76,13 +108,15 @@ export function GuideProfileTab({ clientId, submissionId, onPublished }: Props) 
     if (undoTimer.current) clearTimeout(undoTimer.current)
   }, [])
 
-  async function send(method: 'POST' | 'PATCH', body: Record<string, unknown>): Promise<{ ok: boolean; error?: string }> {
+  async function send(
+    method: 'POST' | 'PATCH',
+    body: Record<string, unknown>
+  ): Promise<{ ok: boolean; error?: string; updatedAt?: string }> {
     setBusy(true)
     try {
       const response = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       const payload = (await response.json().catch(() => ({}))) as { error?: string; updatedAt?: string }
-      if (response.ok && payload.updatedAt) setSavedAt(payload.updatedAt)
-      return { ok: response.ok, error: payload.error }
+      return { ok: response.ok, error: payload.error, updatedAt: payload.updatedAt }
     } catch {
       return { ok: false }
     } finally {
@@ -158,7 +192,75 @@ export function GuideProfileTab({ clientId, submissionId, onPublished }: Props) 
       setBioError(t('bio.error', { reason: outcome.error === 'invalid_bio' ? t('bio.length', { max: BIO_MAX }) : t('bio.failed') }))
       return
     }
+    if (outcome.updatedAt) setSavedAt(outcome.updatedAt)
     setEditing(false)
+    await refetch()
+  }
+
+  /**
+   * BR-B2B-064 item 11.a: "Aparece no app", straight to `cms_set_guide_listed`, no dialog: the
+   * checkbox itself undoes. Refused for want of a point (another curator, a race): the same reason
+   * as the lock, and the checkbox goes back to what the server holds.
+   */
+  async function setListed(listed: boolean) {
+    setError(null)
+    setListedAt(null)
+    const outcome = await send('POST', { listed })
+    if (!outcome.ok) {
+      if (outcome.error === MEETING_POINT_REQUIRED) setListRefused(true)
+      else setError(t('visibility.error'))
+      await refetch()
+      return
+    }
+    setListRefused(false)
+    setListedAt({ listed, at: new Date().toISOString() })
+    await refetch()
+  }
+
+  /** "Definir o ponto de encontro": to the section below, with the cursor in Endereço. */
+  function goToMeetingPoint() {
+    if (load.state === 'ready' && load.profile?.meetingPoint && !pointEditing) startPointEdit(load.profile)
+    // after the render that opens the editor
+    setTimeout(() => {
+      addressRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      addressRef.current?.focus()
+    }, 0)
+  }
+
+  function startPointEdit(current: GuideProfile) {
+    const mp = current.meetingPoint
+    setPoint(mp ? { address: mp.address, city: mp.city, lat: mp.lat, lng: mp.lng } : EMPTY_POINT)
+    setPointQuery(mp ? `${mp.address}, ${mp.city}` : '')
+    setPointError(null)
+    setPointSavedAt(null)
+    setPointEditing(true)
+  }
+
+  function cancelPointEdit() {
+    setPointEditing(false)
+    setPoint(EMPTY_POINT)
+    setPointQuery('')
+    setPointError(null)
+  }
+
+  /** BR-B2B-064 item 11.c: the pin comes only from a click or a drag on the map, never from the address. */
+  async function savePoint() {
+    const address = point.address.trim()
+    const city = point.city.trim()
+    if (!address || !city || point.lat === null || point.lng === null) {
+      setPointError(t('meetingPoint.error', { reason: t('meetingPoint.incomplete') }))
+      return
+    }
+    setPointError(null)
+    const outcome = await send('PATCH', { meetingPoint: { address, city, lat: point.lat, lng: point.lng } })
+    if (!outcome.ok) {
+      const invalid = outcome.error === 'invalid_meeting_point'
+      setPointError(t('meetingPoint.error', { reason: invalid ? t('meetingPoint.invalid') : t('meetingPoint.failed') }))
+      return
+    }
+    if (outcome.updatedAt) setPointSavedAt(outcome.updatedAt)
+    setListRefused(false)
+    setPointEditing(false)
     await refetch()
   }
 
@@ -206,18 +308,52 @@ export function GuideProfileTab({ clientId, submissionId, onPublished }: Props) 
   const reasonLabel = (stored: string | null) =>
     stored && (REASONS as readonly string[]).includes(stored) && stored !== 'other' ? t(`reasons.${stored}` as 'reasons.inactive') : (stored ?? '')
   const whatsappHref = `https://wa.me/${profile.whatsapp}`
-  const badge = !profile.consent
-    ? { text: t('visibility.noConsent'), className: 'border-amber-300 bg-amber-50 text-amber-900' }
-    : profile.hidden
-      ? { text: t('visibility.hidden'), className: 'border-gray-300 bg-gray-100 text-gray-800' }
-      : { text: t('visibility.listed'), className: 'border-green-300 bg-green-50 text-green-800' }
+  const badge = BADGE[
+    guideVisibilityOf({
+      hidden: profile.hidden,
+      consent: profile.consent,
+      listedInApp: profile.listedInApp,
+      hasMeetingPoint: profile.meetingPoint !== null,
+    })
+  ]
+  // Only the missing point locks the tick (spec §9.1): hidden or without consent, the badge says
+  // why the guide is not listed, and the tick counts once the other condition is back.
+  const listLocked = profile.meetingPoint === null
+  const meetingPoint = profile.meetingPoint
+  // A guide without a point (published before 2026-11-10) opens the section already editing.
+  const pointOpen = pointEditing || meetingPoint === null
+  const pointComplete = point.address.trim() !== '' && point.city.trim() !== '' && point.lat !== null && point.lng !== null
+  const pointKeys = (event: KeyboardEvent) => {
+    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+      event.preventDefault()
+      void savePoint()
+    }
+    if (event.key === 'Escape' && meetingPoint) {
+      event.preventDefault()
+      cancelPointEdit()
+    }
+  }
 
   return (
     <div className="space-y-6">
       {/* 1 · visibility */}
       <RecordSection icon={<Eye className="h-4 w-4 text-tuggi-blue" />} title={t('visibility.title')}>
         <div className="flex flex-wrap items-center gap-3 text-sm">
-          <span className={cn('inline-flex items-center rounded-full border px-3 py-1 text-xs font-bold', badge.className)}>{badge.text}</span>
+          <span className="flex items-center gap-2">
+            <Checkbox
+              id="guide-listed-in-app"
+              checked={profile.listedInApp}
+              disabled={busy || listLocked}
+              aria-describedby={listLocked || listRefused ? 'guide-listed-locked' : undefined}
+              onCheckedChange={(value) => void setListed(value === true)}
+            />
+            <Label htmlFor="guide-listed-in-app" className="font-semibold text-gray-900 dark:text-white">
+              {t('visibility.listedInApp')}
+            </Label>
+          </span>
+          <span className={cn('inline-flex items-center rounded-full border px-3 py-1 text-xs font-bold', badge.className)}>
+            {t(badge.key as 'visibility.listed')}
+          </span>
           {profile.consent && profile.hidden ? (
             <span className="text-gray-700 dark:text-gray-300">
               {/* No date: `guide_profiles` has no `hidden_at`, and `updated_at` moves with any edit. */}
@@ -237,7 +373,20 @@ export function GuideProfileTab({ clientId, submissionId, onPublished }: Props) 
             </Button>
           ) : null}
         </div>
+        {listLocked || listRefused ? (
+          <p id="guide-listed-locked" className="mt-2 flex flex-wrap items-center gap-x-2 text-sm text-amber-900 dark:text-amber-300">
+            {t('visibility.listedLocked')}
+            <button type="button" className="font-bold text-primary-800 underline dark:text-tuggi-blue" onClick={goToMeetingPoint}>
+              {t('visibility.setMeetingPoint')}
+            </button>
+          </p>
+        ) : null}
         {!profile.consent ? <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">{t('visibility.noConsentLine')}</p> : null}
+        {listedAt ? (
+          <p role="status" className="mt-3 text-sm text-gray-800 dark:text-gray-200">
+            {t(listedAt.listed ? 'visibility.listedOn' : 'visibility.listedOff', { time: clock(listedAt.at) })}
+          </p>
+        ) : null}
         {undo ? (
           <p role="status" className="mt-3 flex items-center gap-3 text-sm text-gray-800 dark:text-gray-200">
             {profile.hidden ? t('visibility.hiddenDone') : t('visibility.shownDone')}
@@ -254,14 +403,90 @@ export function GuideProfileTab({ clientId, submissionId, onPublished }: Props) 
         <div className="mt-3">{errorLine}</div>
       </RecordSection>
 
-      {/* 2 · data, beside the 160 px photo */}
+      {/* 2 · the meeting point (#1179, BR-B2B-064 items 4, 6 and 11.c) */}
+      <RecordSection icon={<MapPin className="h-4 w-4 text-tuggi-blue" />} title={t('meetingPoint.title')}>
+        {pointOpen ? (
+          <div className="space-y-3 text-sm" onKeyDown={pointKeys}>
+            <p className="text-xs text-gray-700 dark:text-gray-300">{t('meetingPoint.hint')}</p>
+            {meetingPoint === null ? <p className="text-gray-700 dark:text-gray-300">{t('meetingPoint.empty')}</p> : null}
+            <div className={FIELD_GRID}>
+              <div className="space-y-1">
+                <Label htmlFor="guide-meeting-address" className="dark:text-gray-200">{t('meetingPoint.address')}</Label>
+                <Input
+                  id="guide-meeting-address"
+                  ref={addressRef}
+                  value={point.address}
+                  maxLength={ADDRESS_MAX}
+                  onChange={(event) => setPoint((p) => ({ ...p, address: event.target.value }))}
+                  onBlur={() => setPointQuery([point.address.trim(), point.city.trim()].filter(Boolean).join(', '))}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="guide-meeting-city" className="dark:text-gray-200">{t('meetingPoint.city')}</Label>
+                <Input
+                  id="guide-meeting-city"
+                  value={point.city}
+                  maxLength={CITY_MAX}
+                  onChange={(event) => setPoint((p) => ({ ...p, city: event.target.value }))}
+                  onBlur={() => setPointQuery([point.address.trim(), point.city.trim()].filter(Boolean).join(', '))}
+                />
+              </div>
+            </div>
+            {/* The address only centres the map; the coordinate is the click or the drag (spec §9.2). */}
+            <LocationPicker
+              editable
+              latitude={point.lat}
+              longitude={point.lng}
+              name={profile.displayName}
+              address={pointQuery}
+              captions={{
+                locating: t('meetingPoint.captions.locating'),
+                centered: t('meetingPoint.captions.centered'),
+                not_located: t('meetingPoint.captions.not_located'),
+                no_address: t('meetingPoint.captions.no_address'),
+              }}
+              onChange={(lat, lng) => setPoint((p) => ({ ...p, lat, lng }))}
+            />
+            <div className="flex flex-wrap items-center gap-3">
+              <Button variant="cta" disabled={busy || !pointComplete} onClick={() => void savePoint()}>
+                {t('meetingPoint.save')}
+              </Button>
+              {meetingPoint ? (
+                <Button variant="outline" disabled={busy} onClick={cancelPointEdit}>
+                  {t('meetingPoint.cancel')}
+                </Button>
+              ) : null}
+            </div>
+            {pointError ? <p role="alert" className="text-sm text-destructive">{pointError}</p> : null}
+          </div>
+        ) : (
+          <div className="space-y-3 text-sm">
+            <div className={FIELD_GRID}>
+              <ReadField label={t('meetingPoint.address')}>{meetingPoint?.address}</ReadField>
+              <ReadField label={t('meetingPoint.city')}>{meetingPoint?.city}</ReadField>
+            </div>
+            <LocationPicker editable={false} latitude={meetingPoint?.lat} longitude={meetingPoint?.lng} name={profile.displayName} />
+            <div className="flex items-center gap-3">
+              <Button variant="outline" onClick={() => startPointEdit(profile)}>
+                {t('meetingPoint.edit')}
+              </Button>
+              {pointSavedAt ? (
+                <span role="status" className="text-xs text-gray-600 dark:text-gray-300">
+                  {t('meetingPoint.saved', { time: clock(pointSavedAt) })}
+                </span>
+              ) : null}
+            </div>
+          </div>
+        )}
+      </RecordSection>
+
+      {/* 3 · data, beside the 160 px photo */}
       <RecordSection icon={<UserRound className="h-4 w-4 text-tuggi-blue" />} title={t('data.title')}>
         <div className="flex flex-col gap-6 sm:flex-row">
           {/* eslint-disable-next-line @next/next/no-img-element -- public object of guide-photos, any size */}
           <img src={profile.photoUrl} alt={t('data.photoAlt', { name: profile.displayName })} width={160} height={160} className="h-40 w-40 shrink-0 rounded-full object-cover" />
           <div className={cn(FIELD_GRID, 'flex-1')}>
             <ReadField label={t('data.name')}>{profile.displayName}</ReadField>
-            <ReadField label={t('data.cities')}>{profile.cities.map((c) => `${c.city}/${c.state}`).join(', ')}</ReadField>
             <ReadField label={t('data.languages')}>{profile.languages.join(', ').toUpperCase()}</ReadField>
             <ReadField label={t('data.specialties')}>
               {profile.specialties.map((id) => (t.has(`specialties.${id}`) ? t(`specialties.${id}` as 'specialties.city_tour') : id)).join(', ')}
@@ -288,7 +513,7 @@ export function GuideProfileTab({ clientId, submissionId, onPublished }: Props) 
         </div>
       </RecordSection>
 
-      {/* 3 · bio */}
+      {/* 4 · bio */}
       <RecordSection icon={<Pencil className="h-4 w-4 text-tuggi-blue" />} title={t('bio.title')}>
         {editing ? (
           <div className="space-y-2">
@@ -331,7 +556,7 @@ export function GuideProfileTab({ clientId, submissionId, onPublished }: Props) 
               </Button>
               {savedAt ? (
                 <span role="status" className="text-xs text-gray-600 dark:text-gray-300">
-                  {t('bio.saved', { time: new Date(savedAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) })}
+                  {t('bio.saved', { time: clock(savedAt) })}
                 </span>
               ) : null}
             </div>

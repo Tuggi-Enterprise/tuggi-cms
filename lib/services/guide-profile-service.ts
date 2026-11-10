@@ -2,8 +2,8 @@
  * The tour guide's public profile in the CMS (#936, BR-B2B-064). Contract
  * `docs/contracts/partner-proposal-answers.md` §8.6.
  *
- * READS with `service_role`: `partner.guide_profiles` and `partner.guide_service_cities` have RLS
- * on and no policy, so nobody else reads them. WRITES go through the three `core.cms_*` RPCs with
+ * READS with `service_role`: `partner.guide_profiles` has RLS
+ * on and no policy, so nobody else reads it. WRITES go through the `core.cms_*` RPCs with
  * the OPERATOR's session, so the gate (`core.is_caller_platform_admin()`) answers for the person on
  * the screen. The one write that needs `service_role` is the photo copy: the draft bucket is
  * private and `guide-photos` only admits the guide's own uploads.
@@ -20,6 +20,11 @@ export const GUIDE_PHOTOS_BUCKET = 'guide-photos'
 export const GUIDE_BIO_MAX = 400
 /** `core.cms_set_guide_hidden`: the reason is 1 to 500 characters. */
 export const GUIDE_HIDE_REASON_MAX = 500
+/** `core.cms_set_guide_meeting_point` (`partner.guide_meeting_point_of`): address 1 to 300, city 1 to 80. */
+export const GUIDE_MEETING_POINT_ADDRESS_MAX = 300
+export const GUIDE_MEETING_POINT_CITY_MAX = 80
+/** The route's answer when listing is refused for want of a meeting point (TGP23, BR-B2B-064 item 11.a). */
+export const GUIDE_MEETING_POINT_REQUIRED = 'meeting_point_required'
 
 /** The closed reasons of the "Ocultar do app" dialog (spec #936 §5); `other` carries free text. */
 export const GUIDE_HIDE_REASONS = ['tourist_report', 'inactive', 'guide_request', 'other'] as const
@@ -30,6 +35,14 @@ const PHOTO_FILE = `${UUID}[.](?:jpg|jpeg|png|webp)`
 
 function partner() {
   return getSupabaseService().schema('partner')
+}
+
+/** The one meeting point of a guide (BR-B2B-064 items 4 and 6), as `partner.guide_profiles` keeps it. */
+export interface GuideMeetingPoint {
+  address: string
+  city: string
+  lat: number
+  lng: number
 }
 
 export interface GuideProfile {
@@ -44,8 +57,29 @@ export interface GuideProfile {
   consent: boolean
   hidden: boolean
   hiddenReason: string | null
+  /** `listed_in_app`, the curator's "Aparece no app" (BR-B2B-064 item 11.a). */
+  listedInApp: boolean
+  /** `null` until the guide or the curator sets it (guides published before 2026-11-10). */
+  meetingPoint: GuideMeetingPoint | null
   updatedAt: string
-  cities: { city: string; state: string }[]
+}
+
+/**
+ * The meeting point as the CMS sends it, checked with the bounds of `partner.guide_meeting_point_of`
+ * before the RPC. `null` = invalid. The coordinate is a number the map produced (click or drag);
+ * a string is refused, so nothing typed becomes a coordinate.
+ */
+export function guideMeetingPointOf(value: unknown): GuideMeetingPoint | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const v = value as Record<string, unknown>
+  const address = typeof v.address === 'string' ? v.address.trim() : ''
+  const city = typeof v.city === 'string' ? v.city.trim() : ''
+  const { lat, lng } = v
+  if (address.length < 1 || address.length > GUIDE_MEETING_POINT_ADDRESS_MAX) return null
+  if (city.length < 1 || city.length > GUIDE_MEETING_POINT_CITY_MAX) return null
+  if (typeof lat !== 'number' || !Number.isFinite(lat) || lat < -90 || lat > 90) return null
+  if (typeof lng !== 'number' || !Number.isFinite(lng) || lng < -180 || lng > 180) return null
+  return { address, city, lat, lng }
 }
 
 /** The public URL of a `guide-photos` object — the bucket is public (contract §8.6). */
@@ -95,14 +129,25 @@ export async function loadGuideProfileFacts(clientIds: string[]): Promise<Map<st
   if (clientIds.length === 0) return facts
   const { data, error } = await partner()
     .from('guide_profiles')
-    .select('client_id, hidden, public_contact_consent')
+    .select('client_id, hidden, public_contact_consent, listed_in_app, meeting_point_lat')
     .in('client_id', clientIds)
   if (error || !data) {
     console.error('[guide-profile] facts read failed', error?.code ?? 'no_data')
     return facts
   }
-  for (const row of data as { client_id: string; hidden: boolean; public_contact_consent: boolean }[]) {
-    facts.set(row.client_id, { hidden: row.hidden, consent: row.public_contact_consent })
+  for (const row of data as {
+    client_id: string
+    hidden: boolean
+    public_contact_consent: boolean
+    listed_in_app: boolean
+    meeting_point_lat: number | null
+  }[]) {
+    facts.set(row.client_id, {
+      hidden: row.hidden,
+      consent: row.public_contact_consent,
+      listedInApp: row.listed_in_app === true,
+      hasMeetingPoint: row.meeting_point_lat !== null,
+    })
   }
   return facts
 }
@@ -110,16 +155,17 @@ export async function loadGuideProfileFacts(clientIds: string[]): Promise<Map<st
 export type GuideProfileRead = { ok: true; profile: GuideProfile | null } | { ok: false }
 
 export async function loadGuideProfile(clientId: string): Promise<GuideProfileRead> {
-  const [profileRead, citiesRead] = await Promise.all([
-    partner()
-      .from('guide_profiles')
-      .select('client_id, display_name, bio, photo_path, languages, specialties, whatsapp, public_contact_consent, hidden, hidden_reason, updated_at')
-      .eq('client_id', clientId)
-      .maybeSingle(),
-    partner().from('guide_service_cities').select('city, state').eq('guide_client_id', clientId).order('city'),
-  ])
-  if (profileRead.error || citiesRead.error) {
-    console.error('[guide-profile] read failed', profileRead.error?.code ?? citiesRead.error?.code)
+  // The service cities are no longer read: since #1177 the meeting point replaces them, and the
+  // record does not show them (spec #936 §9.2).
+  const profileRead = await partner()
+    .from('guide_profiles')
+    .select(
+      'client_id, display_name, bio, photo_path, languages, specialties, whatsapp, public_contact_consent, hidden, hidden_reason, updated_at, listed_in_app, meeting_point_address, meeting_point_city, meeting_point_lat, meeting_point_lng'
+    )
+    .eq('client_id', clientId)
+    .maybeSingle()
+  if (profileRead.error) {
+    console.error('[guide-profile] read failed', profileRead.error.code)
     return { ok: false }
   }
   const row = profileRead.data as {
@@ -134,6 +180,11 @@ export async function loadGuideProfile(clientId: string): Promise<GuideProfileRe
     hidden: boolean
     hidden_reason: string | null
     updated_at: string
+    listed_in_app: boolean
+    meeting_point_address: string | null
+    meeting_point_city: string | null
+    meeting_point_lat: number | null
+    meeting_point_lng: number | null
   } | null
   if (!row) return { ok: true, profile: null }
   return {
@@ -150,8 +201,13 @@ export async function loadGuideProfile(clientId: string): Promise<GuideProfileRe
       consent: row.public_contact_consent,
       hidden: row.hidden,
       hiddenReason: row.hidden_reason,
+      listedInApp: row.listed_in_app === true,
+      // CHECK guide_profiles_meeting_point_ck: the four are all null or all filled.
+      meetingPoint:
+        row.meeting_point_address !== null && row.meeting_point_city !== null && row.meeting_point_lat !== null && row.meeting_point_lng !== null
+          ? { address: row.meeting_point_address, city: row.meeting_point_city, lat: row.meeting_point_lat, lng: row.meeting_point_lng }
+          : null,
       updatedAt: row.updated_at,
-      cities: (citiesRead.data ?? []) as { city: string; state: string }[],
     },
   }
 }
@@ -169,6 +225,10 @@ export function guideRpcErrorOf(code: string | undefined, detail?: string | null
       return { httpStatus: 409, error: 'status_conflict' }
     case 'TGP22':
       return { httpStatus: 422, error: detail ? `invalid_${detail}` : 'invalid' }
+    // `cms_set_guide_listed`: listing needs a meeting point (BR-B2B-064 item 11.a). Its own answer,
+    // so the screen tells "set the point first" apart from a bad argument.
+    case 'TGP23':
+      return { httpStatus: 409, error: GUIDE_MEETING_POINT_REQUIRED }
     default:
       return { httpStatus: 503, error: 'guide_write_failed' }
   }
@@ -210,6 +270,44 @@ export async function updateGuideBio(
     .rpc('cms_update_guide_profile', { p_client_id: clientId, p_bio: bio })
   if (error) {
     console.error('[guide-profile] bio update failed', error.code)
+    return { ok: false, ...guideRpcErrorOf(error.code, (error as { details?: string }).details) }
+  }
+  return { ok: true, value: String(data) }
+}
+
+/**
+ * BR-B2B-064 item 11.a: the curator lists the guide in the app ("Aparece no app") or takes it out.
+ * Listing without a meeting point is refused by the database (TGP23) and answered as
+ * `meeting_point_required`. Unlisting deletes nothing and records no reason.
+ */
+export async function setGuideListed(
+  operator: SupabaseClient,
+  clientId: string,
+  listed: boolean
+): Promise<GuideWriteOutcome<boolean>> {
+  const { data, error } = await operator.schema('core').rpc('cms_set_guide_listed', { p_client_id: clientId, p_listed: listed })
+  if (error) {
+    console.error('[guide-profile] set listed failed', error.code)
+    return { ok: false, ...guideRpcErrorOf(error.code, (error as { details?: string }).details) }
+  }
+  return { ok: true, value: Boolean(data) }
+}
+
+/** BR-B2B-064 item 11.c: the curator sets the meeting point; `answers.meeting_point` follows in the database. */
+export async function setGuideMeetingPoint(
+  operator: SupabaseClient,
+  clientId: string,
+  point: GuideMeetingPoint
+): Promise<GuideWriteOutcome<string>> {
+  const { data, error } = await operator.schema('core').rpc('cms_set_guide_meeting_point', {
+    p_client_id: clientId,
+    p_address: point.address,
+    p_city: point.city,
+    p_lat: point.lat,
+    p_lng: point.lng,
+  })
+  if (error) {
+    console.error('[guide-profile] meeting point update failed', error.code)
     return { ok: false, ...guideRpcErrorOf(error.code, (error as { details?: string }).details) }
   }
   return { ok: true, value: String(data) }

@@ -249,21 +249,21 @@ function portalState(over: Partial<import('@/lib/partnerships/pipeline').Pipelin
   })
 }
 
-test('BR-B2B-064 item 10 · BR-B2B-057: the guide is Publicado by its active and visible profile, never by a place', () => {
-  assert.equal(portalState({ partnerKind: 'guide', portalStatus: 'live', guideProfile: { hidden: false, consent: true } }), 'published')
-  assert.equal(portalState({ partnerKind: 'guide', portalStatus: 'approved', guideProfile: { hidden: false, consent: true } }), 'published')
+test('BR-B2B-064 item 10 · BR-B2B-057: the guide is Publicado by its active, visible and listed profile (#1179), never by a place', () => {
+  assert.equal(portalState({ partnerKind: 'guide', portalStatus: 'live', guideProfile: { hidden: false, consent: true, listedInApp: true, hasMeetingPoint: true } }), 'published')
+  assert.equal(portalState({ partnerKind: 'guide', portalStatus: 'approved', guideProfile: { hidden: false, consent: true, listedInApp: true, hasMeetingPoint: true } }), 'published')
   // approved and the profile never reached the app: work, "Aprovado, falta publicar o perfil"
   const pending = portalState({ partnerKind: 'guide', guideProfile: null })
   assert.equal(pending, 'approved_awaiting_narration')
   assert.equal(pipeline.stateMessageKey(pending, 'guide'), 'approved_awaiting_guide_profile')
   assert.equal(pipeline.stateMessageKey(pending, 'place'), 'approved_awaiting_narration')
   // the gate of BR-B2B-057 item 3 still comes first
-  assert.equal(portalState({ partnerKind: 'guide', guideProfile: { hidden: false, consent: true }, gateMissing: ['partner_code'] as never }), 'awaiting_acceptance')
+  assert.equal(portalState({ partnerKind: 'guide', guideProfile: { hidden: false, consent: true, listedInApp: true, hasMeetingPoint: true }, gateMissing: ['partner_code'] as never }), 'awaiting_acceptance')
 })
 
 test('BR-B2B-064 items 5 and 11: hidden by the curator or without consent is Oculto do app — terminal, out of the default filter, in the Publicado column', () => {
-  assert.equal(portalState({ partnerKind: 'guide', portalStatus: 'live', guideProfile: { hidden: true, consent: true } }), 'hidden_from_app')
-  assert.equal(portalState({ partnerKind: 'guide', portalStatus: 'live', guideProfile: { hidden: false, consent: false } }), 'hidden_from_app')
+  assert.equal(portalState({ partnerKind: 'guide', portalStatus: 'live', guideProfile: { hidden: true, consent: true, listedInApp: true, hasMeetingPoint: true } }), 'hidden_from_app')
+  assert.equal(portalState({ partnerKind: 'guide', portalStatus: 'live', guideProfile: { hidden: false, consent: false, listedInApp: true, hasMeetingPoint: true } }), 'hidden_from_app')
   assert.ok(!pipeline.IN_PROGRESS_STATES.includes('hidden_from_app'))
   assert.ok(pipeline.PIPELINE_STATES.includes('hidden_from_app'))
   assert.equal(board.columnOf('hidden_from_app'), 'published')

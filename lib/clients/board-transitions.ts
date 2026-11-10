@@ -63,8 +63,9 @@ export const COLUMN_STATES: Record<BoardColumnId, PipelineState[]> = {
   awaiting_acceptance: ['awaiting_acceptance'],
   curation: ['place_in_curation', 'approved_awaiting_narration'],
   // #936: the partner without a place ends here too — the guide out of the app and the transfer
-  // with only a QR are terminal, nothing more is due (BR-B2B-057 as amended on 2026-10-16).
-  published: ['published', 'hidden_from_app', 'referral_only'],
+  // with only a QR are terminal, nothing more is due (BR-B2B-057 as amended on 2026-10-16). #1179:
+  // so is the published guide the curator has not listed (BR-B2B-064 item 10).
+  published: ['published', 'published_unlisted', 'hidden_from_app', 'referral_only'],
 }
 
 /** The states outside the board, reached by `Ver os encerrados na tabela`. */
