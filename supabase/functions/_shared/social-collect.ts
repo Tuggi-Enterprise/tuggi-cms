@@ -93,7 +93,8 @@ export const COMPETITOR_MAX_PAGES = 200;
  * The history walk of the competitors runs last in the daily run and stops this long after the run
  * started, so the funnel, the themes and the week are never starved: the gateway answers 504 at 150 s
  * (#1064, the first run with the walk inside the account loop timed out). What a stopped walk wrote
- * stays; the next run walks again from the second page.
+ * stays; the next run walks again from the second page. The site channels windows (#1170) stop on the
+ * same deadline, after their first window.
  */
 export const HISTORY_BUDGET_MS = 100_000;
 /** Pages of 50 of our own media the collector walks at most, a guard against a runaway cursor. */
@@ -111,6 +112,11 @@ export const META_FUNNEL_MAX_DAYS = 90;
  * screen's longest comparison) when the first post is more recent than that.
  */
 export const FUNNEL_HISTORY_DAYS = 360;
+/**
+ * #1170: the site channels are read in windows this long, each written before the next is asked. The
+ * whole year in one report did not answer within the GA4 call's timeout on the first run (2026-11-10).
+ */
+export const SITE_CHANNELS_WINDOW_DAYS = 30;
 /** `sessionSource` that means "came from Instagram": ig, instagram, or any instagram.com host. */
 export const IG_SESSION_SOURCE_PATTERN = '(ig|instagram|([a-z0-9-]+\\.)*instagram\\.com)';
 export const INSIGHT_CONCURRENCY = 5;
@@ -551,7 +557,7 @@ export interface CollectReport {
   apple: 'read' | 'pending' | 'not_configured' | 'failed' | 'skipped';
   /** #1168: the store funnel; `partial` when one report was refused or missing and the others were written. */
   apple_store: 'read' | 'pending' | 'partial' | 'not_configured' | 'failed' | 'skipped';
-  /** #1170: `partial` when the sessions landed and the clicks report was refused. */
+  /** #1170: `partial` when the clicks report was refused, or the windows stopped before yesterday. */
   site_channels: 'read' | 'partial' | 'not_configured' | 'failed' | 'skipped';
   /** #1170: `no_property` when `sites.list` gives no tuggi.app property (the account was not added). */
   search_console: 'read' | 'no_property' | 'not_configured' | 'failed' | 'skipped';
@@ -1170,6 +1176,9 @@ async function collectStoreClicks(
 // ----------------------------------------------------------------------------------------------
 // Site channels (#1170)
 
+/** The oldest of the days given, ignoring null. */
+const earliest = (...days: Array<string | null>) => days.filter((d): d is string => !!d).sort()[0] ?? null;
+
 /** Sessions and users of the site per day and default channel group. */
 export function siteChannelsBody(from: string, to: string): Record<string, unknown> {
   return {
@@ -1209,31 +1218,37 @@ const metricInt = (r: Ga4RowRaw, i: number): number => {
 export interface SiteChannelsResult {
   from: string;
   to: string;
+  /** The last day of the last window read, or null when none was. */
+  read_to: string | null;
   rows: number;
   /** Null when the clicks report was read (or had no day to read); its error code otherwise. */
   clicks_error: string | null;
+  /**
+   * Null when every window was read. `time_budget` when the run's budget ran out between windows, or
+   * Google's error of the window that failed after an earlier one was written: the next run goes on from
+   * the last stored day.
+   */
+  stopped: string | null;
   first_day: string | null;
 }
 
-/**
- * From the oldest of the last stored day and the last three days (the first run: FUNNEL_HISTORY_DAYS back),
- * through yesterday. A (day, channel) GA4 answers is written; GA4 leaves out a pair whose metrics are all
- * zero, so a pair without sessions does not exist and is not written. On and after STORE_DIMENSION_SINCE a
- * pair with no click is a measured 0 per store; before it both click columns are null. A refused sessions
- * report writes nothing; a refused clicks report writes the sessions only, leaving the click columns of the
- * rows already there untouched.
- */
-async function collectSiteChannels(
-  deps: CollectDeps,
-  run: Ga4Run,
-  today: string,
-  lastDay: string | null,
-): Promise<{ result: SiteChannelsResult; clicksError: unknown }> {
-  const to = addDays(today, -1);
-  const floor = addDays(today, -FUNNEL_HISTORY_DAYS);
-  const recent = addDays(today, -GA4_LOOKBACK_DAYS);
-  const from = lastDay === null || lastDay < floor ? floor : lastDay < recent ? lastDay : recent;
+/** The windows of `[from, to]`, oldest first, each at most SITE_CHANNELS_WINDOW_DAYS long. */
+export function dayWindows(from: string, to: string, size: number): Array<{ from: string; to: string }> {
+  const out: Array<{ from: string; to: string }> = [];
+  for (let start = from; start <= to; start = addDays(start, size)) {
+    const end = addDays(start, size - 1);
+    out.push({ from: start, to: end < to ? end : to });
+  }
+  return out;
+}
 
+/** One window: the sessions per (day, channel), and the clicks per store unless `clicks` is null. */
+async function readSiteWindow(
+  run: Ga4Run,
+  from: string,
+  to: string,
+  clicks: { refused: unknown } | null,
+): Promise<Array<Record<string, unknown>>> {
   const pairs = new Map<string, { day: string; channel: string; sessions: number; users: number }>();
   for (const r of ga4AllRows(await run(siteChannelsBody(from, to)))) {
     const day = ga4Day(r.dimensionValues?.[0]?.value);
@@ -1248,10 +1263,10 @@ async function collectSiteChannels(
     });
   }
 
-  let clicks: Map<string, number> | null = new Map();
-  let clicksError: unknown = null;
+  let byStore: Map<string, number> | null = clicks ? new Map() : null;
   const clicksFrom = from > STORE_DIMENSION_SINCE ? from : STORE_DIMENSION_SINCE;
-  if (clicksFrom <= to) {
+  if (clicks && byStore && clicksFrom <= to) {
+    const counted = byStore;
     try {
       for (const r of ga4AllRows(await run(channelClicksBody(clicksFrom, to)))) {
         const day = ga4Day(r.dimensionValues?.[0]?.value);
@@ -1259,36 +1274,81 @@ async function collectSiteChannels(
         const store = String(r.dimensionValues?.[2]?.value ?? '');
         if (!day || !channel || !(STORE_IDS as readonly string[]).includes(store)) continue;
         const k = `${day}|${channel}|${store}`;
-        clicks.set(k, (clicks.get(k) ?? 0) + metricInt(r, 0));
+        counted.set(k, (counted.get(k) ?? 0) + metricInt(r, 0));
       }
     } catch (e) {
-      clicks = null;
-      clicksError = e;
+      byStore = null;
+      clicks.refused = e;
     }
   }
 
-  const rows = [...pairs.values()].map((p) => {
-    if (!clicks) return p;
+  return [...pairs.values()].map((p) => {
+    if (!byStore) return p;
     const measured = p.day >= STORE_DIMENSION_SINCE;
     return {
       ...p,
-      clicks_app_store: measured ? clicks.get(`${p.day}|${p.channel}|app_store`) ?? 0 : null,
-      clicks_play_store: measured ? clicks.get(`${p.day}|${p.channel}|play_store`) ?? 0 : null,
+      clicks_app_store: measured ? byStore.get(`${p.day}|${p.channel}|app_store`) ?? 0 : null,
+      clicks_play_store: measured ? byStore.get(`${p.day}|${p.channel}|play_store`) ?? 0 : null,
     };
   });
-  for (let i = 0; i < rows.length; i += UPSERT_CHUNK) {
-    await deps.store.upsert('site_channel_daily', rows.slice(i, i + UPSERT_CHUNK), 'day,channel');
-  }
-  return {
-    result: {
-      from,
-      to,
-      rows: rows.length,
-      clicks_error: clicksError ? googleErrorDetail(clicksError) : null,
-      first_day: rows.map((r) => r.day).sort()[0] ?? null,
-    },
-    clicksError,
+}
+
+/**
+ * From the oldest of the last stored day and the last three days (the first run: FUNNEL_HISTORY_DAYS back),
+ * through yesterday, in windows of SITE_CHANNELS_WINDOW_DAYS, oldest first, each written before the next is
+ * asked (#1170: the first run asked the whole year in one report and timed out). A run that stops between
+ * windows, on the budget or on a refusal, keeps what it wrote, and the next one starts from the last stored
+ * day. A (day, channel) GA4 answers is written; GA4 leaves out a pair whose metrics are all zero, so a pair
+ * without sessions does not exist and is not written. On and after STORE_DIMENSION_SINCE a pair with no
+ * click is a measured 0 per store; before it both click columns are null. A refused sessions report in the
+ * first window writes nothing and throws; a refused clicks report writes the sessions only, leaving the
+ * click columns of the rows already there untouched, and the later windows no longer ask for clicks.
+ */
+async function collectSiteChannels(
+  deps: CollectDeps,
+  run: Ga4Run,
+  today: string,
+  lastDay: string | null,
+  deadline: number,
+): Promise<{ result: SiteChannelsResult; clicksError: unknown }> {
+  const to = addDays(today, -1);
+  const floor = addDays(today, -FUNNEL_HISTORY_DAYS);
+  const recent = addDays(today, -GA4_LOOKBACK_DAYS);
+  const from = lastDay === null || lastDay < floor ? floor : lastDay < recent ? lastDay : recent;
+
+  const clicks: { refused: unknown } = { refused: null };
+  const result: SiteChannelsResult = {
+    from,
+    to,
+    read_to: null,
+    rows: 0,
+    clicks_error: null,
+    stopped: null,
+    first_day: null,
   };
+  for (const window of dayWindows(from, to, SITE_CHANNELS_WINDOW_DAYS)) {
+    // The first window is always read, so every run moves the history forward.
+    if (result.read_to && deps.now().getTime() >= deadline) {
+      result.stopped = 'time_budget';
+      break;
+    }
+    let rows: Array<Record<string, unknown>>;
+    try {
+      rows = await readSiteWindow(run, window.from, window.to, clicks.refused ? null : clicks);
+    } catch (e) {
+      if (!result.read_to) throw e;
+      result.stopped = googleErrorDetail(e);
+      break;
+    }
+    for (let i = 0; i < rows.length; i += UPSERT_CHUNK) {
+      await deps.store.upsert('site_channel_daily', rows.slice(i, i + UPSERT_CHUNK), 'day,channel');
+    }
+    result.read_to = window.to;
+    result.rows += rows.length;
+    result.first_day = earliest(result.first_day, ...rows.map((r) => String(r.day)));
+  }
+  result.clicks_error = clicks.refused ? googleErrorDetail(clicks.refused) : null;
+  return { result, clicksError: clicks.refused };
 }
 
 // ----------------------------------------------------------------------------------------------
@@ -1529,16 +1589,17 @@ async function runAppleStoreCollect(
   }
 }
 
-const earliest = (...days: Array<string | null>) => days.filter((d): d is string => !!d).sort()[0] ?? null;
-
 /**
  * #1170, the `site_channels` job. Isolated like `apple_store`: a refusal is recorded with Google's words and
- * the run goes on. `covered_from` only moves back, and a refused run keeps it.
+ * the run goes on. `covered_from` only moves back, and a refused run keeps it. A run stopped by the budget
+ * is `ok` and `partial` (nothing failed, the next run goes on); one stopped by a refusal after a written
+ * window is `error` and `partial`, with the error in `stopped`.
  */
 async function runSiteChannelsCollect(
   deps: CollectDeps,
   run: Ga4Run | null,
   today: string,
+  deadline: number,
 ): Promise<CollectReport['site_channels']> {
   if (!run) {
     await recordRun(deps, 'site_channels', 'not_configured', null);
@@ -1547,12 +1608,13 @@ async function runSiteChannelsCollect(
   try {
     const coveredFrom = await deps.store.coveredFrom('site_channels');
     const lastDay = await deps.store.lastDay('site_channel_daily');
-    const { result, clicksError } = await collectSiteChannels(deps, run, today, lastDay);
+    const { result, clicksError } = await collectSiteChannels(deps, run, today, lastDay, deadline);
     const first = earliest(coveredFrom, result.first_day);
     if (clicksError) deps.log(`[social-collect] site_channels clicks refused: ${result.clicks_error}`);
-    const status = clicksError ? 'error' : 'ok';
-    await recordRun(deps, 'site_channels', status, JSON.stringify(result), { covered_from: first });
-    return clicksError ? 'partial' : 'read';
+    const refused = !!clicksError || (result.stopped !== null && result.stopped !== 'time_budget');
+    if (result.stopped) deps.log(`[social-collect] site_channels stopped after ${result.read_to}: ${result.stopped}`);
+    await recordRun(deps, 'site_channels', refused ? 'error' : 'ok', JSON.stringify(result), { covered_from: first });
+    return clicksError || result.stopped ? 'partial' : 'read';
   } catch (e) {
     const detail = googleErrorDetail(e);
     deps.log(`[social-collect] site_channels failed: ${detail}`);
@@ -1928,7 +1990,7 @@ export async function runSocialCollect(deps: CollectDeps): Promise<CollectReport
     report.apple_store = await runAppleStoreCollect(deps, deps.apple);
   }
   if (deps.acquisition) {
-    report.site_channels = await runSiteChannelsCollect(deps, deps.acquisition.siteGa4, today);
+    report.site_channels = await runSiteChannelsCollect(deps, deps.acquisition.siteGa4, today, deadline);
     report.search_console = await runSearchConsoleCollect(deps, deps.acquisition.searchConsole, today);
   }
 

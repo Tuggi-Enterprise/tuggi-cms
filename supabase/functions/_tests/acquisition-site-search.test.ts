@@ -30,7 +30,10 @@ import {
 import {
   type CollectDeps,
   type Ga4Run,
+  dayWindows,
+  HISTORY_BUDGET_MS,
   runSocialCollect,
+  SITE_CHANNELS_WINDOW_DAYS,
   type SocialStore,
   type SocialTable,
   STORE_DIMENSION_SINCE,
@@ -278,34 +281,79 @@ const deps = (
   s: SocialStore,
   acquisition: CollectDeps['acquisition'],
   logs: string[] = [],
-  now = NOW,
+  now: Date | (() => Date) = NOW,
 ): CollectDeps => ({
   store: s,
   meta: { igUserId: 'x', get: () => Promise.reject(new Error('no meta here')) },
   ga4: null,
   gemini: null,
-  now: () => now,
+  now: typeof now === 'function' ? now : () => now,
   log: (l) => logs.push(l),
   acquisition,
 });
 
 type Ga4Call = { dims: string[]; from: string; to: string };
+type Ga4Answer = { rows?: Array<{ dimensionValues: Array<{ value: string }> }>; rowCount?: number };
 
-/** The site property, recorded: sessions by channel, and clicks by channel and store unless refused. */
-function siteGa4(opts: { refuseClicks?: GoogleApiError; refuseAll?: GoogleApiError } = {}) {
+/** What GA4 answers for a range: only the rows of its days; rows cut off by the answer stay cut off. */
+function within(answer: Ga4Answer, from: string, to: string): Ga4Answer {
+  const iso = (v: string) => `${v.slice(0, 4)}-${v.slice(4, 6)}-${v.slice(6, 8)}`;
+  const all = answer.rows ?? [];
+  const rows = all.filter((r) => {
+    const day = iso(r.dimensionValues[0].value);
+    return day >= from && day <= to;
+  });
+  return { ...answer, rows, rowCount: rows.length + (answer.rowCount ?? all.length) - all.length };
+}
+
+/**
+ * The site property, recorded: sessions by channel, and clicks by channel and store unless refused.
+ * `failSessionsCall` refuses the n-th sessions report (1-based) with `failWith`, as a timeout would.
+ */
+function siteGa4(
+  opts: {
+    refuseClicks?: GoogleApiError;
+    refuseAll?: GoogleApiError;
+    sessions?: Ga4Answer;
+    failSessionsCall?: number;
+    failWith?: Error;
+    onCall?: () => void;
+  } = {},
+) {
   const calls: Ga4Call[] = [];
+  let sessionsCalls = 0;
   const run: Ga4Run = (body) => {
     const dims = (body.dimensions as Array<{ name: string }>).map((d) => d.name);
     const range = (body.dateRanges as Array<{ startDate: string; endDate: string }>)[0];
     calls.push({ dims, from: range.startDate, to: range.endDate });
+    opts.onCall?.();
     if (opts.refuseAll) return Promise.reject(opts.refuseAll);
-    if (!dims.includes('customEvent:store')) return Promise.resolve(fixture('ga4-site-channels'));
+    if (!dims.includes('customEvent:store')) {
+      sessionsCalls += 1;
+      if (sessionsCalls === opts.failSessionsCall) return Promise.reject(opts.failWith);
+      const answer = opts.sessions ?? (fixture('ga4-site-channels') as Ga4Answer);
+      return Promise.resolve(within(answer, range.startDate, range.endDate));
+    }
     assertEquals(JSON.stringify(body.dimensionFilter).includes('"value":"click_store"'), true);
     if (opts.refuseClicks) return Promise.reject(opts.refuseClicks);
-    return Promise.resolve(fixture('ga4-channel-clicks'));
+    return Promise.resolve(within(fixture('ga4-channel-clicks') as Ga4Answer, range.startDate, range.endDate));
   };
   return { run, calls };
 }
+
+/** One Direct session per day of the year, so every window writes rows. */
+function everyDay(from: string, days: number): Ga4Answer {
+  const rows = Array.from({ length: days }, (_, i) => {
+    const day = new Date(Date.parse(`${from}T12:00:00Z`) + i * 86_400_000).toISOString().slice(0, 10);
+    return {
+      dimensionValues: [{ value: day.replaceAll('-', '') }, { value: 'Direct' }],
+      metricValues: [{ value: '1' }, { value: '1' }],
+    };
+  });
+  return { rows, rowCount: rows.length };
+}
+
+const sessionCalls = (calls: Ga4Call[]) => calls.filter((c) => !c.dims.includes('customEvent:store'));
 
 const refusal = (code: string, file: string, status: number) => googleApiError(code, answer(file, status));
 
@@ -337,9 +385,14 @@ Deno.test('#1170: site_channels writes sessions and users per channel; clicks be
   ], [1, 0]);
   assertEquals([row('2026-10-30|Email')?.clicks_app_store, row('2026-10-30|Email')?.clicks_play_store], [0, 0]);
   assertEquals(tables.site_channel_daily.size, 6);
-  // First run: a year back for sessions; clicks only from the day the store exists; through yesterday.
-  assertEquals(ga4.calls, [
-    { dims: ['date', 'sessionDefaultChannelGroup'], from: '2025-11-14', to: '2026-11-08' },
+  // First run: a year back for sessions in windows of SITE_CHANNELS_WINDOW_DAYS, oldest first; clicks only
+  // from the day the store exists; through yesterday.
+  const sessions = sessionCalls(ga4.calls);
+  assertEquals(SITE_CHANNELS_WINDOW_DAYS, 30);
+  assertEquals(sessions.length, 12);
+  assertEquals(sessions[0], { dims: ['date', 'sessionDefaultChannelGroup'], from: '2025-11-14', to: '2025-12-13' });
+  assertEquals(sessions[11], { dims: ['date', 'sessionDefaultChannelGroup'], from: '2026-10-10', to: '2026-11-08' });
+  assertEquals(ga4.calls.filter((c) => c.dims.includes('customEvent:store')), [
     { dims: ['date', 'sessionDefaultChannelGroup', 'customEvent:store'], from: '2026-10-29', to: '2026-11-08' },
   ]);
   assertEquals([run('site_channels')?.status, run('site_channels')?.covered_from], ['ok', '2026-10-27']);
@@ -398,6 +451,71 @@ Deno.test('#1170: GA4 refusing the site writes nothing, keeps covered_from, and 
     String(row?.detail),
   );
   assertEquals(run('daily')?.status, 'ok');
+});
+
+Deno.test('#1170: the windows cover the range back to back, oldest first, the last one cut at the end', () => {
+  assertEquals(dayWindows('2026-01-01', '2026-03-05', 30), [
+    { from: '2026-01-01', to: '2026-01-30' },
+    { from: '2026-01-31', to: '2026-03-01' },
+    { from: '2026-03-02', to: '2026-03-05' },
+  ]);
+  assertEquals(dayWindows('2026-11-05', '2026-11-08', 30), [{ from: '2026-11-05', to: '2026-11-08' }]);
+  assertEquals(dayWindows('2026-11-09', '2026-11-08', 30), []);
+});
+
+Deno.test('#1170: a first run cut in the middle keeps the windows it wrote, covered_from their first day, and the next run goes on from there', async () => {
+  const { s, tables, run } = store();
+  const year = everyDay('2025-11-14', 360);
+  const logs: string[] = [];
+  const cut = siteGa4({ sessions: year, failSessionsCall: 4, failWith: new Error('Signal timed out.') });
+  const report = await runSocialCollect(deps(s, { siteGa4: cut.run, searchConsole: null }, logs));
+  assertEquals(report.site_channels, 'partial');
+  // Three windows of 30 days landed before the fourth timed out.
+  assertEquals(tables.site_channel_daily.size, 90);
+  const row = run('site_channels');
+  assertEquals([row?.status, row?.covered_from], ['error', '2025-11-14']);
+  const detail = JSON.parse(String(row?.detail));
+  assertEquals([detail.read_to, detail.rows, detail.stopped], ['2026-02-11', 90, 'Signal timed out.']);
+  assert(logs.some((l) => l.includes('site_channels stopped after 2026-02-11')), logs.join('\n'));
+
+  // Next run (the same day, or the next): from the last stored day, not the whole year again.
+  const resumed = siteGa4({ sessions: year });
+  const again = await runSocialCollect(deps(s, { siteGa4: resumed.run, searchConsole: null }));
+  assertEquals(again.site_channels, 'read');
+  assertEquals(sessionCalls(resumed.calls)[0].from, '2026-02-11');
+  assertEquals(sessionCalls(resumed.calls).at(-1)?.to, '2026-11-08');
+  assertEquals(tables.site_channel_daily.size, 360);
+  assertEquals([run('site_channels')?.status, run('site_channels')?.covered_from], ['ok', '2025-11-14']);
+});
+
+Deno.test('#1170: a truncated window refuses the run as before when it is the first one, so a missing day never reads as 0', async () => {
+  const { s, tables, run } = store();
+  const truncated = { ...everyDay('2025-11-14', 30), rowCount: 31 };
+  const report = await runSocialCollect(deps(s, { siteGa4: siteGa4({ sessions: truncated }).run, searchConsole: null }));
+  assertEquals(report.site_channels, 'failed');
+  assertEquals(tables.site_channel_daily, undefined);
+  assertEquals([run('site_channels')?.status, run('site_channels')?.detail], ['error', 'ga4_rows_truncated']);
+});
+
+Deno.test('#1170: past the run budget no new window starts; the run is ok and partial, and the next one goes on', async () => {
+  const { s, tables, run } = store();
+  const year = everyDay('2025-11-14', 360);
+  // Each GA4 call takes 30 s of the clock: the budget is spent after four windows.
+  let clock = NOW.getTime();
+  const slow = siteGa4({ sessions: year, onCall: () => (clock += 30_000) });
+  const report = await runSocialCollect(deps(s, { siteGa4: slow.run, searchConsole: null }, [], () => new Date(clock)));
+  assertEquals(HISTORY_BUDGET_MS, 100_000);
+  assertEquals(report.site_channels, 'partial');
+  assertEquals(sessionCalls(slow.calls).length, 4);
+  assertEquals(tables.site_channel_daily.size, 120);
+  const row = run('site_channels');
+  assertEquals([row?.status, row?.covered_from], ['ok', '2025-11-14']);
+  assertEquals(JSON.parse(String(row?.detail)).stopped, 'time_budget');
+
+  const next = siteGa4({ sessions: year });
+  await runSocialCollect(deps(s, { siteGa4: next.run, searchConsole: null }));
+  assertEquals(sessionCalls(next.calls)[0].from, '2026-03-13');
+  assertEquals(tables.site_channel_daily.size, 360);
 });
 
 Deno.test('#1170: search_console writes per day and query from sc-domain, sixteen months on the first run, covered_from the first day', async () => {
