@@ -5003,9 +5003,9 @@
         "setMeetingPoint": "Definir o ponto de encontro",
         "listedOn": "Marcado às {time}.",
         "listedOff": "Desmarcado às {time}.",
-        "incomplete": "Falta foto, apresentação ou WhatsApp",
-        "whatsappLocked": "Falta o WhatsApp do guia. Ele informa no app ou no portal.",
-        "ownerLocked": "O guia não tem conta no app. Foto e apresentação são as da conta."
+        "incomplete": "Incompleto, fora do app",
+        "whatsappLocked": "Sem o WhatsApp do guia, não dá para marcar. Ele cadastra o número em Perfil de parceiro, no app, ou no Portal Locais.",
+        "ownerLocked": "Sem conta do guia no app, não há foto nem apresentação para conferir, e não dá para marcar."
       },
       "meetingPoint": {
         "title": "Ponto de encontro",
@@ -5043,9 +5043,9 @@
         "consentYes": "Autorizou aparecer no app",
         "consentNo": "Sem autorização",
         "handle": "@ da conta",
-        "nameNotShown": "Só o @: o guia não autorizou mostrar o nome",
-        "fromAccount": "Nome, foto, apresentação e idiomas vêm da conta do guia no app. Ele muda em Editar perfil.",
-        "noAccount": "Este guia ainda não tem conta no app. Nome, foto, apresentação e idiomas aparecem quando ela existir."
+        "nameNotShown": "Só o @ aparece. O guia não autorizou mostrar o nome.",
+        "fromAccount": "Nome, foto, apresentação e idiomas vêm da conta do guia no app. Ele muda o nome, a foto e a apresentação em Editar perfil, e os idiomas em Perfil de parceiro.",
+        "noAccount": "Este guia não tem conta no app, então não há nome, foto, apresentação nem idiomas para mostrar."
       },
       "bio": {
         "title": "Apresentação",
