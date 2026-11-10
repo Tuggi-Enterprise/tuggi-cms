@@ -30,7 +30,7 @@ test('DS-COMPONENTE-084 item 1: today, the stores have no collector and print no
   await page.setViewportSize({ width: 1440, height: 1000 })
   const c = await mount(<AcquisitionHarness month="2026-11-01" />)
   const section = c.getByTestId('acquisition-funnel')
-  await expect(section.getByRole('heading', { level: 2 })).toHaveText('Da loja ao cadastro')
+  await expect(section.getByRole('heading', { level: 2 })).toHaveText('Como chegam ao app')
   for (const store of ['app_store', 'play_store']) {
     for (const step of ['impressions', 'page_views', 'downloads']) await expect(funnelValue(page, store, step)).toHaveText('—')
   }

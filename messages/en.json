@@ -955,8 +955,8 @@
           "platform_unknown": "Not recorded",
           "platform_hint": "The system of the device the user started on, not the current one.",
           "funnel_section": {
-            "title": "From store to sign-up",
-            "subtitle": "What each source counts, and since when."
+            "title": "How people reach the app",
+            "subtitle": "Store, search and website this month, each number counted by its own source."
           },
           "store_names": {
             "app_store": "App Store",
@@ -985,7 +985,7 @@
             "title": "Where store visits come from",
             "subtitle": "By source, in each store. Conversion is downloads over impressions on the App Store and over page views on Google Play.",
             "col_source": "Source",
-            "col_conversion": "Page conversion",
+            "col_conversion": "Conversion",
             "total": "Total",
             "store_search": "Store search",
             "store_search_hint": "Found the app by searching inside the store.",
@@ -1006,7 +1006,7 @@
             "col_channel": "Channel",
             "col_sessions": "Sessions",
             "col_users": "Users",
-            "col_users_hint": "Sum of each day's users, from GA4. Someone who returns on another day counts again, so it is not a count of people.",
+            "col_users_hint": "Sum of each day's users in GA4. Someone who returns on another day counts again, so it is not a count of people.",
             "col_clicks_app_store": "App Store clicks",
             "col_clicks_play_store": "Google Play clicks",
             "clicks_hint": "Taps on a store button on the website, from the click_store event.",
@@ -1055,8 +1055,8 @@
             "since_badge": "since {date}",
             "no_data_badge": "no data",
             "partial": "{source}: collected since {date}. The numbers are a floor: the full month may have more.",
-            "through": "{source}: data through {date}. The numbers are a floor: the full month may have more.",
-            "no_rows": "{source}: no day collected this month yet.",
+            "through": "{source}: data through {date}. The rest of the month is not in yet.",
+            "no_rows": "{source}: no day of this month has been collected yet.",
             "none_not_configured": "{source}: no data, the collector is not set up yet.",
             "none_before_start": "{source}: no data this month, collection starts on {date}.",
             "lag": "The last few days may still go up: Apple closes a day within 3 days and Google Play within 7.",

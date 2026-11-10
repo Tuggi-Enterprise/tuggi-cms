@@ -944,8 +944,8 @@
           "platform_unknown": "No registrado",
           "platform_hint": "Sistema del dispositivo con el que empezó el usuario, no el actual.",
           "funnel_section": {
-            "title": "De la tienda al registro",
-            "subtitle": "Qué cuenta cada fuente, y desde cuándo."
+            "title": "Cómo llegan a la app",
+            "subtitle": "Tienda, búsqueda y sitio web en el mes, cada número contado por su propia fuente."
           },
           "store_names": {
             "app_store": "App Store",
@@ -968,13 +968,13 @@
             "ruler_break": "Conteos de fuentes distintas, sin porcentaje",
             "ruler_break_hint": "La tienda cuenta la descarga, GA4 cuenta la primera apertura de la app y la base cuenta quién pasó los Términos. Quien descarga y no abre queda solo en la tienda, y quien reinstala cuenta de nuevo en GA4. Por eso los números no coinciden y no se dividen entre sí.",
             "play_no_impressions": "Google Play no informa impresiones.",
-            "badge_bank": "base"
+            "badge_bank": "base de datos"
           },
           "sources": {
             "title": "De dónde vienen las visitas en la tienda",
             "subtitle": "Por origen, en cada tienda. La conversión es descargas sobre impresiones en la App Store y sobre visitas en Google Play.",
             "col_source": "Origen",
-            "col_conversion": "Conversión de la página",
+            "col_conversion": "Conversión",
             "total": "Total",
             "store_search": "Búsqueda en la tienda",
             "store_search_hint": "Encontró la app buscando dentro de la tienda.",
@@ -995,7 +995,7 @@
             "col_channel": "Canal",
             "col_sessions": "Sesiones",
             "col_users": "Usuarios",
-            "col_users_hint": "Suma de los usuarios de cada día, según GA4. Quien vuelve otro día cuenta de nuevo, así que no es el número de personas.",
+            "col_users_hint": "Suma de los usuarios de cada día en GA4. Quien vuelve otro día cuenta de nuevo, así que no es el número de personas.",
             "col_clicks_app_store": "Clics App Store",
             "col_clicks_play_store": "Clics Google Play",
             "clicks_hint": "Toques en un botón de la tienda en el sitio, por el evento click_store.",
@@ -1044,8 +1044,8 @@
             "since_badge": "desde {date}",
             "no_data_badge": "sin dato",
             "partial": "{source}: recolección desde {date}. Los números son un piso: el mes completo puede tener más.",
-            "through": "{source}: datos hasta el {date}. Los números son un piso: el mes completo puede tener más.",
-            "no_rows": "{source}: ningún día recolectado este mes todavía.",
+            "through": "{source}: datos hasta el {date}. El resto del mes todavía no llegó.",
+            "no_rows": "{source}: todavía no se recolectó ningún día de este mes.",
             "none_not_configured": "{source}: sin dato, el recolector todavía no está configurado.",
             "none_before_start": "{source}: sin dato este mes, la recolección empieza el {date}.",
             "lag": "Los últimos días todavía pueden subir: Apple cierra el día en hasta 3 días y Google Play en hasta 7.",

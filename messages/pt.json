@@ -953,8 +953,8 @@
           "platform_unknown": "Não registrado",
           "platform_hint": "Sistema do aparelho em que o usuário começou, não o atual.",
           "funnel_section": {
-            "title": "Da loja ao cadastro",
-            "subtitle": "O que cada fonte conta, e desde quando."
+            "title": "Como chegam ao app",
+            "subtitle": "Loja, busca e site no mês, cada número contado pela própria fonte."
           },
           "store_names": {
             "app_store": "App Store",
@@ -983,7 +983,7 @@
             "title": "De onde vem a visita na loja",
             "subtitle": "Por origem, em cada loja. A conversão é downloads sobre impressões na App Store e sobre visitas no Google Play.",
             "col_source": "Origem",
-            "col_conversion": "Conversão da página",
+            "col_conversion": "Conversão",
             "total": "Total",
             "store_search": "Busca na loja",
             "store_search_hint": "Achou o app buscando dentro da loja.",
@@ -1004,7 +1004,7 @@
             "col_channel": "Canal",
             "col_sessions": "Sessões",
             "col_users": "Usuários",
-            "col_users_hint": "Soma dos usuários de cada dia, pelo GA4. Quem volta em outro dia conta de novo, então não é o número de pessoas.",
+            "col_users_hint": "Soma dos usuários de cada dia no GA4. Quem volta em outro dia conta de novo, então não é o número de pessoas.",
             "col_clicks_app_store": "Cliques App Store",
             "col_clicks_play_store": "Cliques Google Play",
             "clicks_hint": "Toques num botão da loja no site, pelo evento click_store.",
@@ -1053,8 +1053,8 @@
             "since_badge": "desde {date}",
             "no_data_badge": "sem dado",
             "partial": "{source}: coleta desde {date}. Os números são piso: o mês inteiro pode ter mais.",
-            "through": "{source}: dados até {date}. Os números são piso: o mês inteiro pode ter mais.",
-            "no_rows": "{source}: nenhum dia coletado neste mês ainda.",
+            "through": "{source}: dados até {date}. O resto do mês ainda não entrou.",
+            "no_rows": "{source}: nenhum dia deste mês foi coletado ainda.",
             "none_not_configured": "{source}: sem dado, o coletor ainda não foi configurado.",
             "none_before_start": "{source}: sem dado neste mês, a coleta começa em {date}.",
             "lag": "Os últimos dias ainda podem subir: a Apple fecha o dia em até 3 dias e o Google Play em até 7.",
