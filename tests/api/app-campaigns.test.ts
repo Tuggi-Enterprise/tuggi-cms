@@ -250,6 +250,7 @@ test('#1192 BR-IDIOMA-001: a CHECK refusal comes back as a code, and the code re
     ['23514', 'new row for relation "in_app_campaigns" violates check constraint "in_app_campaigns_countries_ck"', 'invalid_countries'],
     ['23514', 'new row for relation "in_app_campaigns" violates check constraint "in_app_campaigns_window_ck"', 'invalid_window'],
     ['23514', 'new row for relation "in_app_campaigns" violates check constraint "in_app_campaigns_content_ck"', 'invalid_content'],
+    ['23514', 'new row for relation "in_app_campaigns" violates check constraint "in_app_campaigns_theme_ck"', 'invalid_theme'],
     ['23503', 'insert or update on table "in_app_campaigns" violates foreign key constraint "in_app_campaigns_coupon_id_fkey"', 'coupon_not_found'],
   ]
   for (const [code, message, expected] of cases) {
@@ -270,7 +271,7 @@ test('#1192 BR-IDIOMA-001: a CHECK refusal comes back as a code, and the code re
 
 test('#1192 BR-IDIOMA-001: every refusal code has a sentence in pt, en and es, and the three namespaces have the same keys', () => {
   const codes = [
-    'invalid_body', 'invalid_internal_name', 'invalid_format', 'invalid_priority', 'invalid_countries', 'invalid_content',
+    'invalid_body', 'invalid_internal_name', 'invalid_format', 'invalid_theme', 'invalid_priority', 'invalid_countries', 'invalid_content',
     'incomplete_language', 'text_too_long', 'invalid_image_url', 'invalid_action', 'invalid_action_path', 'missing_coupon',
     'coupon_not_found', 'invalid_date', 'invalid_window', 'not_found', 'coupon_sync_failed', 'coupon_release_failed', 'write_failed',
     'invalid_image', 'image_too_large', 'upload_failed',
@@ -281,6 +282,52 @@ test('#1192 BR-IDIOMA-001: every refusal code has a sentence in pt, en and es, a
   for (const l of ['en', 'es']) assert.deepEqual(keys(messages[l].AppCampaigns).sort(), pt, l)
   for (const c of codes) assert.ok(pt.includes(`errors.${c}`), c)
   for (const l of ['pt', 'en', 'es']) assert.ok(messages[l].Navigation.app_campaigns, l)
+})
+
+// ─── Theme ───────────────────────────────────────────────────────────────────────────────────
+
+test('#1193: a theme outside default, black_friday and tuggi_blue is refused before the database', async () => {
+  for (const theme of ['natal', '', null, 'Default', 1]) {
+    ops = []
+    const res = await listRoute.POST(json('POST', { ...OPEN_PATH, theme }), noCtx)
+    assert.equal(res.status, 400, String(theme))
+    assert.deepEqual((await res.json()).error, { code: 'invalid_theme' })
+    const patch = await itemRoute.PATCH(json('PATCH', { ...OPEN_PATH, theme }, `/${CAMPAIGN_ID}`), idCtx)
+    assert.equal(patch.status, 400, String(theme))
+    assert.deepEqual(ops, [])
+  }
+  assert.deepEqual([...lib.CAMPAIGN_THEMES], ['default', 'black_friday', 'tuggi_blue'])
+  assert.equal(tPt('errors.invalid_theme'), 'Escolha um tema da lista.')
+})
+
+test('#1193: the chosen theme is written on create and on edit, and a body without theme leaves the column alone', async () => {
+  for (const theme of lib.CAMPAIGN_THEMES) {
+    ops = []
+    assert.equal((await listRoute.POST(json('POST', { ...OPEN_PATH, theme }), noCtx)).status, 201, theme)
+    assert.equal((writes('in_app_campaigns')[0].payload as { theme: string }).theme, theme)
+  }
+
+  ops = []
+  respond = (op) =>
+    op.table === 'in_app_campaigns' && op.op === 'select' && op.filters.length === 1
+      ? { data: { id: CAMPAIGN_ID, action_type: 'open_path', coupon_id: null } }
+      : defaultAnswer(op)
+  assert.equal((await itemRoute.PATCH(json('PATCH', { ...OPEN_PATH, theme: 'black_friday' }, `/${CAMPAIGN_ID}`), idCtx)).status, 200)
+  const [update] = writes('in_app_campaigns')
+  assert.equal(update.op, 'update')
+  assert.equal((update.payload as { theme: string }).theme, 'black_friday')
+
+  // A tab opened before #1193 sends no theme: the update does not reset a black_friday campaign.
+  ops = []
+  assert.equal((await itemRoute.PATCH(json('PATCH', OPEN_PATH, `/${CAMPAIGN_ID}`), idCtx)).status, 200)
+  assert.equal('theme' in (writes('in_app_campaigns')[0].payload as object), false)
+
+  // The list reads the column back, and every theme has a name in the three CMS languages.
+  assert.match(lib.CAMPAIGN_SELECT, /\btheme\b/)
+  for (const l of ['pt', 'en', 'es']) {
+    for (const theme of lib.CAMPAIGN_THEMES) assert.ok(messages[l].AppCampaigns.themes[theme], `${l} ${theme}`)
+  }
+  assert.equal(tPt('themes.tuggi_blue'), 'Azul Tuggi')
 })
 
 test('#1192: a malformed campaign never reaches the database', async () => {

@@ -35,6 +35,14 @@ export const CAMPAIGN_IMAGE_SPEC: Record<CampaignFormat, { ratio: '1:1' | '16:9'
 
 export type CampaignActionType = 'open_path' | 'redeem_coupon'
 
+/**
+ * #1193: the closed list of `in_app_campaigns_theme_ck`. The palette lives in the app build, so a
+ * new theme is a build plus one more value in the CHECK; changing a campaign's theme is a save.
+ * `default` is the look the operator approved for #1191.
+ */
+export const CAMPAIGN_THEMES = ['default', 'black_friday', 'tuggi_blue'] as const
+export type CampaignTheme = (typeof CAMPAIGN_THEMES)[number]
+
 export type CampaignText = Record<CampaignTextField, string>
 export type CampaignContent = Partial<Record<CampaignLanguage, CampaignText>>
 
@@ -43,6 +51,7 @@ export interface AppCampaign {
   id: string
   internal_name: string
   format: CampaignFormat
+  theme: CampaignTheme
   is_active: boolean
   starts_at: string | null
   ends_at: string | null
@@ -70,7 +79,7 @@ export interface CampaignCouponSummary {
 
 /** The columns the list reads, coupon included (FK `in_app_campaigns_coupon_id_fkey`). */
 export const CAMPAIGN_SELECT =
-  'id, internal_name, format, is_active, starts_at, ends_at, priority, countries, content, image_url, action_type, action_path, coupon_id, created_at, updated_at, coupon:coupons(id, code, grant_kind, grant_minutes, duration_days, is_active, valid_until)'
+  'id, internal_name, format, theme, is_active, starts_at, ends_at, priority, countries, content, image_url, action_type, action_path, coupon_id, created_at, updated_at, coupon:coupons(id, code, grant_kind, grant_minutes, duration_days, is_active, valid_until)'
 
 // ─── Destinations ────────────────────────────────────────────────────────────────────────────
 
@@ -173,6 +182,7 @@ export type CampaignErrorCode =
   | 'invalid_body'
   | 'invalid_internal_name'
   | 'invalid_format'
+  | 'invalid_theme'
   | 'invalid_priority'
   | 'invalid_countries'
   | 'invalid_content'
@@ -202,6 +212,8 @@ export interface CampaignError {
 export interface CampaignWriteFields {
   internal_name: string
   format: CampaignFormat
+  /** Absent when the body carries none: the column keeps its value (`default` on insert). */
+  theme?: CampaignTheme
   priority: number
   countries: string[]
   content: CampaignContent
@@ -245,6 +257,11 @@ export function parseCampaignInput(body: unknown): CampaignParse {
 
   if (!CAMPAIGN_FORMATS.includes(b.format as CampaignFormat)) return fail('invalid_format')
   const format = b.format as CampaignFormat
+
+  // A body without `theme` (a tab opened before #1193) leaves the column alone; a present value
+  // outside the list is refused, empty included, as the CHECK would.
+  if (b.theme !== undefined && !CAMPAIGN_THEMES.includes(b.theme as CampaignTheme)) return fail('invalid_theme')
+  const theme = b.theme as CampaignTheme | undefined
 
   const priority = b.priority ?? 0
   if (typeof priority !== 'number' || !Number.isInteger(priority) || Math.abs(priority) > INT4_MAX) {
@@ -309,6 +326,7 @@ export function parseCampaignInput(body: unknown): CampaignParse {
     fields: {
       internal_name: internalName,
       format,
+      ...(theme ? { theme } : {}),
       priority,
       countries,
       content,
@@ -325,10 +343,11 @@ export function parseCampaignInput(body: unknown): CampaignParse {
 
 // ─── Refusals ────────────────────────────────────────────────────────────────────────────────
 
-/** `in_app_campaigns_<suffix>` → what the screen says. Names from the migration `20261110200000`. */
+/** `in_app_campaigns_<suffix>` → what the screen says. Names from the migrations `20261110200000` and `20261110210000`. */
 const CONSTRAINT_ERRORS: Record<string, CampaignErrorCode> = {
   internal_name_ck: 'invalid_internal_name',
   format_ck: 'invalid_format',
+  theme_ck: 'invalid_theme',
   window_ck: 'invalid_window',
   countries_ck: 'invalid_countries',
   content_ck: 'invalid_content',

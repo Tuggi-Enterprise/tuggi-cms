@@ -5115,6 +5115,11 @@
       "launch_modal": "Folha na abertura",
       "explore_card": "Cartão no Explorar"
     },
+    "themes": {
+      "default": "Padrão",
+      "black_friday": "Black Friday",
+      "tuggi_blue": "Azul Tuggi"
+    },
     "actionGift": "Presente: {coupon}",
     "destinations": {
       "plans": "Planos e passes",
@@ -5149,6 +5154,8 @@
       "internalName": "Nome interno",
       "internalNameHelp": "Só o CMS mostra. O turista nunca vê.",
       "format": "Formato",
+      "theme": "Tema",
+      "themeHelp": "As cores do cartão no app. O botão é sempre azul Tuggi.",
       "priority": "Prioridade",
       "priorityHelp": "Maior aparece primeiro.",
       "countries": "Países",
@@ -5236,6 +5243,7 @@
       "invalid_body": "Não deu para ler o formulário. Recarregue a página e tente de novo.",
       "invalid_internal_name": "Dê um nome interno à campanha.",
       "invalid_format": "Escolha um formato.",
+      "invalid_theme": "Escolha um tema da lista.",
       "invalid_priority": "A prioridade precisa ser um número inteiro.",
       "invalid_countries": "Países: use siglas de duas letras, como BR ou PT, separadas por vírgula.",
       "invalid_content": "Escreva o texto em pelo menos um idioma.",

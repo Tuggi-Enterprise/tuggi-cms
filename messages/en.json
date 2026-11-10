@@ -4452,6 +4452,11 @@
       "launch_modal": "Launch sheet",
       "explore_card": "Explore card"
     },
+    "themes": {
+      "default": "Default",
+      "black_friday": "Black Friday",
+      "tuggi_blue": "Tuggi Blue"
+    },
     "actionGift": "Gift: {coupon}",
     "destinations": {
       "plans": "Plans and passes",
@@ -4486,6 +4491,8 @@
       "internalName": "Internal name",
       "internalNameHelp": "Only the CMS shows it. Tourists never see it.",
       "format": "Format",
+      "theme": "Theme",
+      "themeHelp": "The colors of the card in the app. The button is always Tuggi blue.",
       "priority": "Priority",
       "priorityHelp": "Higher shows first.",
       "countries": "Countries",
@@ -4573,6 +4580,7 @@
       "invalid_body": "The form could not be read. Reload the page and try again.",
       "invalid_internal_name": "Give the campaign an internal name.",
       "invalid_format": "Choose a format.",
+      "invalid_theme": "Choose a theme from the list.",
       "invalid_priority": "Priority must be a whole number.",
       "invalid_countries": "Countries: use two-letter codes, like BR or PT, separated by commas.",
       "invalid_content": "Write the text in at least one language.",

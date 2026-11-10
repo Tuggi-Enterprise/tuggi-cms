@@ -21,6 +21,7 @@ import {
   CAMPAIGN_LANGUAGES,
   CAMPAIGN_TEXT_FIELDS,
   CAMPAIGN_TEXT_MAX,
+  CAMPAIGN_THEMES,
   buildActionPath,
   destinationKey,
   parseActionPath,
@@ -33,6 +34,7 @@ import {
   type CampaignLanguage,
   type CampaignText,
   type CampaignTextField,
+  type CampaignTheme,
 } from '@/lib/campaigns/app-campaigns'
 import { formatCouponGrant } from '@/lib/coupons/grant'
 import type { Coupon } from '@/types/coupons'
@@ -48,6 +50,7 @@ interface AppCampaignFormDrawerProps {
 interface FormState {
   internal_name: string
   format: CampaignFormat
+  theme: CampaignTheme
   priority: string
   countries: string
   content: Record<CampaignLanguage, CampaignText>
@@ -96,6 +99,7 @@ function stateFromCampaign(c: AppCampaign | null): FormState {
     return {
       internal_name: '',
       format: 'map_carousel',
+      theme: 'default',
       priority: '0',
       countries: '',
       content: emptyContent(),
@@ -119,6 +123,8 @@ function stateFromCampaign(c: AppCampaign | null): FormState {
   return {
     internal_name: c.internal_name,
     format: c.format,
+    // A value this screen does not know reads as the app reads it: `default`.
+    theme: CAMPAIGN_THEMES.includes(c.theme) ? c.theme : 'default',
     priority: String(c.priority),
     countries: c.countries.join(', '),
     content,
@@ -142,6 +148,7 @@ function payloadFromState(f: FormState): Record<string, unknown> {
   return {
     internal_name: f.internal_name,
     format: f.format,
+    theme: f.theme,
     priority: f.priority.trim() === '' ? 0 : Number(f.priority),
     countries: f.countries
       .split(/[\s,;]+/)
@@ -318,7 +325,7 @@ export function AppCampaignFormDrawer({ campaign, onClose, onSaved }: AppCampaig
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <div>
               <label htmlFor="campaign-format" className={LABEL}>
                 {t('form.format')}
@@ -330,6 +337,19 @@ export function AppCampaignFormDrawer({ campaign, onClose, onSaved }: AppCampaig
                   </option>
                 ))}
               </select>
+            </div>
+            <div>
+              <label htmlFor="campaign-theme" className={LABEL}>
+                {t('form.theme')}
+              </label>
+              <select id="campaign-theme" value={form.theme} onChange={(e) => set('theme', e.target.value as CampaignTheme)} className={INPUT}>
+                {CAMPAIGN_THEMES.map((theme) => (
+                  <option key={theme} value={theme}>
+                    {t(`themes.${theme}`)}
+                  </option>
+                ))}
+              </select>
+              <p className={HELP}>{t('form.themeHelp')}</p>
             </div>
             <div>
               <label htmlFor="campaign-countries" className={LABEL}>
@@ -410,7 +430,7 @@ export function AppCampaignFormDrawer({ campaign, onClose, onSaved }: AppCampaig
                 {t('form.preview')} · <span className="uppercase">{language}</span>
               </p>
               {previewText ? (
-                <AppCampaignPreview format={form.format} text={previewText} imageUrl={form.image_url} />
+                <AppCampaignPreview format={form.format} theme={form.theme} text={previewText} imageUrl={form.image_url} />
               ) : (
                 <p className="rounded-xl border border-dashed border-gray-300 p-4 text-xs text-gray-500">{t('form.previewEmpty')}</p>
               )}
