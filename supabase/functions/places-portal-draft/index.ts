@@ -24,7 +24,6 @@ import { isDraftSecret } from '../_shared/places-draft-secret.ts';
 import { authAdmin, randomToken, sendEmail, sha256Hex, submissionReads } from '../_shared/places-access-link-runtime.ts';
 import {
   DRAFT_SECRET_HEADER,
-  GUIDE_PHOTO_BUCKET,
   PHOTO_BUCKET,
   PORTAL_ORIGIN_ENV,
   SIGNED_URL_TTL_S,
@@ -65,16 +64,6 @@ function deps(): Deps {
       },
       async remove(path) {
         const { error } = await bucket().remove([path]);
-        return !error;
-      },
-    },
-    guidePhotos: {
-      async upload(path, bytes) {
-        const { error } = await admin.storage.from(GUIDE_PHOTO_BUCKET).upload(path, bytes, { contentType: 'image/jpeg', upsert: false });
-        return !error;
-      },
-      async remove(path) {
-        const { error } = await admin.storage.from(GUIDE_PHOTO_BUCKET).remove([path]);
         return !error;
       },
     },
