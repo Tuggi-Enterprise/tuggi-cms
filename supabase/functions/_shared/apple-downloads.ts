@@ -21,6 +21,9 @@
 //
 // The private key is read from the function's secrets and never leaves this module: no log line, no
 // error message and no report carries it, the key id or the issuer id.
+//
+// #1168: `apple-store-funnel.ts` reads three more reports of the same ONGOING request with the same key,
+// through the token, request, instance and segment helpers exported here.
 
 /** Tuggi on the App Store (`App Apple Identifier`). */
 export const APPLE_APP_ID = '6744379818';
@@ -94,8 +97,23 @@ export async function ascToken(config: AppleConfig, nowSeconds: number): Promise
 
 export type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
 
-/** One App Store Connect call. Errors carry the HTTP status only (`apple_403`), never the URL or the token. */
-async function asc(
+/**
+ * Apple's own words on a refusal (`errors[0]` of the App Store Connect error body: code and detail, or
+ * title), one line, capped. They never carry the token, the URL or the key; `redact` still runs on them.
+ */
+async function appleWords(res: Response): Promise<string> {
+  const body = (await res.json().catch(() => null)) as { errors?: Array<Record<string, unknown>> } | null;
+  const first = Array.isArray(body?.errors) ? body.errors[0] : undefined;
+  const text = (v: unknown) => (typeof v === 'string' ? v : '');
+  const words = [text(first?.code), text(first?.detail) || text(first?.title)].filter(Boolean).join(': ');
+  return words.replace(/\s+/g, ' ').trim().slice(0, 200);
+}
+
+/**
+ * One App Store Connect call. The error is `apple_<status>` plus Apple's words when the body has them
+ * (`apple_403 FORBIDDEN_ERROR: The API key in use does not allow this request`), never the URL or the token.
+ */
+export async function asc(
   fetchFn: FetchFn,
   token: string,
   path: string,
@@ -112,15 +130,25 @@ async function asc(
   } catch {
     throw new Error('apple_network');
   }
-  if (!res.ok) throw new Error(`apple_${res.status}`);
+  if (!res.ok) {
+    const words = await appleWords(res);
+    throw new Error(words ? `apple_${res.status} ${words}` : `apple_${res.status}`);
+  }
   return ((await res.json().catch(() => null)) ?? {}) as Record<string, unknown>;
 }
 
-type Resource = { id?: unknown; attributes?: Record<string, unknown> };
-const dataOf = (body: Record<string, unknown>): Resource[] => (Array.isArray(body.data) ? (body.data as Resource[]) : []);
+/** The key id and the issuer id out of any message that leaves the module (a log line, `collector_runs.detail`). */
+export function redact(message: string, config: AppleConfig): string {
+  let out = message;
+  for (const secret of [config.keyId, config.issuerId]) if (secret) out = out.split(secret).join('[redacted]');
+  return out;
+}
+
+export type Resource = { id?: unknown; attributes?: Record<string, unknown> };
+export const dataOf = (body: Record<string, unknown>): Resource[] => (Array.isArray(body.data) ? (body.data as Resource[]) : []);
 
 /** The ONGOING request of the app, created when there is none or the last one stopped. */
-async function ongoingRequest(fetchFn: FetchFn, token: string): Promise<string> {
+export async function ongoingRequest(fetchFn: FetchFn, token: string): Promise<string> {
   const listed = await asc(
     fetchFn,
     token,
@@ -144,7 +172,7 @@ async function ongoingRequest(fetchFn: FetchFn, token: string): Promise<string> 
 }
 
 /** Gzip by its magic bytes (the segment files are compressed), plain text otherwise. */
-async function segmentText(res: Response): Promise<string> {
+export async function segmentText(res: Response): Promise<string> {
   const bytes = new Uint8Array(await res.arrayBuffer());
   if (bytes[0] === 0x1f && bytes[1] === 0x8b) {
     const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
@@ -160,31 +188,43 @@ export interface AppleRow {
 }
 
 /**
+ * The rows of one report file that are ours, as records by column name: tab or comma separated, by the
+ * header line; a row needs a `YYYY-MM-DD` Date, and another app's `App Apple Identifier` drops it.
+ * Throws `apple_report_columns` when a required column is not in the header (the format changed).
+ */
+export function reportRows(text: string, required: string[]): Array<Record<string, string>> {
+  const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
+  if (lines.length === 0) return [];
+  const sep = lines[0].includes('\t') ? '\t' : ',';
+  const clean = (v: string) => v.trim().replace(/^"|"$/g, '');
+  const head = lines[0].split(sep).map(clean);
+  if (!['Date', ...required].every((c) => head.includes(c))) throw new Error('apple_report_columns');
+  const out: Array<Record<string, string>> = [];
+  for (const line of lines.slice(1)) {
+    const f = line.split(sep).map(clean);
+    const row: Record<string, string> = {};
+    head.forEach((h, i) => (row[h] = f[i] ?? ''));
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(row.Date)) continue;
+    if (row['App Apple Identifier'] && row['App Apple Identifier'] !== APPLE_APP_ID) continue;
+    out.push(row);
+  }
+  return out;
+}
+
+/**
  * One report file: first-time downloads of our app per Date and Campaign, and every Date the file
  * covers (with or without a campaign), which is what makes a day "covered". Tab or comma separated,
  * by the header line; fields found by name, never by position.
  */
 export function parseDownloads(text: string): { rows: AppleRow[]; days: string[] } {
-  const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
-  if (lines.length === 0) return { rows: [], days: [] };
-  const sep = lines[0].includes('\t') ? '\t' : ',';
-  const head = lines[0].split(sep).map((h) => h.trim().replace(/^"|"$/g, ''));
-  const col = (name: string) => head.indexOf(name);
-  const [iDate, iApp, iType, iCampaign, iCounts] = ['Date', 'App Apple Identifier', 'Download Type', 'Campaign', 'Counts'].map(
-    col,
-  );
-  if (iDate < 0 || iType < 0 || iCampaign < 0 || iCounts < 0) throw new Error('apple_report_columns');
   const sums = new Map<string, AppleRow>();
   const days = new Set<string>();
-  for (const line of lines.slice(1)) {
-    const f = line.split(sep).map((v) => v.trim().replace(/^"|"$/g, ''));
-    const day = f[iDate];
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(day ?? '')) continue;
-    if (iApp >= 0 && f[iApp] && f[iApp] !== APPLE_APP_ID) continue;
+  for (const f of reportRows(text, ['Download Type', 'Campaign', 'Counts'])) {
+    const day = f.Date;
     days.add(day);
-    const campaign = (f[iCampaign] ?? '').trim();
-    const counts = Number(f[iCounts]);
-    if ((f[iType] ?? '').toLowerCase() !== FIRST_TIME_DOWNLOAD || !campaign || !Number.isFinite(counts)) continue;
+    const campaign = f.Campaign.trim();
+    const counts = Number(f.Counts);
+    if (f['Download Type'].toLowerCase() !== FIRST_TIME_DOWNLOAD || !campaign || !Number.isFinite(counts)) continue;
     const k = `${day}|${campaign}`;
     sums.set(k, { day, campaign, downloads: (sums.get(k)?.downloads ?? 0) + Math.trunc(counts) });
   }
@@ -211,11 +251,48 @@ export interface AppleDeps {
 }
 
 /** Calendar arithmetic on a `YYYY-MM-DD`, free of any zone. */
-function addDays(day: string, n: number): string {
+export function addDays(day: string, n: number): string {
   const d = new Date(`${day}T12:00:00Z`);
   d.setUTCDate(d.getUTCDate() + n);
   return d.toISOString().slice(0, 10);
 }
+
+/**
+ * The DAILY instances of a report, oldest first: all of them on the first run (`since` null), else those
+ * processed on or after `since`. A later instance can carry a corrected past day, so the reader applies
+ * them in this order and the later one wins.
+ */
+export async function dailyInstances(
+  fetchFn: FetchFn,
+  token: string,
+  reportId: string,
+  since: string | null,
+): Promise<Array<{ id: string; date: string }>> {
+  const listed = await asc(fetchFn, token, `/v1/analyticsReports/${reportId}/instances?filter[granularity]=DAILY&limit=200`);
+  return dataOf(listed)
+    .map((i) => ({ id: String(i.id), date: String(i.attributes?.processingDate ?? '') }))
+    .filter((i) => i.id && /^\d{4}-\d{2}-\d{2}$/.test(i.date) && (!since || i.date >= since))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/** The text of every segment file of one instance. */
+export async function instanceFiles(fetchFn: FetchFn, token: string, instanceId: string): Promise<string[]> {
+  const segments = await asc(fetchFn, token, `/v1/analyticsReportInstances/${instanceId}/segments`);
+  const files: string[] = [];
+  for (const segment of dataOf(segments)) {
+    const url = segment.attributes?.url;
+    if (typeof url !== 'string') continue;
+    // A pre-signed download URL: it carries its own authorization, and the token is not sent to it.
+    const res = await fetchFn(url, { signal: AbortSignal.timeout(60_000) }).catch(() => null);
+    if (!res || !res.ok) throw new Error(`apple_segment_${res?.status ?? 'network'}`);
+    files.push(await segmentText(res));
+  }
+  return files;
+}
+
+/** The first day a reread starts from: null on the first run (nothing covered yet), so every instance is read. */
+export const rereadSince = (now: Date, coveredFrom: string | null): string | null =>
+  coveredFrom ? addDays(now.toISOString().slice(0, 10), -APPLE_REREAD_DAYS) : null;
 
 export async function collectAppleDownloads(deps: AppleDeps): Promise<AppleResult> {
   const now = deps.now();
@@ -229,25 +306,13 @@ export async function collectAppleDownloads(deps: AppleDeps): Promise<AppleResul
   const report = dataOf(reports).find((r) => r.attributes?.name === APPLE_REPORT_NAME && typeof r.id === 'string');
   if (!report) return { state: 'pending', instances: 0, rows: 0, first_day: null };
 
-  const listed = await asc(deps.fetch, token, `/v1/analyticsReports/${report.id}/instances?filter[granularity]=DAILY&limit=200`);
-  const since = deps.coveredFrom ? addDays(now.toISOString().slice(0, 10), -APPLE_REREAD_DAYS) : null;
-  const instances = dataOf(listed)
-    .map((i) => ({ id: String(i.id), date: String(i.attributes?.processingDate ?? '') }))
-    .filter((i) => i.id && /^\d{4}-\d{2}-\d{2}$/.test(i.date) && (!since || i.date >= since))
-    .sort((a, b) => a.date.localeCompare(b.date));
-
+  const instances = await dailyInstances(deps.fetch, token, String(report.id), rereadSince(now, deps.coveredFrom));
   let rows = 0;
   let first: string | null = null;
   for (const instance of instances) {
-    const segments = await asc(deps.fetch, token, `/v1/analyticsReportInstances/${instance.id}/segments`);
     const merged = new Map<string, AppleRow>();
-    for (const segment of dataOf(segments)) {
-      const url = segment.attributes?.url;
-      if (typeof url !== 'string') continue;
-      // A pre-signed download URL: it carries its own authorization, and the token is not sent to it.
-      const res = await deps.fetch(url, { signal: AbortSignal.timeout(60_000) }).catch(() => null);
-      if (!res || !res.ok) throw new Error(`apple_segment_${res?.status ?? 'network'}`);
-      const parsed = parseDownloads(await segmentText(res));
+    for (const text of await instanceFiles(deps.fetch, token, instance.id)) {
+      const parsed = parseDownloads(text);
       for (const r of parsed.rows) {
         const k = `${r.day}|${r.campaign}`;
         merged.set(k, { ...r, downloads: (merged.get(k)?.downloads ?? 0) + r.downloads });

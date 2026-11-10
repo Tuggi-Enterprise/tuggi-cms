@@ -141,7 +141,12 @@ Deno.test('#1062: a live request is reused, a stopped one replaced; no report ye
 // The `apple` job of the daily run, with everything else of the run switched off
 
 function store(initial: Record<string, unknown> | null = null) {
-  const tables: Record<string, Map<string, Record<string, unknown>>> = { collector_runs: new Map(), apple_downloads_daily: new Map() };
+  const tables: Record<string, Map<string, Record<string, unknown>>> = {
+    collector_runs: new Map(),
+    apple_downloads_daily: new Map(),
+    store_listing_daily: new Map(),
+    store_installs_daily: new Map(),
+  };
   if (initial) tables.collector_runs.set('apple', initial);
   const s: SocialStore = {
     activeAccounts: () => Promise.resolve([]),
@@ -157,12 +162,13 @@ function store(initial: Record<string, unknown> | null = null) {
     setTheme: () => Promise.resolve(),
     hasWeekly: () => Promise.resolve(true),
     hasAudience: () => Promise.resolve(true),
-    appleCoveredFrom: () => Promise.resolve((tables.collector_runs.get('apple')?.covered_from as string | undefined) ?? null),
+    coveredFrom: (job) => Promise.resolve((tables.collector_runs.get(job)?.covered_from as string | undefined) ?? null),
     rpc: () => Promise.resolve([]),
     ownPostsSince: () => Promise.resolve([]),
     funnelSince: () => Promise.resolve([]),
     firstPostDay: () => Promise.resolve(null),
     followersSince: () => Promise.resolve([]),
+    mediaCount: () => Promise.resolve(0),
   };
   return { s, tables };
 }

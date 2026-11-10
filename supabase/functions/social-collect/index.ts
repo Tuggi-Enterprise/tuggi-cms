@@ -14,6 +14,9 @@
  * #1062: the daily run also reads the App Store Connect Analytics Reports (first-time downloads by
  * campaign) when APPLE_ASC_KEY_ID, APPLE_ASC_ISSUER_ID and APPLE_ASC_PRIVATE_KEY are set; without them
  * it records `apple` as `not_configured` in `social.collector_runs` and goes on.
+ * #1168: with the same secrets the run also reads the store funnel (impressions, product page views and
+ * first-time downloads by Source Type, installs and deletes) into `social.store_listing_daily` and
+ * `social.store_installs_daily`, job `apple_store`, isolated from the other jobs (`_shared/apple-store-funnel.ts`).
  *
  * Machine key only (`isOwnSecretKey`: `ef_secret_key` of the cron, `cms_secret_key` of the CMS
  * server). The Meta token lives in this function's secrets and nowhere else: the CMS validates a

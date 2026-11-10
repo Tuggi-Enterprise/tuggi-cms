@@ -6,8 +6,9 @@
 // lands in the schema `social` (migration 20261029150000) by upsert on the primary key, so a second
 // run on the same day rewrites the same rows instead of adding new ones.
 //
-// Import-free except `ga4-data.ts` and `apple-downloads.ts` (both import-free): the database, `fetch`, Gemini and the clock
-// are parameters, so the Deno tests drive it with recorded answers and no network.
+// Import-free except `ga4-data.ts`, `apple-downloads.ts` and `apple-store-funnel.ts` (all import-free): the
+// database, `fetch`, Gemini and the clock are parameters, so the Deno tests drive it with recorded answers and
+// no network.
 //
 // Graph API v26.0, checked 2026-10-29 against the official reference:
 // - media insights: reach, saved, shares, views, likes, comments for FEED and REELS; profile_visits
@@ -49,7 +50,8 @@
 // It rides the same 90-day walk as the account funnel and lands in funnel_daily.follows/unfollows.
 
 import { GA4_APP_PROPERTY_ID, GA4_ROW_LIMIT, GA4_SITE_PROPERTY_ID, ga4AppFilter } from './ga4-data.ts';
-import { type AppleConfig, collectAppleDownloads } from './apple-downloads.ts';
+import { type AppleConfig, collectAppleDownloads, redact } from './apple-downloads.ts';
+import { collectAppleStoreFunnel } from './apple-store-funnel.ts';
 
 /** Same value as `SOCIAL_TIME_ZONE` in the CMS (`lib/social/time.ts`): every day here is Brasília. */
 export const SOCIAL_TIME_ZONE = 'America/Sao_Paulo';
@@ -270,10 +272,12 @@ export type SocialTable =
   | 'audience_weekly'
   | 'stories'
   | 'collector_runs'
-  | 'apple_downloads_daily';
+  | 'apple_downloads_daily'
+  | 'store_listing_daily'
+  | 'store_installs_daily';
 
 /** The jobs of `social.collector_runs` (one row per job, the last run wins). */
-export type CollectorJob = 'daily' | 'stories' | 'audience' | 'apple';
+export type CollectorJob = 'daily' | 'stories' | 'audience' | 'apple' | 'apple_store';
 export type CollectorStatus = 'ok' | 'error' | 'not_configured';
 
 export interface PostForPrompt {
@@ -295,8 +299,8 @@ export interface SocialStore {
   hasWeekly(weekStart: string): Promise<boolean>;
   /** Whether `audience_weekly` has the snapshot of the week starting `weekStart`. */
   hasAudience(weekStart: string): Promise<boolean>;
-  /** The `covered_from` the Apple job recorded, or null. */
-  appleCoveredFrom(): Promise<string | null>;
+  /** The `covered_from` an Apple job recorded, or null. */
+  coveredFrom(job: 'apple' | 'apple_store'): Promise<string | null>;
   rpc(fn: 'own_media_ranking' | 'account_engagement', args: Record<string, unknown>): Promise<Record<string, unknown>[]>;
   ownPostsSince(accountId: string, sinceIso: string): Promise<PostForPrompt[]>;
   funnelSince(day: string): Promise<Record<string, unknown>[]>;
@@ -374,10 +378,10 @@ export function supabaseStore(social: any): SocialStore {
       );
       return Array.isArray(rows) && rows.length > 0;
     },
-    async appleCoveredFrom() {
+    async coveredFrom(job) {
       const rows = check<Array<{ covered_from: string | null }>>(
-        'apple_coverage',
-        await social.from('collector_runs').select('covered_from').eq('job', 'apple').limit(1),
+        `${job}_coverage`,
+        await social.from('collector_runs').select('covered_from').eq('job', job).limit(1),
       ) ?? [];
       return rows[0]?.covered_from ?? null;
     },
@@ -494,6 +498,8 @@ export interface CollectReport {
   };
   audience: 'written' | 'exists' | 'empty' | 'failed' | 'skipped';
   apple: 'read' | 'pending' | 'not_configured' | 'failed' | 'skipped';
+  /** #1168: the store funnel; `partial` when one report was refused or missing and the others were written. */
+  apple_store: 'read' | 'pending' | 'partial' | 'not_configured' | 'failed' | 'skipped';
   themes: number;
   /** #1064: the competitors whose history walk reached the end in this run, and those it left. */
   history: { done: string[]; partial: string[]; posts: number };
@@ -1282,7 +1288,7 @@ async function runAppleCollect(
     return 'not_configured';
   }
   try {
-    const coveredFrom = await deps.store.appleCoveredFrom();
+    const coveredFrom = await deps.store.coveredFrom('apple');
     const result = await collectAppleDownloads({
       config: apple.config,
       fetch: apple.fetch,
@@ -1294,8 +1300,52 @@ async function runAppleCollect(
     await recordRun(deps, 'apple', 'ok', JSON.stringify(result), { covered_from: first });
     return result.state;
   } catch (e) {
-    deps.log(`[social-collect] apple failed: ${reason(e)}`);
-    await recordRun(deps, 'apple', 'error', reason(e));
+    const message = redact(reason(e), apple.config);
+    deps.log(`[social-collect] apple failed: ${message}`);
+    await recordRun(deps, 'apple', 'error', message);
+    return 'failed';
+  }
+}
+
+/**
+ * #1168, the `apple_store` job: impressions, product page views and first-time downloads by Source Type,
+ * installs and deletes, for the acquisition funnel. Isolated like `apple`: whatever fails here is
+ * recorded and the run goes on. `covered_from` only moves back, and a refused run keeps it; a report
+ * refused while the others were read still moves it by what was read, and the job is `error` with
+ * Apple's words.
+ */
+async function runAppleStoreCollect(
+  deps: CollectDeps,
+  apple: NonNullable<CollectDeps['apple']>,
+): Promise<CollectReport['apple_store']> {
+  if (!apple.config) {
+    await recordRun(deps, 'apple_store', 'not_configured', null);
+    return 'not_configured';
+  }
+  const config = apple.config;
+  try {
+    const coveredFrom = await deps.store.coveredFrom('apple_store');
+    const result = await collectAppleStoreFunnel({
+      config,
+      fetch: apple.fetch,
+      now: deps.now,
+      coveredFrom,
+      writeListing: (rows) =>
+        deps.store.upsert('store_listing_daily', rows as unknown as Record<string, unknown>[], 'day,store,source_raw'),
+      writeInstalls: (rows) =>
+        deps.store.upsert('store_installs_daily', rows as unknown as Record<string, unknown>[], 'day,store'),
+    });
+    const first = [coveredFrom, result.first_day].filter((d): d is string => !!d).sort()[0] ?? null;
+    const failed = result.errors.length > 0;
+    const detail = redact(failed ? result.errors.join(' | ') : JSON.stringify(result), config);
+    if (failed) deps.log(`[social-collect] apple_store refused: ${detail}`);
+    await recordRun(deps, 'apple_store', failed ? 'error' : 'ok', detail, { covered_from: first });
+    if (!failed) return result.state;
+    return result.listing_rows + result.installs_rows > 0 ? 'partial' : 'failed';
+  } catch (e) {
+    const message = redact(reason(e), config);
+    deps.log(`[social-collect] apple_store failed: ${message}`);
+    await recordRun(deps, 'apple_store', 'error', message);
     return 'failed';
   }
 }
@@ -1556,6 +1606,7 @@ export async function runSocialCollect(deps: CollectDeps): Promise<CollectReport
     funnel: { meta: 'skipped', site: 'no_credentials', store_clicks: 'no_credentials', app: 'no_credentials' },
     audience: 'skipped',
     apple: 'skipped',
+    apple_store: 'skipped',
     themes: 0,
     history: { done: [], partial: [], posts: 0 },
     weekly: 'not_monday',
@@ -1616,7 +1667,10 @@ export async function runSocialCollect(deps: CollectDeps): Promise<CollectReport
       await recordRun(deps, 'audience', report.audience === 'failed' ? 'error' : 'ok', report.audience);
     }
   }
-  if (deps.apple) report.apple = await runAppleCollect(deps, deps.apple);
+  if (deps.apple) {
+    report.apple = await runAppleCollect(deps, deps.apple);
+    report.apple_store = await runAppleStoreCollect(deps, deps.apple);
+  }
 
   if (own) {
     try {
