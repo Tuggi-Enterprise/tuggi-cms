@@ -14,6 +14,8 @@
 //              (BR-B2B-066 item 2). Claims stay inside the BR-B2B-066 ceiling:
 //              QR and @ attribute from the approval, commission at the agreed
 //              percentage on later purchases, no fixed value, no payment date.
+//              One text for the four types: the guide's next step (complete the
+//              profile in the app, BR-B2B-066 item 10) is a conditional sentence (#1184).
 //   'rejected' the email renders the curator's reason (payload key `reason`)
 //              after the paragraphs, behind `reasonLabel`. The push has no
 //              variable, so it points to the app, where the reason is shown.
@@ -61,7 +63,7 @@ const PT: Record<PartnerEvent, PartnerStrings> = {
       paragraphs: [
         'Olá%NAME%, o seu pedido foi aprovado e a parceria já está valendo.',
         'A partir de agora, quem chega ao Tuggi pela primeira vez pelo seu QR ou pelo seu @ fica ligado a você, e as compras dessas pessoas rendem comissão no percentual combinado com a equipe.',
-        'O seu QR e o seu @ estão no app, prontos para divulgar.',
+        'O seu QR e o seu @ estão no app, prontos para divulgar. Se você é guia de turismo, é lá também que você monta o seu perfil.',
       ],
       cta: 'Abrir o Tuggi',
     },
@@ -111,7 +113,7 @@ const EN: Record<PartnerEvent, PartnerStrings> = {
       paragraphs: [
         'Hi%NAME%, your request was approved and the partnership is now active.',
         'From now on, people who come to Tuggi for the first time through your QR code or your @ are tied to you, and their purchases earn you commission at the percentage agreed with our team.',
-        'Your QR code and your @ are in the app, ready to share.',
+        'Your QR code and your @ are in the app, ready to share. If you’re a tour guide, that’s also where you build your profile.',
       ],
       cta: 'Open Tuggi',
     },
@@ -161,7 +163,7 @@ const ES: Record<PartnerEvent, PartnerStrings> = {
       paragraphs: [
         'Hola%NAME%, tu solicitud fue aprobada y la alianza ya está vigente.',
         'Desde ahora, quien llega a Tuggi por primera vez por tu QR o tu @ queda vinculado a ti, y sus compras te dan comisión según el porcentaje acordado con el equipo.',
-        'Tu QR y tu @ están en la app, listos para compartir.',
+        'Tu QR y tu @ están en la app, listos para compartir. Si eres guía de turismo, también ahí creas tu perfil.',
       ],
       cta: 'Abrir Tuggi',
     },
@@ -211,7 +213,7 @@ const FR: Record<PartnerEvent, PartnerStrings> = {
       paragraphs: [
         'Bonjour%NAME%, ta demande a été validée et le partenariat est actif dès maintenant.',
         'Désormais, ceux qui arrivent sur Tuggi pour la première fois par ton QR ou ton @ te sont rattachés, et leurs achats te rapportent une commission au pourcentage convenu avec l’équipe.',
-        'Ton QR et ton @ sont dans l’app, prêts à être partagés.',
+        'Ton QR et ton @ sont dans l’app, prêts à être partagés. Si tu es guide, c’est aussi là que tu crées ton profil.',
       ],
       cta: 'Ouvrir Tuggi',
     },
@@ -261,7 +263,7 @@ const IT: Record<PartnerEvent, PartnerStrings> = {
       paragraphs: [
         'Ciao%NAME%, la tua richiesta è stata approvata e la partnership è già attiva.',
         'Da ora, chi arriva su Tuggi per la prima volta dal tuo QR o dal tuo @ resta collegato a te, e i suoi acquisti ti fanno guadagnare una commissione alla percentuale concordata con il team.',
-        'Il tuo QR e il tuo @ sono nell’app, pronti da condividere.',
+        'Il tuo QR e il tuo @ sono nell’app, pronti da condividere. Se sei una guida turistica, è lì che crei anche il tuo profilo.',
       ],
       cta: 'Apri Tuggi',
     },
