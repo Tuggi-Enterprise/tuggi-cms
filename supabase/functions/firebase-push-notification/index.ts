@@ -5,7 +5,8 @@ import { resolveDeeplink } from '../_shared/notification-deeplink.ts';
 // BR-COMUNICACAO-019 (#955): every push to a tourist passes the gate inside the one sender,
 // `_shared/push-send.ts`, which `/send`, `/process-scheduled` and `weekly-local-push` share (#1046).
 import { createPushSender } from '../_shared/push-send.ts';
-import { isRevisionId, runRouteRevisionPush } from '../_shared/route-revision-push.ts';
+import { isRevisionId, runRouteRevisionPush, type RouteRevisionDb } from '../_shared/route-revision-push.ts';
+import { type AccountWelcomeDb, isUuid, runAccountWelcomePush } from '../_shared/account-welcome-push.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -63,6 +64,9 @@ Deno.serve(async (req) => {
     });
 
     const { send, gatedSendToUsers, logResult } = createPushSender(supabase, requestId);
+    // The modules name only the slice of the client they call; supabase-js's builders return
+    // narrower builders per step, which no structural slice matches, so the client is cast once here.
+    const sliceDb = supabase as unknown as RouteRevisionDb & AccountWelcomeDb;
 
     // -------- ROUTES --------
     if (path === '/send') {
@@ -84,10 +88,31 @@ Deno.serve(async (req) => {
         });
       }
       const outcome = await runRouteRevisionPush(
-        { db: supabase, send, log: (line) => console.log(`[${requestId}] ${line}`) },
+        { db: sliceDb, send, log: (line) => console.log(`[${requestId}] ${line}`) },
         revisionId,
       );
       const status = outcome === 'not_found' ? 404 : outcome === 'not_decided' ? 409 : 200;
+      return new Response(JSON.stringify({ outcome }), {
+        status, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // BR-COMUNICACAO-019 3.r (#1182): the founder's welcome. The database posts here, with the
+    // machine key, when a permanent account is born or a guest converts. The Correio row is written
+    // first and once in a life; the push follows it through the gate. Contract: notificacoes.md §18.
+    if (path === '/account-welcome') {
+      const payload = await req.json().catch(() => null);
+      const userId = (payload as { user_id?: unknown } | null)?.user_id;
+      if (!isUuid(userId)) {
+        return new Response(JSON.stringify({ error: 'invalid_user_id' }), {
+          status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      const outcome = await runAccountWelcomePush(
+        { db: sliceDb, send, log: (line) => console.log(`[${requestId}] ${line}`) },
+        userId,
+      );
+      const status = outcome === 'no_user' ? 404 : outcome === 'inbox_failed' ? 500 : 200;
       return new Response(JSON.stringify({ outcome }), {
         status, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });

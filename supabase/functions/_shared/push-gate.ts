@@ -33,6 +33,7 @@ export type PushKind =
   | 'daily_summary'
   | 'first_story'
   | 'route_revision'
+  | 'account_welcome'
   | 'caravan_joined'
   | 'hours_gifted';
 
@@ -61,9 +62,10 @@ export interface PushKindPolicy {
   outsideCaps: boolean;
   /**
    * The Correio row is written before the gate asks, so it exists with push on or off; the push
-   * itself still needs the gate's yes (`push-send.ts`, `gatedSendToUsers`). Only `route_revision`
-   * (#1123, operator 2026-11-08). Absent reads `false`: every other kind writes the row after the
-   * yes, because its inbox mirrors the pushes that left.
+   * itself still needs the gate's yes (`push-send.ts`, `gatedSendToUsers`). `route_revision`
+   * (#1123, operator 2026-11-08) and `account_welcome` (#1182, item 3.r.4, whose sender writes the
+   * row itself and hands its id over). Absent reads `false`: every other kind writes the row after
+   * the yes, because its inbox mirrors the pushes that left.
    */
   inboxAlways?: true;
 }
@@ -101,6 +103,11 @@ export const PUSH_KINDS: Readonly<Record<PushKind, PushKindPolicy>> = {
   // decision has no candidate query to hold it. Sender: `firebase-push-notification/route-revision`
   // (`_shared/route-revision-push.ts`). The Correio row is written with push on or off (#1123).
   route_revision: { requested: false, requiresActive: false, vacancyPriority: 4, outsideCaps: true, inboxAlways: true },
+  // Item 3.r (#1182): the founder's welcome, once in a life, when a permanent account is born or a
+  // guest converts. A push the person asked for, as 3.o: outside every cap, never dropped, no quiet
+  // hours, consent only. The Correio row is written with push on or off, before the gate, by the
+  // sender: `firebase-push-notification/account-welcome` (`_shared/account-welcome-push.ts`).
+  account_welcome: { requested: false, requiresActive: false, vacancyPriority: 4, outsideCaps: true, inboxAlways: true },
 };
 
 /** `null` for anything that is not a known kind: an unknown kind is refused, never defaulted. */

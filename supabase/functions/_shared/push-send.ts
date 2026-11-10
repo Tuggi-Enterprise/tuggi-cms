@@ -506,9 +506,22 @@ export function createPushSender(supabase: any, requestId: string) {
     kind: PushKind | null,
     priority: string,
     ttl: number,
-    opts: { persistInbox: boolean; inboxType?: string; deeplink?: string | null; skipWithoutDevice: boolean }
+    opts: {
+      persistInbox: boolean;
+      inboxType?: string;
+      deeplink?: string | null;
+      skipWithoutDevice: boolean;
+      /**
+       * The Correio row the caller already wrote for its one recipient (#1182, `account_welcome`,
+       * whose once-in-a-life guard is the row's unique index). Used in place of writing one, and
+       * marked by the gate's answer as a row written before the gate is.
+       */
+      inboxRowId?: string;
+    }
   ) => {
     const ids = [...new Set((Array.isArray(userIds) ? userIds : []).filter((id) => typeof id === 'string' && UUID_RE.test(id)))];
+    // One row is one person: a written row handed over for an audience would ride every push.
+    if (opts.inboxRowId !== undefined && ids.length !== 1) throw new Error('INBOX_ROW_NEEDS_ONE_RECIPIENT');
     const tally = emptyGateTally();
     const stats = { success: 0, failure: 0, errors: [] as string[], aborted: null as string | null };
     let tokenCount = 0;
@@ -614,7 +627,9 @@ export function createPushSender(supabase: any, requestId: string) {
           tally[(await deliverTo(uid)) ? 'sent' : 'not_delivered'] += 1;
           return;
         }
-        const writtenInboxId = inboxBeforeGate ? await persistInboxRow(uid) : undefined;
+        const writtenInboxId = opts.inboxRowId !== undefined
+          ? opts.inboxRowId
+          : inboxBeforeGate ? await persistInboxRow(uid) : undefined;
         const result = await sendThroughPushGate(
           driveRpc,
           pushGateRequest(uid, kind),
@@ -649,8 +664,12 @@ export function createPushSender(supabase: any, requestId: string) {
     return { stats, tally, tokenCount };
   };
 
-  /** The `/send` route: the body it receives, the answer it gives. Throws what `/send` threw (500). */
-  const send = async (body: any): Promise<PushSendAnswer> => {
+  /**
+   * The `/send` route: the body it receives, the answer it gives. Throws what `/send` threw (500).
+   * `internal` never comes from a request body: only a caller in this process can hand over the
+   * Correio row it already wrote (`inboxRowId`, one recipient).
+   */
+  const send = async (body: any, internal?: { inboxRowId?: string }): Promise<PushSendAnswer> => {
     let { notification } = body;
     const { type, userIds, topic, priority = 'normal', ttl = 3600, template, lang, data, filters } = body;
 
@@ -697,6 +716,11 @@ export function createPushSender(supabase: any, requestId: string) {
     if (type === 'user' && !isPartnerTemplate) {
       userKind = body.push_kind === undefined ? 'cms_direct' : parsePushKind(body.push_kind);
       if (!userKind) return refuse('INVALID_PUSH_KIND', 'push_kind is not a known kind.');
+    }
+    // BR-COMUNICACAO-019 3.r.2 (#1182): once in a life is the row's unique index. A welcome sent
+    // over HTTP would write no row of its own to be refused by it, and push a second time.
+    if (userKind === 'account_welcome' && internal?.inboxRowId === undefined) {
+      return refuse('ACCOUNT_WELCOME_NEEDS_ROW', 'The welcome is sent by /account-welcome, after its Correio row.');
     }
 
     let recipientCount = 0;
@@ -804,6 +828,7 @@ export function createPushSender(supabase: any, requestId: string) {
         inboxType: notifType,
         deeplink,
         skipWithoutDevice: false,
+        inboxRowId: internal?.inboxRowId,
       });
       stats = sent.stats;
       gateTally = sent.tally;

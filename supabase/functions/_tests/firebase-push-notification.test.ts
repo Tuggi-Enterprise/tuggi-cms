@@ -270,3 +270,123 @@ Deno.test('BR-COMUNICACAO-019 item 9 (#1123): any other kind with push off still
     assertEquals(fcmSends(), [], pushKind);
   }
 });
+
+/**
+ * #1182, BR-COMUNICACAO-019 3.r: `/account-welcome`, called by the database with the machine key.
+ * The row is written first and once in a life; the push follows through the gate with its id.
+ */
+async function postWelcome(payload: unknown): Promise<{ status: number; body: Record<string, unknown> }> {
+  scenario.calls.length = 0;
+  scenario.writes.length = 0;
+  fetchCalls.length = 0;
+  fetchBodies.length = 0;
+  const res = await handler(
+    new Request('http://edge.test/functions/v1/firebase-push-notification/account-welcome', {
+      method: 'POST',
+      headers: { authorization: 'Bearer test-service-role-key', 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+  );
+  return { status: res.status, body: await res.json() };
+}
+
+/** Devices as `setDevices`, and the profile read of the welcome answers `language`. */
+function setWelcome(tokens: string[], language: string): void {
+  setDevices(tokens);
+  scenario.tables.profiles = (chain: string[]) => (chain.includes('maybeSingle') ? { language } : []);
+}
+
+function fcmData(): Array<Record<string, string>> {
+  return fetchBodies
+    .filter((_, i) => fetchCalls[i].includes('fcm.googleapis.com'))
+    .map((b) => JSON.parse(String(b)).message.data);
+}
+
+Deno.test('BR-COMUNICACAO-019 3.r.4, 3.r.7 (#1182): push on writes one Correio row and sends one push with its id, no deeplink', async () => {
+  setWelcome([TOKENS[0]], 'de');
+  scriptFcm([accepted]);
+
+  const { status, body } = await postWelcome({ user_id: USER });
+
+  assertEquals(status, 200);
+  assertEquals(body, { outcome: 'sent' });
+  const rows = inboxInserts();
+  assertEquals(rows.length, 1);
+  assertEquals(rows[0].type, 'account_welcome');
+  assertEquals(rows[0].title, 'Willkommen bei Tuggi');
+  assertEquals(rows[0].deeplink, 'tuggi://map');
+  assert(String(rows[0].body).endsWith('Gründer von Tuggi · @leandroramos'), String(rows[0].body));
+  const data = fcmData();
+  assertEquals(data.length, 1);
+  assertEquals(data[0].notification_id, INBOX_ID);
+  assertEquals(data[0].type, 'account_welcome');
+  assert(!('deeplink' in data[0]), 'the tap opens the Correio');
+  assert(scenario.calls.includes('rpc:push_allowed'), 'consent is asked');
+  assert(!scenario.calls.includes('rpc:record_push_sent'), 'outside every cap: no slot taken');
+  assertEquals(deliveryWrites(), []);
+});
+
+Deno.test('BR-COMUNICACAO-019 3.r.4 (#1182): push off writes the row, sends nothing and marks PUSH_NOT_ALLOWED', async () => {
+  setWelcome(TOKENS, 'pt-BR');
+  scenario.rpcs = { push_allowed: { data: false, error: null } };
+  scriptFcm([]);
+
+  const { status, body } = await postWelcome({ user_id: USER });
+
+  assertEquals(status, 200);
+  assertEquals(body, { outcome: 'denied' });
+  assertEquals(inboxInserts().map((r) => r.title), ['Boas-vindas ao Tuggi']);
+  assertEquals(fcmSends(), []);
+  assertEquals(deliveryWrites().map((w) => w.delivery_error), ['PUSH_NOT_ALLOWED']);
+});
+
+Deno.test('BR-COMUNICACAO-019 3.r.2 (#1182): the unique index refusing the row (23505) answers 200 and pushes nothing', async () => {
+  setWelcome(TOKENS, 'pt');
+  scenario.tableErrors = {
+    user_notifications: (chain) => (chain.includes('insert') ? { code: '23505' } : null),
+  };
+  scriptFcm([accepted]);
+
+  const { status, body } = await postWelcome({ user_id: USER });
+
+  assertEquals(status, 200);
+  assertEquals(body, { outcome: 'already_welcomed' });
+  assertEquals(inboxInserts().length, 1);
+  assertEquals(fcmSends(), []);
+  assert(!scenario.calls.includes('rpc:push_allowed'), 'the gate is never asked');
+  scenario.tableErrors = {};
+});
+
+Deno.test('BR-COMUNICACAO-019 3.r.6 (#1182): FCM refusing the device keeps the row and marks the failure', async () => {
+  setWelcome([TOKENS[0]], 'en');
+  scriptFcm([() => fcmRefusal('UNREGISTERED')]);
+
+  const { status, body } = await postWelcome({ user_id: USER });
+
+  assertEquals(status, 200);
+  assertEquals(body, { outcome: 'not_delivered' });
+  assertEquals(inboxInserts().length, 1);
+  assertEquals(deliveryWrites().map((w) => w.delivery_error), ['UNREGISTERED']);
+});
+
+Deno.test('#1182: a user_id that is not a uuid is refused before any read', async () => {
+  setWelcome(TOKENS, 'pt');
+  for (const payload of [{}, { user_id: 'abc' }, { user_id: 7 }, null]) {
+    const { status, body } = await postWelcome(payload);
+    assertEquals(status, 400, JSON.stringify(payload));
+    assertEquals(body, { error: 'invalid_user_id' });
+    assertEquals(scenario.calls.filter((c) => c.startsWith('from:') || c.startsWith('rpc:')), [], JSON.stringify(payload));
+  }
+});
+
+Deno.test('BR-COMUNICACAO-019 3.r.2 (#1182): /send refuses account_welcome, which only /account-welcome sends after its row', async () => {
+  setWelcome(TOKENS, 'pt');
+  scriptFcm([accepted]);
+
+  const { status, body } = await sendBody({ ...routeRevisionBody, push_kind: 'account_welcome' });
+
+  assertEquals(status, 400);
+  assertEquals(body.error, 'ACCOUNT_WELCOME_NEEDS_ROW');
+  assertEquals(inboxInserts(), []);
+  assertEquals(fcmSends(), []);
+});
