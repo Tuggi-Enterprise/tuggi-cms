@@ -293,7 +293,7 @@ test('an unknown report is a 404', async () => {
 
 test('BR-USUARIO-051 item 6: the record reads the identity and the lock of the account, never cached', async () => {
   tableAnswers.profiles = () => ({
-    data: { display_name: 'Ana', nickname: 'ana.souza', bio: null, display_name_reset_at: null, nickname_reset_at: '2026-11-08T12:00:00Z', bio_reset_at: null },
+    data: { nickname: 'ana.souza', bio: null, nickname_reset_at: '2026-11-08T12:00:00Z', bio_reset_at: null },
     error: null,
   })
   tableAnswers.public_identity_locks = () => ({ data: { locked_at: '2026-11-09T10:00:00Z' }, error: null })
@@ -304,6 +304,10 @@ test('BR-USUARIO-051 item 6: the record reads the identity and the lock of the a
   assert.equal(identity.locked, true)
   assert.equal(identity.resetAt.nickname, '2026-11-08T12:00:00Z')
   assert.equal(identity.nickname, 'ana.souza')
+  // BR-USUARIO-042: the CMS never reads the account name.
+  assert.ok(!('displayName' in identity))
+  assert.ok(!(argsOf(tableCalls.find((c) => c.table === 'profiles')!, 'select')?.[0] as string).includes('display_name'))
+  assert.equal((await resetPOST(request('POST', { field: 'display_name' }), params({ userId: ALICE }), AUTH)).status, 400)
   for (const call of tableCalls) assert.deepEqual(argsOf(call, 'eq'), [call.table === 'profiles' ? 'id' : 'user_id', ALICE])
 })
 
@@ -333,13 +337,13 @@ test('a lock without a boolean, or on a malformed account id, never reaches the 
 })
 
 test('BR-USUARIO-051 item 5: resetting a field calls the RPC with the curator, and neither value reaches the trail', async () => {
-  rpcAnswers.reset_public_identity_as = { data: { field: 'display_name', value: 'ViajanteCurioso12', reports_closed: 2 }, error: null }
-  const res = await resetPOST(request('POST', { field: 'display_name' }), params({ userId: ALICE }), AUTH)
+  rpcAnswers.reset_public_identity_as = { data: { field: 'nickname', value: 'ViajanteCurioso12', reports_closed: 2 }, error: null }
+  const res = await resetPOST(request('POST', { field: 'nickname' }), params({ userId: ALICE }), AUTH)
   assert.equal(res.status, 200)
   assert.deepEqual(rpcs, [
-    { schema: 'drive', fn: 'reset_public_identity_as', args: { p_user_id: ALICE, p_field: 'display_name', p_actor: ACTOR } },
+    { schema: 'drive', fn: 'reset_public_identity_as', args: { p_user_id: ALICE, p_field: 'nickname', p_actor: ACTOR } },
   ])
-  assert.deepEqual(((await res.json()) as { outcome: unknown }).outcome, { field: 'display_name', value: 'ViajanteCurioso12', reportsClosed: 2 })
+  assert.deepEqual(((await res.json()) as { outcome: unknown }).outcome, { field: 'nickname', value: 'ViajanteCurioso12', reportsClosed: 2 })
   assert.equal(audits[0].action, 'RESET_PUBLIC_IDENTITY')
   assert.ok(!auditTrail().includes('ViajanteCurioso12'))
 })
@@ -528,10 +532,9 @@ test('BR-USUARIO-051 item 6: the record shows the lock checked and the date the 
     createElement(PublicIdentityPanel, {
       userId: ALICE,
       identity: {
-        displayName: 'Ana',
         nickname: 'ViajanteCurioso12',
         bio: null,
-        resetAt: { display_name: null, nickname: '2026-11-08T12:00:00Z', bio: null },
+        resetAt: { nickname: '2026-11-08T12:00:00Z', bio: null },
         locked: true,
         lockedAt: '2026-11-09T10:00:00Z',
       },

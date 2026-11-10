@@ -23,7 +23,7 @@ export const REPORTS: IdentityReportRow[] = [
     reportId: 8,
     userId: '22222222-2222-4222-8222-222222222222',
     nickname: 'Andarilho42',
-    field: 'display_name',
+    field: 'bio',
     reportedValue: 'Nome Ofensivo',
     surface: 'discovered_by',
     reportsCount: 1,
@@ -71,10 +71,9 @@ export const LISTS: FilterLists = {
 }
 
 export const IDENTITY: AccountIdentity = {
-  displayName: 'Rei do Palavrão',
   nickname: 'rei.do.palavrao',
   bio: 'Viajo pelo litoral.',
-  resetAt: { display_name: null, nickname: null, bio: '2026-11-08T12:00:00Z' },
+  resetAt: { nickname: null, bio: '2026-11-08T12:00:00Z' },
   locked: false,
   lockedAt: null,
 }

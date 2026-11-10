@@ -2002,7 +2002,6 @@
         "title": "Nome público",
         "hint": "Redefinir devolve o campo ao gerado pelo banco e não conta no limite de trocas da pessoa.",
         "fields": {
-          "display_name": "Nome de exibição",
           "nickname": "@",
           "bio": "Bio"
         },
@@ -2011,13 +2010,12 @@
         "reset": "Redefinir",
         "reset_label": "Redefinir {field}",
         "reset_hint": {
-          "display_name": "O nome volta a um apelido gerado.",
           "nickname": "A conta recebe um @ gerado. O @ atual fica bloqueado para sempre e não redireciona.",
           "bio": "A bio fica vazia."
         },
         "confirm": "Confirmar",
         "cancel": "Cancelar",
-        "lock_label": "Travar a edição de nome, @ e bio",
+        "lock_label": "Travar a edição de @ e bio",
         "lock_hint": "Travada, a pessoa não muda nenhum dos três; a moderação ainda redefine. Não mexe em publicar roteiros.",
         "locked_since": "Travada desde {date}. A moderação ainda redefine.",
         "reset_done": "Redefinido: {value}",
@@ -3039,7 +3037,7 @@
     },
     "PublicNames": {
       "title": "Nomes públicos",
-      "subtitle": "Denúncias de nome, @ e bio, e as listas que o filtro lê. Redefinir e travar uma conta fica na ficha dela.",
+      "subtitle": "Denúncias de @ e bio, e as listas que o filtro lê. Redefinir e travar uma conta fica na ficha dela.",
       "reports": {
         "title": "Denúncias de nome",
         "count": "{count, plural, =0 {nenhuma aberta} one {# aberta} other {# abertas}}",
@@ -3058,7 +3056,6 @@
           "decision": "Decisão"
         },
         "fields": {
-          "display_name": "Nome de exibição",
           "nickname": "@",
           "bio": "Bio"
         },
@@ -3074,7 +3071,6 @@
         "confirmRemove": "Confirmar remoção",
         "cancel": "Cancelar",
         "removeHint": {
-          "display_name": "O nome volta a um apelido gerado.",
           "nickname": "A conta recebe um @ gerado. O @ removido fica bloqueado para sempre e não redireciona.",
           "bio": "A bio fica vazia."
         },

@@ -142,21 +142,21 @@ test('#1144 BR-USUARIO-051 items 5 and 6: the record resets a field after confir
   await page.route(`**/api/admin/users/${ALICE}/public-identity/reset`, async (route: Route) => {
     const body = route.request().postDataJSON() as { field: string }
     sent.push({ method: 'POST', url: route.request().url(), body })
-    identity = { ...identity, displayName: 'ViajanteCurioso12', resetAt: { ...identity.resetAt, display_name: '2026-11-09T12:00:00Z' } }
+    identity = { ...identity, nickname: 'ViajanteCurioso12', resetAt: { ...identity.resetAt, nickname: '2026-11-09T12:00:00Z' } }
     return route.fulfill({ json: { outcome: { field: body.field, value: 'ViajanteCurioso12', reportsClosed: 1 } } })
   })
   const component = await mount(<PublicIdentityHarness userId={ALICE} />)
 
-  await expect(component.getByText('Rei do Palavrão')).toBeVisible()
-  await component.getByRole('button', { name: 'Redefinir Nome de exibição' }).click()
-  await expect(component.getByText('O nome volta a um apelido gerado.')).toBeVisible()
+  await expect(component.getByText('rei.do.palavrao', { exact: true })).toBeVisible()
+  await component.getByRole('button', { name: 'Redefinir @' }).click()
+  await expect(component.getByText(/bloqueado para sempre/)).toBeVisible()
   await component.getByRole('button', { name: 'Confirmar' }).click()
   await expect(component.getByRole('status')).toHaveText('Redefinido: ViajanteCurioso12')
 
-  await component.getByLabel('Travar a edição de nome, @ e bio').check()
+  await component.getByLabel('Travar a edição de @ e bio').check()
   await expect(component.getByText('Travada desde 09/11/2026. A moderação ainda redefine.')).toBeVisible()
   expect(sent.map((s) => [s.method, s.body])).toEqual([
-    ['POST', { field: 'display_name' }],
+    ['POST', { field: 'nickname' }],
     ['PATCH', { locked: true }],
   ])
   if (CAPTURE) await page.screenshot({ path: `${CAPTURE}/ficha-nome-publico-1440.png`, fullPage: true })

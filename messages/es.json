@@ -1992,7 +1992,6 @@
         "title": "Nombre público",
         "hint": "Restablecer devuelve el campo al generado por la base y no cuenta en el límite de cambios de la persona.",
         "fields": {
-          "display_name": "Nombre visible",
           "nickname": "@",
           "bio": "Bio"
         },
@@ -2001,13 +2000,12 @@
         "reset": "Restablecer",
         "reset_label": "Restablecer {field}",
         "reset_hint": {
-          "display_name": "El nombre vuelve a un apodo generado.",
           "nickname": "La cuenta recibe un @ generado. El @ actual queda bloqueado para siempre y no redirige.",
           "bio": "La bio queda vacía."
         },
         "confirm": "Confirmar",
         "cancel": "Cancelar",
-        "lock_label": "Bloquear la edición de nombre, @ y bio",
+        "lock_label": "Bloquear la edición de @ y bio",
         "lock_hint": "Bloqueada, la persona no cambia ninguno de los tres; la moderación aún restablece. No toca publicar rutas.",
         "locked_since": "Bloqueada desde el {date}. La moderación aún restablece.",
         "reset_done": "Restablecido: {value}",
@@ -2678,7 +2676,7 @@
     },
     "PublicNames": {
       "title": "Nombres públicos",
-      "subtitle": "Denuncias de nombre, @ y bio, y las listas que lee el filtro. Restablecer y bloquear una cuenta está en su ficha.",
+      "subtitle": "Denuncias de @ y bio, y las listas que lee el filtro. Restablecer y bloquear una cuenta está en su ficha.",
       "reports": {
         "title": "Denuncias de nombre",
         "count": "{count, plural, =0 {ninguna abierta} one {# abierta} other {# abiertas}}",
@@ -2697,7 +2695,6 @@
           "decision": "Decisión"
         },
         "fields": {
-          "display_name": "Nombre visible",
           "nickname": "@",
           "bio": "Bio"
         },
@@ -2713,7 +2710,6 @@
         "confirmRemove": "Confirmar",
         "cancel": "Cancelar",
         "removeHint": {
-          "display_name": "El nombre vuelve a un apodo generado.",
           "nickname": "La cuenta recibe un @ generado. El @ quitado queda bloqueado para siempre y no redirige.",
           "bio": "La bio queda vacía."
         },

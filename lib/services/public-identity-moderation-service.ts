@@ -103,7 +103,7 @@ export async function readIdentity(userId: string): Promise<ModerationResult<Acc
   const [profile, lock] = await Promise.all([
     drive()
       .from('profiles')
-      .select('display_name, nickname, bio, display_name_reset_at, nickname_reset_at, bio_reset_at')
+      .select('nickname, bio, nickname_reset_at, bio_reset_at')
       .eq('id', userId)
       .maybeSingle(),
     drive().from('public_identity_locks').select('locked_at').eq('user_id', userId).maybeSingle(),

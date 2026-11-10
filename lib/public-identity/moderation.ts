@@ -10,7 +10,7 @@
  * it alike.
  */
 
-export const PUBLIC_IDENTITY_FIELDS = ['display_name', 'nickname', 'bio'] as const
+export const PUBLIC_IDENTITY_FIELDS = ['nickname', 'bio'] as const
 export type PublicIdentityField = (typeof PUBLIC_IDENTITY_FIELDS)[number]
 
 export const REPORT_SURFACES = ['scoreboard', 'discovered_by', 'profile_page'] as const
@@ -122,7 +122,6 @@ export function readReportOutcome(data: unknown): ReportOutcome | null {
 
 /** The public identity of one account, as the CMS shows it on the record. */
 export interface AccountIdentity {
-  displayName: string | null
   nickname: string | null
   bio: string | null
   /** When the moderation last reset the field; `null` once the owner writes it again. */
@@ -136,11 +135,9 @@ export function readAccountIdentity(profile: unknown, lock: unknown): AccountIde
   const p = profile as Record<string, unknown>
   const l = lock && typeof lock === 'object' ? (lock as Record<string, unknown>) : null
   return {
-    displayName: text(p.display_name),
     nickname: text(p.nickname),
     bio: text(p.bio),
     resetAt: {
-      display_name: text(p.display_name_reset_at),
       nickname: text(p.nickname_reset_at),
       bio: text(p.bio_reset_at),
     },

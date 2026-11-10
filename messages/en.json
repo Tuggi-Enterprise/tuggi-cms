@@ -2004,7 +2004,6 @@
         "title": "Public name",
         "hint": "Reset sends the field back to the generated value and does not count toward the person's change limit.",
         "fields": {
-          "display_name": "Display name",
           "nickname": "@",
           "bio": "Bio"
         },
@@ -2013,13 +2012,12 @@
         "reset": "Reset",
         "reset_label": "Reset {field}",
         "reset_hint": {
-          "display_name": "The name goes back to a generated nickname.",
           "nickname": "The account gets a generated @. The current @ is blocked forever and does not redirect.",
           "bio": "The bio becomes empty."
         },
         "confirm": "Confirm",
         "cancel": "Cancel",
-        "lock_label": "Lock editing of name, @ and bio",
+        "lock_label": "Lock editing of @ and bio",
         "lock_hint": "Locked, the person changes none of the three; moderation can still reset. Does not touch route publishing.",
         "locked_since": "Locked since {date}. Moderation can still reset.",
         "reset_done": "Reset: {value}",
@@ -2691,7 +2689,7 @@
     },
     "PublicNames": {
       "title": "Public names",
-      "subtitle": "Reports of name, @ and bio, and the lists the filter reads. Reset and lock of one account live on its record.",
+      "subtitle": "Reports of @ and bio, and the lists the filter reads. Reset and lock of one account live on its record.",
       "reports": {
         "title": "Name reports",
         "count": "{count, plural, =0 {none open} one {# open} other {# open}}",
@@ -2710,7 +2708,6 @@
           "decision": "Decision"
         },
         "fields": {
-          "display_name": "Display name",
           "nickname": "@",
           "bio": "Bio"
         },
@@ -2726,7 +2723,6 @@
         "confirmRemove": "Confirm removal",
         "cancel": "Cancel",
         "removeHint": {
-          "display_name": "The name goes back to a generated nickname.",
           "nickname": "The account gets a generated @. The removed @ is blocked forever and does not redirect.",
           "bio": "The bio becomes empty."
         },

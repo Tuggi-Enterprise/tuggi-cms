@@ -26,8 +26,7 @@ export interface PublicIdentityPanelProps {
   onLock: (locked: boolean) => void
 }
 
-const VALUE_OF: Record<PublicIdentityField, keyof Pick<AccountIdentity, 'displayName' | 'nickname' | 'bio'>> = {
-  display_name: 'displayName',
+const VALUE_OF: Record<PublicIdentityField, keyof Pick<AccountIdentity, 'nickname' | 'bio'>> = {
   nickname: 'nickname',
   bio: 'bio',
 }
