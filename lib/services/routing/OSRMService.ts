@@ -30,6 +30,15 @@ export interface RouteResult {
 const OSRM_BASE_URL = process.env.OSRM_API_URL || 'https://router.project-osrm.org';
 
 /**
+ * The public demo above routes cars only: asked for `/route/v1/foot/` on 2026-11-11 it answered car
+ * distances. Walking goes to the FOSSGIS instance, whose host path picks the profile (the profile
+ * segment of the URL is not read there).
+ */
+const OSRM_FOOT_BASE_URL = process.env.OSRM_FOOT_API_URL || 'https://routing.openstreetmap.de/routed-foot';
+
+export type RoutingProfile = 'driving' | 'foot';
+
+/**
  * Service for interacting with OSRM (Open Source Routing Machine).
  * 
  * Provides two main operations:
@@ -39,13 +48,14 @@ const OSRM_BASE_URL = process.env.OSRM_API_URL || 'https://router.project-osrm.o
 export class OSRMService {
   
   /**
-   * Generate a driving route between waypoints.
+   * Generate a route between waypoints, by car unless `profile` is 'foot'.
    * Use this for "Point-to-Point" mode where user selects Start/End.
-   * 
+   *
    * @param waypoints Array of at least 2 points
+   * @param profile 'driving' (default) or 'foot'
    * @returns Route geometry and metadata
    */
-  static async getRoute(waypoints: LatLng[]): Promise<RouteResult> {
+  static async getRoute(waypoints: LatLng[], profile: RoutingProfile = 'driving'): Promise<RouteResult> {
     if (waypoints.length < 2) {
       throw new Error('OSRMService.getRoute: At least 2 waypoints are required');
     }
@@ -56,7 +66,8 @@ export class OSRMService {
       .join(';');
 
     // Request full geometry in encoded polyline format
-    const url = `${OSRM_BASE_URL}/route/v1/driving/${coordinatesString}?overview=full&geometries=polyline`;
+    const base = profile === 'foot' ? OSRM_FOOT_BASE_URL : OSRM_BASE_URL;
+    const url = `${base}/route/v1/driving/${coordinatesString}?overview=full&geometries=polyline`;
 
     try {
       const response = await fetch(url, {
