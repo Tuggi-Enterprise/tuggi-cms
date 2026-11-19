@@ -48,8 +48,6 @@ const TOURIST_SURFACES = [
   'app/[locale]/dashboard/page.tsx',
   'app/[locale]/users/app/page.tsx',
   'components/dashboard/AppUserLink.tsx',
-  'components/dashboard/UpcomingExpirationsCard.tsx',
-  'components/dashboard/LowBalanceCard.tsx',
   'components/dashboard/PaidAccessCard.tsx',
   'components/dashboard/AppUserDrawer.tsx',
   'components/admin/passport/UserPassportTab.tsx',
@@ -60,8 +58,9 @@ const TOURIST_SURFACES = [
 ]
 
 /**
- * The six that PRINT a tourist's nickname — the founder's list in #659, and the boundary of
- * "wherever the nickname appears, clicking opens the file".
+ * The surfaces that PRINT a tourist's nickname — the founder's list in #659, and the boundary
+ * of "wherever the nickname appears, clicking opens the file". The list had six; the two
+ * Overview queues (expirations and running out) left with their files in #1204.
  *
  * It is a subset of `TOURIST_SURFACES`: `PaidAccessCard` shows aggregates and no person,
  * `AppUserLink` and `AppUserDrawer` are the door and the room, and `LinkedClientSection`
@@ -69,8 +68,6 @@ const TOURIST_SURFACES = [
  */
 const NICKNAME_SURFACES = [
   'app/[locale]/users/app/page.tsx',
-  'components/dashboard/UpcomingExpirationsCard.tsx',
-  'components/dashboard/LowBalanceCard.tsx',
   'components/dashboard/reports/MeteredBalances.tsx',
   'components/dashboard/reports/UsersPremium.tsx',
   'components/dashboard/reports/UsersAll.tsx',

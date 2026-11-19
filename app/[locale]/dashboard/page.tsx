@@ -3,8 +3,8 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import dynamic from 'next/dynamic'
 import {
-  CheckCircle, TrendingUp, AlertCircle, RefreshCw, Clock, Play, Users, ShieldCheck,
-  Database, Zap, MapPin, Globe, Radar, Wallet, Hourglass, Timer,
+  CheckCircle, TrendingUp, AlertCircle, RefreshCw, Play, Users, ShieldCheck,
+  Zap, Globe, Radar, Wallet, Timer,
 } from 'lucide-react'
 import { useTranslations, useLocale } from 'next-intl'
 import { Link } from '@/navigation'
@@ -15,14 +15,10 @@ import {
   dashboardService, DashboardStats, EMPTY_DASHBOARD_STATS, EMPTY_PAID_ACCESS,
   UserLocationPin, WaitlistPin, PaidAccessSnapshot, consumedMinutesTotal,
 } from '@/lib/services/dashboard-service'
-import { LOW_BALANCE_CEILING_MINUTES } from '@/lib/credit/entitlement'
 import { formatDuration } from '@/lib/format/duration'
 import { appUserLabel } from '@/lib/format/user-identity'
 import { RecentVisitCard } from '@/components/dashboard/RecentVisitCard'
-import { UpcomingExpirationsCard } from '@/components/dashboard/UpcomingExpirationsCard'
-import { LowBalanceCard } from '@/components/dashboard/LowBalanceCard'
 import { PaidAccessCard } from '@/components/dashboard/PaidAccessCard'
-import { WaitlistDemandList } from '@/components/dashboard/WaitlistDemandList'
 import { GoogleMapComponent } from '@/components/ui/GoogleMapComponent'
 
 // recharts is the single heaviest dependency of this route's initial JS and only one widget
@@ -66,7 +62,7 @@ export default function DashboardPage() {
 
   const liveRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Carrega os dados pesados (KPIs, MAU, expirations, feed) + as fatias slim do mapa.
+  // Loads the heavy data (KPIs, MAU, feed) plus the slim map slices.
   const fetchData = useCallback(async (isBackground = false, force = false) => {
     try {
       if (!isBackground) setIsLoading(true)
@@ -74,9 +70,9 @@ export default function DashboardPage() {
         dashboardService.getDashboardData(undefined, force),
         dashboardService.getUserLocationPins(5000),
         dashboardService.getWaitlistPins(5000, true),
-        // Only what is not yet a comfortable balance. The list arrives from the
-        // database already ordered by ascending balance — the top runs out first.
-        dashboardService.getPaidAccess(20, LOW_BALANCE_CEILING_MINUTES),
+        // Only the aggregate is read here. The per-user list belongs to the premium report
+        // (MeteredBalances); the route always serves one, so ask for the smallest (#1204).
+        dashboardService.getPaidAccess(1),
       ])
       if (!dash.success || !dash.data) throw new Error(dash.error || 'Failed to load dashboard')
       setStats(dash.data)
@@ -182,15 +178,6 @@ export default function DashboardPage() {
     }
     return markers
   }, [userPins, activeUsers, waitlistPins, t])
-
-  // Running out means depending on the balance NOW: an `unlimited` user with a low
-  // balance is at no risk — their balance is idle until the term ends
-  // (BR-MONETIZACAO-051). The cut is the `state` the database resolved, never a local
-  // comparison of `ends_at` (BR-MONETIZACAO-046).
-  const lowBalanceUsers = useMemo(
-    () => paidAccess.meteredUsers.filter((u) => u.state === 'metered'),
-    [paidAccess.meteredUsers]
-  )
 
   const mapCenter = useMemo(() => {
     if (activeUsers.length > 0) return { lat: activeUsers[0].lat, lng: activeUsers[0].lng }
@@ -372,67 +359,22 @@ export default function DashboardPage() {
         </WidgetCard>
       </div>
 
-      {/* 3. PAID ACCESS — the two ways it holds, side by side.
-          `unlimited` ends on a date and shows in the middle list; `metered` ends by
-          consumption and shows in the right one. Same business block, and the operator
-          needs both in one sweep (BR-MONETIZACAO-046). */}
+      {/* 3. PAID ACCESS composition (BR-MONETIZACAO-046). The expirations and running-out
+          lists left the Overview in #1204; the per-user view is the premium report. */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-        {/* PAID ACCESS COMPOSITION */}
         <WidgetCard className="lg:col-span-4 h-[360px]">
           <SectionHeader title={t('labels.paid_access')} icon={Wallet} iconColor={TUGGI_COLORS.purple} href="/dashboard/reports/premium" linkLabel={t('labels.view_details')} />
           <PaidAccessCard overview={paidAccess.overview} />
         </WidgetCard>
-
-        {/* EXPIRATIONS (term by date) */}
-        <WidgetCard className="lg:col-span-4 h-[360px]">
-          <SectionHeader title={t('labels.expirations_30d')} icon={Clock} iconColor={TUGGI_COLORS.orange} href="/dashboard/reports/premium" linkLabel={t('labels.view_details')} />
-          <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 space-y-2">
-            {stats.upcomingExpirations.length > 0 ? (
-              stats.upcomingExpirations.slice(0, 10).map((exp) => (
-                <UpcomingExpirationsCard key={exp.user_id} expiration={exp} locale={locale} />
-              ))
-            ) : (
-              <div className="h-full flex flex-col items-center justify-center opacity-30 text-center">
-                <ShieldCheck className="h-10 w-10 mb-2" />
-                <p className="text-[10px] font-black uppercase">{t('labels.no_expirations')}</p>
-              </div>
-            )}
-          </div>
-        </WidgetCard>
-
-        {/* RUNNING OUT (hour consumption) */}
-        <WidgetCard className="lg:col-span-4 h-[360px]">
-          <SectionHeader title={t('labels.low_balance')} icon={Hourglass} iconColor={TUGGI_COLORS.red} href="/dashboard/reports/premium" linkLabel={t('labels.view_details')} />
-          <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 space-y-2">
-            {lowBalanceUsers.length > 0 ? (
-              lowBalanceUsers.slice(0, 10).map((user) => (
-                <LowBalanceCard key={user.user_id} user={user} locale={locale} />
-              ))
-            ) : (
-              <div className="h-full flex flex-col items-center justify-center opacity-30 text-center">
-                <Hourglass className="h-10 w-10 mb-2" />
-                <p className="text-[10px] font-black uppercase">{t('labels.no_low_balance')}</p>
-              </div>
-            )}
-          </div>
-        </WidgetCard>
       </div>
 
-      {/* 4. STRATEGIC BAND: MAU + demand by country */}
+      {/* 4. MAU growth. The demand-points list left the Overview in #1204: the red pins on
+          the map stay, and the list lives in the geography report (GeoDemand). */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-        {/* MAU GROWTH */}
         <WidgetCard className="lg:col-span-8 h-[360px]">
           <SectionHeader title={t('labels.active_base')} icon={TrendingUp} iconColor={TUGGI_COLORS.blue} href="/dashboard/reports/users" linkLabel={t('labels.view_details')} />
           <div className="flex-1 min-h-0">
             <UserGrowthChart data={stats.userGrowth} color={TUGGI_COLORS.blue} />
-          </div>
-        </WidgetCard>
-
-        {/* PONTOS DE DEMANDA (waitlist pendente — nickname + link Google Maps) */}
-        <WidgetCard className="lg:col-span-4 h-[360px]">
-          <SectionHeader title={t('labels.demand_points')} icon={MapPin} iconColor={TUGGI_COLORS.red} href="/dashboard/reports/geography" linkLabel={t('labels.view_details')} />
-          <div className="flex-1 overflow-y-auto custom-scrollbar pr-1">
-            <WaitlistDemandList pins={waitlistPins} />
           </div>
         </WidgetCard>
       </div>
