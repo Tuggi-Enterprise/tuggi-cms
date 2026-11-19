@@ -4,7 +4,7 @@ import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 import { isPublicWay } from '../config/visibility-class';
 import { isPointInPolygon } from '../utils/calculations';
 import { outerRings } from '../utils/boundary-choice';
-import { listOsmRegions, localOsmDir, regionAt, OsmRegion } from '../../local-osm-regions';
+import { listOsmRegions, localOsmDir, regionAt, regionsAt, OsmRegion } from '../../local-osm-regions';
 import { findMunicipality, type Municipality, type PoiOsmElement } from '../../admin-boundaries';
 import { IDENTITY_RELATION_TABLE } from '../../osm-local-data-service';
 
@@ -741,14 +741,18 @@ export class LocalOSMFetcher {
    * country (or predates BR-POI-010).
    */
   public municipalityAt(pin: { lat: number; lng: number } | undefined, element: PoiOsmElement): Municipality | null {
-    const region = pin ? regionAt(this.regions, pin.lat, pin.lng) : null;
-    if (!pin || !region || !this.use(region)) return null;
-    try {
-      return findMunicipality(this.db!, pin, element);
-    } catch (error) {
-      console.error(`❌ [LocalOSMFetcher] Error reading municipal borders:`, error);
-      return null;
+    if (!pin) return null;
+    // Overlapping extracts: the first region covering the pin may not hold this seat's municipality.
+    for (const region of regionsAt(this.regions, pin.lat, pin.lng)) {
+      if (!this.use(region)) continue;
+      try {
+        const found = findMunicipality(this.db!, pin, element);
+        if (found) return found;
+      } catch (error) {
+        console.error(`❌ [LocalOSMFetcher] Error reading municipal borders:`, error);
+      }
     }
+    return null;
   }
 
   /**

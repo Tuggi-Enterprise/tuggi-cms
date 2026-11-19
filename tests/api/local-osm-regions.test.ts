@@ -10,7 +10,7 @@ import { Readable } from 'node:stream'
 import Database from 'better-sqlite3'
 import {
   ALLOW_OVERPASS_ENV, LOCAL_OSM_DIR_ENV, LocalOsmNotCoveredError, geonamesDbPath, listOsmRegions,
-  localOsmDir, parsePoly, regionAt, regionDbPath, requireLocalOsmCoverage,
+  localOsmDir, parsePoly, regionAt, regionsAt, regionDbPath, requireLocalOsmCoverage,
 } from '../../lib/services/local-osm-regions'
 import { OSMLocalDataService } from '../../lib/services/osm-local-data-service'
 import { rebuildRtree, rtreeIsCurrent, rtreeState } from '../../lib/services/osm-rtree-index'
@@ -63,6 +63,14 @@ describe('local OSM region by coordinate (#833, L1)', () => {
     assert.equal(regionAt(regions, PIN.vienna.lat, PIN.vienna.lng), null)
     assert.equal(regionAt(regions, PIN.hole.lat, PIN.hole.lng), null)
     assert.equal(regionAt(regions, NaN, 1), null)
+  })
+
+  it('BR-POI-010: overlapping extracts both cover a border pin, in name order (a MG seat inside the Nordeste poly)', () => {
+    const over = listOsmRegions(regionDir({ 'a-ne.db': '', 'a-ne.poly': poly('ne', [{ pts: [[-48.0, -18.5], [-34.0, -18.5], [-34.0, -1.0], [-48.0, -1.0]] }]), 'b-se.db': '', 'b-se.poly': SUDESTE }))
+    const bertopolis = { lat: -17.0652, lng: -40.5729 }
+    assert.deepEqual(regionsAt(over, bertopolis.lat, bertopolis.lng).map(r => r.name), ['a-ne', 'b-se'])
+    assert.equal(regionAt(over, bertopolis.lat, bertopolis.lng)?.name, 'a-ne')
+    assert.deepEqual(regionsAt(over, NaN, 1), [])
   })
 
   it('parses the Geofabrik format: outer rings, holes and the closing END', () => {

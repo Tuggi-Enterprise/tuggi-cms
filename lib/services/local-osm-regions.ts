@@ -107,7 +107,13 @@ export function listOsmRegions(dir = localOsmDir()): OsmRegion[] {
 
 export function regionAt<R extends Pick<OsmRegion, 'covers'>>(regions: R[], lat: number, lng: number): R | null {
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
-  return regions.find(r => r.covers(lat, lng)) ?? null
+  return regionsAt(regions, lat, lng)[0] ?? null
+}
+
+/** Every region covering the coordinate: Geofabrik polys overlap at the border (a MG seat falls in the Nordeste poly too). */
+export function regionsAt<R extends Pick<OsmRegion, 'covers'>>(regions: R[], lat: number, lng: number): R[] {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return []
+  return regions.filter(r => r.covers(lat, lng))
 }
 
 export function overpassAllowed(): boolean {
