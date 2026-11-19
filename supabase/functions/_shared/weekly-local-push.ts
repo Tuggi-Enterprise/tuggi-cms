@@ -15,6 +15,11 @@
  * Pure: no remote import and no `Deno` global. The client, `send` and the logger come in as
  * arguments, so `_tests/weekly-local-push.test.ts` drives it without network or database.
  *
+ * The claim is paged (#1205): one call with every due person ran past the 8 s `statement_timeout`
+ * (`57014`) and the whole Thursday batch of Europe and Brazil was lost on 2026-11-19. Each page
+ * asks for `CLAIM_PAGE_SIZE` rows; a row the claim returns is already written to
+ * `drive.weekly_push_sends`, so the next call with the same `p_now` brings the next people.
+ *
  * Logs carry counts and the reason of a failure, never a user id, token, e-mail or position.
  */
 import { type DriveRpc, parsePushKind, type PushKind, singleGateOutcome } from './push-gate.ts';
@@ -41,6 +46,12 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 /** People sent to at the same time. Same width as the per-person loop of the sender. */
 export const SEND_CONCURRENCY = 10;
+
+/** Rows asked of each `claim_weekly_push` call (`p_limit`). A shorter page means nobody is left. */
+export const CLAIM_PAGE_SIZE = 50;
+
+/** Pages in one run at most, so a claim that never runs dry cannot hold the function forever. */
+export const MAX_CLAIM_PAGES = 40;
 
 function isWeeklyKind(kind: PushKind | null): kind is WeeklyPushKind {
   return kind !== null && (WEEKLY_PUSH_KINDS as readonly string[]).includes(kind);
@@ -177,17 +188,17 @@ async function finish(deps: WeeklyPushDeps, sendId: number, outcome: WeeklyPushO
 }
 
 /**
- * One run: claim, send each row, close each row. Throws `WeeklyClaimError` when the claim itself
- * fails, so the caller answers 500; everything after the claim is counted, never thrown.
+ * One run: claim a page, send each row, close each row, and claim again until a page comes back
+ * shorter than `CLAIM_PAGE_SIZE` or `MAX_CLAIM_PAGES` is reached. Throws `WeeklyClaimError` when the
+ * first claim fails, so the caller answers 500. A later claim that fails stops the run and returns
+ * what already left: those rows are sent and closed, and a 500 would say nothing went out.
  */
 export async function runWeeklyLocalPush(deps: WeeklyPushDeps): Promise<WeeklyPushReport> {
-  const args = deps.now ? { p_now: deps.now.toISOString() } : {};
-  const { data, error } = await deps.drive.rpc('claim_weekly_push', args);
-  if (error) throw new WeeklyClaimError(error.code ?? 'unknown');
+  const args: Record<string, unknown> = { p_limit: CLAIM_PAGE_SIZE };
+  if (deps.now) args.p_now = deps.now.toISOString();
 
-  const rows: unknown[] = Array.isArray(data) ? data : [];
   const report: WeeklyPushReport = {
-    claimed: rows.length,
+    claimed: 0,
     outcomes: { sent: 0, denied: 0, not_delivered: 0, failed: 0 },
     invalid: 0,
     unfinished: 0,
@@ -210,10 +221,52 @@ export async function runWeeklyLocalPush(deps: WeeklyPushDeps): Promise<WeeklyPu
     if (sendId === null || !(await finish(deps, sendId, outcome))) report.unfinished += 1;
   };
 
-  for (let i = 0; i < rows.length; i += SEND_CONCURRENCY) {
-    await Promise.all(rows.slice(i, i + SEND_CONCURRENCY).map(handle));
+  for (let page = 1; ; page += 1) {
+    const { data, error } = await deps.drive.rpc('claim_weekly_push', args);
+    if (error) {
+      const code = error.code ?? 'unknown';
+      if (page === 1) throw new WeeklyClaimError(code);
+      deps.log(`[weekly-local-push] claim page ${page} failed: ${code}; returning what already left`);
+      break;
+    }
+
+    const rows: unknown[] = Array.isArray(data) ? data : [];
+    report.claimed += rows.length;
+    for (let i = 0; i < rows.length; i += SEND_CONCURRENCY) {
+      await Promise.all(rows.slice(i, i + SEND_CONCURRENCY).map(handle));
+    }
+
+    if (rows.length < CLAIM_PAGE_SIZE) break;
+    if (page >= MAX_CLAIM_PAGES) {
+      deps.log(`[weekly-local-push] stopped at the page cap (${MAX_CLAIM_PAGES}); the rest waits for the next run`);
+      break;
+    }
   }
 
   deps.log(`[weekly-local-push] ${JSON.stringify(report)}`);
   return report;
+}
+
+/** Date, time and zone, as `toISOString()` writes it or with an offset. A bare date has no hour. */
+const ISO_DATE_TIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,6})?)?(Z|[+-]\d{2}:\d{2})$/;
+
+/**
+ * The optional body of the handler (#1205): `{ "now": "<ISO 8601>" }` replays the batch of a past
+ * hour. Empty or absent body, or no `now`: the run is for the current instant, as the cron sends it.
+ * A `now` that is not a full ISO 8601 date-time is refused, never read as "now".
+ */
+export function parseRunBody(text: string): { now?: Date } | { error: 'invalid_now' } {
+  if (text.trim() === '') return {};
+  let body: unknown;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    return { error: 'invalid_now' };
+  }
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) return { error: 'invalid_now' };
+  const raw = (body as Record<string, unknown>).now;
+  if (raw === undefined) return {};
+  if (typeof raw !== 'string' || !ISO_DATE_TIME_RE.test(raw)) return { error: 'invalid_now' };
+  const now = new Date(raw);
+  return Number.isNaN(now.getTime()) ? { error: 'invalid_now' } : { now };
 }

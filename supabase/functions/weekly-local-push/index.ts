@@ -2,9 +2,13 @@
  * weekly-local-push: the weekly push, Thursday 18h and Saturday 10h in the person's zone
  * (BR-COMUNICACAO-019 item 3.m, BR-COMUNICACAO-012 item 1.7; #1046, #1047).
  *
- *   POST, no body, machine key only (pg_cron `weekly-local-push`, minute 2 of every hour)
- *   -> 200 { claimed, outcomes: { sent, denied, not_delivered, failed }, invalid, unfinished }
- *   -> 401 any other caller, 405 any other method, 500 when the claim fails
+ *   POST, machine key only. The pg_cron `weekly-local-push` (minute 2 of every hour) sends `{}`.
+ *   Optional body `{ "now": "<ISO 8601>" }` replays the batch of a past hour (#1205): the claim
+ *   runs with that instant as `p_now`. Same gate, no other caller.
+ *   -> 200 { claimed, outcomes: { sent, denied, not_delivered, failed }, invalid, unfinished },
+ *      summed over every claim page (50 rows a page, 40 pages at most)
+ *   -> 400 { error: 'invalid_now' } when `now` is present and not an ISO 8601 date-time
+ *   -> 401 any other caller, 405 any other method, 500 when the first claim fails
  *
  * Contract: `docs/contracts/edge-functions.md`, "Dois baldes no portão". The work lives in
  * `_shared/weekly-local-push.ts`; this file only authenticates and wires the client and the sender
@@ -16,7 +20,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { isOwnMachineKey } from '../_shared/auth-middleware.ts';
 import { createPushSender } from '../_shared/push-send.ts';
 import { getSecretKey } from '../_shared/secret-key.ts';
-import { runWeeklyLocalPush, WeeklyClaimError } from '../_shared/weekly-local-push.ts';
+import { parseRunBody, runWeeklyLocalPush, WeeklyClaimError } from '../_shared/weekly-local-push.ts';
 
 const json = (body: unknown, status: number) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
@@ -28,6 +32,9 @@ serve(async (req) => {
   // push to the whole due audience, so `requireAdmin` (which admits one) is not the gate here.
   const bearer = req.headers.get('authorization')?.replace(/^Bearer\s+/i, '') ?? '';
   if (!isOwnMachineKey(bearer)) return json({ error: 'unauthorized' }, 401);
+
+  const body = parseRunBody(await req.text().catch(() => ''));
+  if ('error' in body) return json({ error: body.error }, 400);
 
   const supabaseUrl = (Deno.env.get('SUPABASE_URL') ?? '').trim();
   const machineKey = getSecretKey().trim();
@@ -42,6 +49,7 @@ serve(async (req) => {
       drive: supabase.schema('drive'),
       send,
       log: (line) => console.log(line),
+      now: body.now,
     });
     return json(report, 200);
   } catch (error) {

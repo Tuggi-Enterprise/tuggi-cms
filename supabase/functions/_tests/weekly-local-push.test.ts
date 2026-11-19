@@ -2,6 +2,8 @@
  * #1047: the weekly push sender, `_shared/weekly-local-push.ts` and `weekly-local-push/index.ts`.
  * BR-COMUNICACAO-019 item 3.m, BR-COMUNICACAO-012 item 1.7.
  *
+ * #1205: the claim is paged (`p_limit`), and the handler takes an optional `now` to replay an hour.
+ *
  * The module gets a fake `drive` client and a fake `send`, so every claim row, every `/send` body
  * and every `finish_weekly_push` call is read back. The handler tests prove the gate in front and,
  * with the real sender of `_shared/push-send.ts`, that a run reaches FCM with no call to another
@@ -10,7 +12,14 @@
 import { assert, assertEquals } from './assert.ts';
 import { fetchCalls, loadHandler, network, scenario } from './harness.ts';
 import { type DriveRpc, PUSH_KINDS } from '../_shared/push-gate.ts';
-import { runWeeklyLocalPush, SEND_CONCURRENCY, type WeeklyPushDeps } from '../_shared/weekly-local-push.ts';
+import {
+  CLAIM_PAGE_SIZE,
+  MAX_CLAIM_PAGES,
+  parseRunBody,
+  runWeeklyLocalPush,
+  SEND_CONCURRENCY,
+  type WeeklyPushDeps,
+} from '../_shared/weekly-local-push.ts';
 
 const USER_A = '33333333-3333-4333-8333-333333333333';
 const USER_B = '44444444-4444-4444-8444-444444444444';
@@ -38,9 +47,14 @@ interface Trail {
   logs: string[];
 }
 
-/** A fake run: `claim` is what the claim answers, `reply` what the sender answers for each body. */
+type RpcAnswer = { data: unknown; error: { code?: string } | null };
+
+/**
+ * A fake run: `claim` is what the claim answers (a function answers per page, 1 first), `reply`
+ * what the sender answers for each body. A fixed answer is the first page; later pages are empty.
+ */
 function fakeRun(
-  claim: { data: unknown; error: { code?: string } | null },
+  claim: RpcAnswer | ((page: number) => RpcAnswer),
   reply: (body: Record<string, unknown>) => Response | Promise<Response>,
   finishAnswer: (args: Record<string, unknown>) => { data: unknown; error: { code?: string } | null } = () => ({
     data: true,
@@ -48,10 +62,15 @@ function fakeRun(
   }),
 ): { deps: WeeklyPushDeps; trail: Trail } {
   const trail: Trail = { rpcs: [], sends: [], logs: [] };
+  let page = 0;
   const drive: DriveRpc = {
     rpc(fn, args) {
       trail.rpcs.push({ fn, args });
-      if (fn === 'claim_weekly_push') return Promise.resolve(claim);
+      if (fn === 'claim_weekly_push') {
+        page += 1;
+        if (typeof claim === 'function') return Promise.resolve(claim(page));
+        return Promise.resolve(page === 1 ? claim : { data: [], error: null });
+      }
       if (fn === 'finish_weekly_push') return Promise.resolve(finishAnswer(args ?? {}));
       return Promise.resolve({ data: null, error: { code: 'unexpected' } });
     },
@@ -76,6 +95,15 @@ function gateAnswer(outcome: string, status = 200): Response {
 
 function finishes(trail: Trail): Array<Record<string, unknown> | undefined> {
   return trail.rpcs.filter((c) => c.fn === 'finish_weekly_push').map((c) => c.args);
+}
+
+function claims(trail: Trail): Array<Record<string, unknown> | undefined> {
+  return trail.rpcs.filter((c) => c.fn === 'claim_weekly_push').map((c) => c.args);
+}
+
+/** `count` claim rows with distinct send ids starting at `first`. */
+function page(count: number, first: number): Record<string, unknown>[] {
+  return Array.from({ length: count }, (_, i) => claimRow({ send_id: first + i }));
 }
 
 Deno.test('BR-COMUNICACAO-019 3.m (#1047): a claim row becomes one /send with the row push_kind and deeplink, then closes sent', async () => {
@@ -203,6 +231,117 @@ Deno.test('#1047: every claimed row is sent once and closed once, in batches', a
   assert(peak <= SEND_CONCURRENCY, `peak ${peak}`);
 });
 
+// ---- #1205: the claim in pages ----
+
+Deno.test('BR-COMUNICACAO-019 3.m (#1205): three pages (50, 50, 7) are all sent and summed in one report', async () => {
+  const pages = [page(50, 1000), page(50, 2000), page(7, 3000)];
+  const { deps, trail } = fakeRun((n) => ({ data: pages[n - 1] ?? [], error: null }), () => gateAnswer('sent'));
+  const report = await runWeeklyLocalPush(deps);
+  assertEquals(CLAIM_PAGE_SIZE, 50);
+  assertEquals(claims(trail).length, 3, 'the short page ends the run, no fourth claim');
+  assertEquals(trail.sends.length, 107);
+  assertEquals(finishes(trail).length, 107);
+  assertEquals(report, { claimed: 107, outcomes: { sent: 107, denied: 0, not_delivered: 0, failed: 0 }, invalid: 0, unfinished: 0 });
+});
+
+Deno.test('#1205: invalid rows, outcomes and unfinished rows of every page add up', async () => {
+  const first = page(50, 1000);
+  first[0] = claimRow({ send_id: 1000, push_kind: 'cms_broadcast' });
+  const pages = [first, [claimRow({ send_id: 2000 }), claimRow({ send_id: 2001 })]];
+  const { deps } = fakeRun(
+    (n) => ({ data: pages[n - 1] ?? [], error: null }),
+    (body) => gateAnswer((body.userIds as string[])[0] === USER_A ? 'denied' : 'sent'),
+    (args) => (args.p_send_id === 2001 ? { data: false, error: null } : { data: true, error: null }),
+  );
+  const report = await runWeeklyLocalPush(deps);
+  assertEquals(report, { claimed: 52, outcomes: { sent: 0, denied: 51, not_delivered: 0, failed: 1 }, invalid: 1, unfinished: 1 });
+});
+
+Deno.test('#1205: a page shorter than the page size stops the run, an empty one too', async () => {
+  for (const sizes of [[49], [0], [50, 0]]) {
+    const { deps, trail } = fakeRun((n) => ({ data: page(sizes[n - 1] ?? 0, n * 1000), error: null }), () => gateAnswer('sent'));
+    await runWeeklyLocalPush(deps);
+    assertEquals([sizes, claims(trail).length], [sizes, sizes.length]);
+  }
+});
+
+Deno.test('#1205: the page cap stops a claim that never runs dry, and says so in the log', async () => {
+  const { deps, trail } = fakeRun((n) => ({ data: page(50, n * 1000), error: null }), () => gateAnswer('sent'));
+  const report = await runWeeklyLocalPush(deps);
+  assertEquals(MAX_CLAIM_PAGES, 40);
+  assertEquals(claims(trail).length, MAX_CLAIM_PAGES);
+  assertEquals(report.claimed, 50 * MAX_CLAIM_PAGES);
+  assert(trail.logs.some((l) => l.includes('page cap')), 'the cap was not logged');
+});
+
+Deno.test('#1205: every claim carries p_limit, and p_now when the run has an instant', async () => {
+  const now = new Date('2026-11-19T21:02:00.000Z');
+  const pages = [page(50, 1000), page(3, 2000)];
+  const { deps, trail } = fakeRun((n) => ({ data: pages[n - 1] ?? [], error: null }), () => gateAnswer('sent'));
+  await runWeeklyLocalPush({ ...deps, now });
+  assertEquals(claims(trail), [
+    { p_limit: 50, p_now: '2026-11-19T21:02:00.000Z' },
+    { p_limit: 50, p_now: '2026-11-19T21:02:00.000Z' },
+  ]);
+
+  const plain = fakeRun({ data: [], error: null }, () => gateAnswer('sent'));
+  await runWeeklyLocalPush(plain.deps);
+  assertEquals(claims(plain.trail), [{ p_limit: 50 }]);
+});
+
+Deno.test('#1205: a failed first claim still throws, with the code that aborted 2026-11-19', async () => {
+  const { deps, trail } = fakeRun(() => ({ data: null, error: { code: '57014' } }), () => gateAnswer('sent'));
+  let thrown = '';
+  try {
+    await runWeeklyLocalPush(deps);
+  } catch (error) {
+    thrown = (error as { code?: string }).code ?? '';
+  }
+  assertEquals(thrown, '57014');
+  assertEquals(trail.sends.length, 0);
+});
+
+Deno.test('#1205: a failed second claim returns what already left, and logs the code', async () => {
+  const { deps, trail } = fakeRun(
+    (n) => (n === 1 ? { data: page(50, 1000), error: null } : { data: null, error: { code: '57014' } }),
+    () => gateAnswer('sent'),
+  );
+  const report = await runWeeklyLocalPush(deps);
+  assertEquals(claims(trail).length, 2);
+  assertEquals(report, { claimed: 50, outcomes: { sent: 50, denied: 0, not_delivered: 0, failed: 0 }, invalid: 0, unfinished: 0 });
+  assert(trail.logs.some((l) => l.includes('claim page 2') && l.includes('57014')), 'the failed page was not logged');
+});
+
+// ---- #1205: the optional body of the handler ----
+
+Deno.test('#1205: the body is empty, {} or carries an ISO 8601 now', () => {
+  assertEquals(parseRunBody(''), {});
+  assertEquals(parseRunBody('  '), {});
+  assertEquals(parseRunBody('{}'), {});
+  assertEquals(parseRunBody('{"other":1}'), {});
+  const utc = parseRunBody('{"now":"2026-11-19T21:02:00Z"}') as { now: Date };
+  assertEquals(utc.now.toISOString(), '2026-11-19T21:02:00.000Z');
+  const offset = parseRunBody('{"now":"2026-11-19T18:02:00.000-03:00"}') as { now: Date };
+  assertEquals(offset.now.toISOString(), '2026-11-19T21:02:00.000Z');
+});
+
+Deno.test('#1205: a now that is not an ISO 8601 date-time, or a body that is not an object, is invalid_now', () => {
+  const bad = [
+    '{"now":"2026-11-19"}',
+    '{"now":"2026-11-19T18:02:00"}',
+    '{"now":"19/11/2026 18:02"}',
+    '{"now":"2026-13-40T99:99:00Z"}',
+    '{"now":""}',
+    '{"now":null}',
+    '{"now":1763586120000}',
+    '[]',
+    '"2026-11-19T21:02:00Z"',
+    'null',
+    '{not json',
+  ];
+  for (const text of bad) assertEquals([text, parseRunBody(text)], [text, { error: 'invalid_now' }]);
+});
+
 Deno.test('BR-COMUNICACAO-019 3.m (#1047): the two weekly kinds are unrequested and do not need "using the app"', () => {
   for (const kind of ['weekly_thursday_local', 'weekly_saturday_local'] as const) {
     assertEquals([kind, PUSH_KINDS[kind].requested, PUSH_KINDS[kind].requiresActive], [kind, false, false]);
@@ -213,12 +352,12 @@ Deno.test('BR-COMUNICACAO-019 3.m (#1047): the two weekly kinds are unrequested 
 
 const handler = await loadHandler('weekly-local-push');
 
-function call(authorization: string | null, method = 'POST'): Promise<Response> {
+function call(authorization: string | null, method = 'POST', body?: string): Promise<Response> {
   scenario.calls.length = 0;
   fetchCalls.length = 0;
   const headers: Record<string, string> = { 'content-type': 'application/json' };
   if (authorization !== null) headers.authorization = authorization;
-  return Promise.resolve(handler(new Request('http://edge.test/weekly-local-push', { method, headers })));
+  return Promise.resolve(handler(new Request('http://edge.test/weekly-local-push', { method, headers, body })));
 }
 
 Deno.test('#1047: without the machine key nothing is claimed and nothing is sent', async () => {
@@ -242,6 +381,25 @@ Deno.test('#1047: the cron call with the machine key claims and answers the tall
   });
 });
 
+Deno.test('#1205: the cron body {} runs for now; a past now reaches the claim as p_now', async () => {
+  const seen: Array<Record<string, unknown> | undefined> = [];
+  scenario.rpcs = { claim_weekly_push: (args) => (seen.push(args), { data: [], error: null }) };
+  assertEquals((await call('Bearer test-service-role-key', 'POST', '{}')).status, 200);
+  assertEquals((await call('Bearer test-service-role-key', 'POST', '{"now":"2026-11-19T21:02:00Z"}')).status, 200);
+  assertEquals(seen, [{ p_limit: 50 }, { p_limit: 50, p_now: '2026-11-19T21:02:00.000Z' }]);
+  scenario.rpcs = {};
+});
+
+Deno.test('#1205: an invalid now answers 400 and claims nothing; without the key it is still 401', async () => {
+  const res = await call('Bearer test-service-role-key', 'POST', '{"now":"ontem"}');
+  assertEquals(res.status, 400);
+  assertEquals(await res.json(), { error: 'invalid_now' });
+  assertEquals(scenario.calls, []);
+  const replay = await call('Bearer user-session-token', 'POST', '{"now":"2026-11-19T21:02:00Z"}');
+  assertEquals(replay.status, 401);
+  assertEquals(scenario.calls, []);
+});
+
 // ---- #1046: the whole run, with the real sender, against the Supabase function-to-function budget ----
 
 Deno.test('BR-COMUNICACAO-019 3.m (#1046): 120 claimed people all leave, through the gate, with no call to another function', async () => {
@@ -257,8 +415,10 @@ Deno.test('BR-COMUNICACAO-019 3.m (#1046): 120 claimed people all leave, through
 
   const people = Array.from({ length: 120 }, (_, i) => `${String(i).padStart(8, '0')}-0000-4000-8000-000000000000`);
   const rows = people.map((user_id, i) => claimRow({ send_id: 5000 + i, user_id }));
+  // The claim hands out at most `p_limit` rows a call, each already written, like the database does.
+  const queue = [...rows];
   scenario.rpcs = {
-    claim_weekly_push: { data: rows, error: null },
+    claim_weekly_push: (args) => ({ data: queue.splice(0, Number(args?.p_limit)), error: null }),
     unrequested_push_policy: { data: null, error: null },
     push_allowed: { data: true, error: null },
     record_push_sent: { data: null, error: null },
@@ -295,4 +455,5 @@ Deno.test('BR-COMUNICACAO-019 3.m (#1046): 120 claimed people all leave, through
   assertEquals((inbox[0].values as { type: string }).type, 'weekly_thursday_local');
   assertEquals(scenario.writes.filter((w) => w.table === 'notification_logs').length, 120);
   assertEquals(scenario.calls.filter((c) => c === 'rpc:finish_weekly_push').length, 120);
+  assertEquals(scenario.calls.filter((c) => c === 'rpc:claim_weekly_push').length, 3);
 });
