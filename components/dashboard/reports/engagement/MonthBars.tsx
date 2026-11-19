@@ -7,13 +7,16 @@
  * bar and keeps its tick; the tooltip says why (DS-COMPONENTE-084 item 1).
  */
 
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { UNKNOWN_VALUE } from '@/lib/format/unknown'
 import { useWide } from '@/components/dashboard/reports/engagement/useWide'
-import { MONTH_BARS_PX, type MonthBarsRow, type MonthBarsSeries } from '@/components/dashboard/reports/engagement/question-charts'
-
-
-
+import {
+  MONTH_BARS_PX,
+  PARTIAL_OPACITY,
+  type MonthBarsRow,
+  type MonthBarsSeries,
+  type MonthBarsTooltip,
+} from '@/components/dashboard/reports/engagement/question-charts'
 
 const TICK = { fill: '#6b7280', fontSize: 10, fontWeight: 700 }
 
@@ -22,14 +25,27 @@ function TooltipBox({
   payload,
   series,
   format,
+  tooltip,
 }: {
   active?: boolean
   payload?: Array<{ payload: MonthBarsRow & Record<string, unknown> }>
   series: MonthBarsSeries[]
   format: (v: number, row: MonthBarsRow) => string
+  tooltip?: (row: MonthBarsRow) => MonthBarsTooltip
 }) {
   const d = payload?.[0]?.payload
   if (!active || !d) return null
+  if (tooltip) {
+    const box = tooltip(d)
+    return (
+      <div className="max-w-xs rounded-xl bg-white px-3 py-2 text-xs text-gray-800 shadow-lg">
+        <p className="font-semibold">{box.title}</p>
+        {box.lines.map((line, i) => (
+          <p key={i}>{line}</p>
+        ))}
+      </div>
+    )
+  }
   const shown = series.filter((s) => d.values[s.key] !== undefined)
   return (
     <div className="max-w-xs rounded-xl bg-white px-3 py-2 text-xs text-gray-800 shadow-lg">
@@ -56,6 +72,7 @@ export function MonthBars({
   mode,
   format,
   axis,
+  tooltip,
 }: {
   label: string
   rows: MonthBarsRow[]
@@ -65,6 +82,8 @@ export function MonthBars({
   format: (v: number, row: MonthBarsRow) => string
   /** The y tick. */
   axis: (v: number) => string
+  /** The whole tooltip, when one line per series is not enough. */
+  tooltip?: (row: MonthBarsRow) => MonthBarsTooltip
 }) {
   const wide = useWide()
   const data = rows.map((r) => ({ ...r, ...Object.fromEntries(series.map((s) => [s.key, r.values[s.key] ?? null])) }))
@@ -76,7 +95,7 @@ export function MonthBars({
           <CartesianGrid strokeDasharray="3 3" vertical={false} strokeOpacity={0.4} />
           <XAxis dataKey="month" tickFormatter={(m: string) => (wide ? rows.find((r) => r.month === m)?.label : rows.find((r) => r.month === m)?.short) ?? m} tick={TICK} axisLine={false} tickLine={false} height={22} interval={0} />
           <YAxis tick={TICK} axisLine={false} tickLine={false} width={40} tickFormatter={axis} allowDecimals={mode === 'expand'} />
-          <Tooltip cursor={{ fill: 'rgba(0,168,232,0.03)' }} content={<TooltipBox series={series} format={format} />} isAnimationActive={false} />
+          <Tooltip cursor={{ fill: 'rgba(0,168,232,0.03)' }} content={<TooltipBox series={series} format={format} tooltip={tooltip} />} isAnimationActive={false} />
           {series.map((s, i) => (
             <Bar
               key={s.key}
@@ -89,7 +108,11 @@ export function MonthBars({
               radius={!stacked || i === series.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
               maxBarSize={mode === 'group' ? 14 : 40}
               isAnimationActive={false}
-            />
+            >
+              {rows.map((r) => (
+                <Cell key={r.month} fillOpacity={r.partial ? PARTIAL_OPACITY : 1} />
+              ))}
+            </Bar>
           ))}
         </BarChart>
       </ResponsiveContainer>

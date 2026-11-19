@@ -18,7 +18,18 @@ export interface MonthBarsRow {
   values: Record<string, number | null>
   /** Why the month draws nothing. */
   reason: string | null
+  /** The month is still running: its bars are drawn at 0.45 so a lower bar does not read as a drop (DS-COMPONENTE-100 item 3). */
+  partial?: boolean
 }
+
+/** Tooltip of a month chart that states more than one line per series (#1204, dashboard monthly use). */
+export interface MonthBarsTooltip {
+  title: string
+  lines: string[]
+}
+
+/** Opacity of a running month's bars. */
+export const PARTIAL_OPACITY = 0.45
 
 /**
  * The legend of a month chart (DS-A11Y-007): once the chart defines two series or more, every series it

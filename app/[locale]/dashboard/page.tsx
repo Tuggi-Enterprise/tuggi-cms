@@ -1,9 +1,8 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import dynamic from 'next/dynamic'
 import {
-  CheckCircle, TrendingUp, AlertCircle, RefreshCw, Play, Users, ShieldCheck,
+  CheckCircle, AlertCircle, RefreshCw, Play, Users, ShieldCheck,
   Zap, Globe, Radar, Wallet, Timer,
 } from 'lucide-react'
 import { useTranslations, useLocale } from 'next-intl'
@@ -19,15 +18,9 @@ import { formatDuration } from '@/lib/format/duration'
 import { appUserLabel } from '@/lib/format/user-identity'
 import { RecentVisitCard } from '@/components/dashboard/RecentVisitCard'
 import { PaidAccessCard } from '@/components/dashboard/PaidAccessCard'
+import { MonthlyUsageCard, TotalBaseCard, UsageByHourCard } from '@/components/dashboard/UsageCards'
+import { usageMonths } from '@/lib/dashboard/usage'
 import { GoogleMapComponent } from '@/components/ui/GoogleMapComponent'
-
-// recharts is the single heaviest dependency of this route's initial JS and only one widget
-// uses it. ssr: false keeps it out of the server render too — the chart has no SEO value in an
-// authenticated CMS. The placeholder fills the same box, so nothing below it moves.
-const UserGrowthChart = dynamic(
-  () => import('@/components/dashboard/UserGrowthChart').then(m => m.UserGrowthChart),
-  { ssr: false, loading: () => <div className="h-full w-full animate-pulse rounded-xl bg-gray-100 dark:bg-gray-800/60" /> }
-)
 
 const TUGGI_COLORS = {
   blue: '#00A8E8',
@@ -57,6 +50,8 @@ export default function DashboardPage() {
 
   const t = useTranslations('Pages.Dashboard')
   const locale = useLocale()
+  // The twelve months of the use and base cards, born on the client (spec §2).
+  const months = useMemo(() => usageMonths(), [])
 
   useEffect(() => { setIsMounted(true) }, [])
 
@@ -359,23 +354,23 @@ export default function DashboardPage() {
         </WidgetCard>
       </div>
 
-      {/* 3. PAID ACCESS composition (BR-MONETIZACAO-046). The expirations and running-out
-          lists left the Overview in #1204; the per-user view is the premium report. */}
+      {/* 3. USE AND BASE (#1204, spec-cms-dashboard-uso-2026-11 §1). Monthly use opens the row because
+          the card's question is "does use grow, and do people come back?"; the base sits beside it over
+          the same twelve months. Both usage cards load from their own routes, so a failure takes down
+          only that card. */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-        <WidgetCard className="lg:col-span-4 h-[360px]">
-          <SectionHeader title={t('labels.paid_access')} icon={Wallet} iconColor={TUGGI_COLORS.purple} href="/dashboard/reports/premium" linkLabel={t('labels.view_details')} />
-          <PaidAccessCard overview={paidAccess.overview} />
-        </WidgetCard>
+        <MonthlyUsageCard months={months} className="lg:col-span-8" />
+        <TotalBaseCard userGrowth={stats.userGrowth} months={months} isLoading={isLoading} className="lg:col-span-4" />
       </div>
 
-      {/* 4. MAU growth. The demand-points list left the Overview in #1204: the red pins on
-          the map stay, and the list lives in the geography report (GeoDemand). */}
+      {/* 4. USE BY HOUR + PAID ACCESS composition (BR-MONETIZACAO-046). The expirations, running-out
+          and demand-point lists left the Overview in #1204; the per-user view is the premium report.
+          Paid access has no fixed height under lg: it had ~130 px of nothing inside. */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-        <WidgetCard className="lg:col-span-8 h-[360px]">
-          <SectionHeader title={t('labels.active_base')} icon={TrendingUp} iconColor={TUGGI_COLORS.blue} href="/dashboard/reports/users" linkLabel={t('labels.view_details')} />
-          <div className="flex-1 min-h-0">
-            <UserGrowthChart data={stats.userGrowth} color={TUGGI_COLORS.blue} />
-          </div>
+        <UsageByHourCard className="lg:col-span-8" />
+        <WidgetCard className="lg:col-span-4 lg:h-[380px]">
+          <SectionHeader title={t('labels.paid_access')} icon={Wallet} iconColor={TUGGI_COLORS.purple} href="/dashboard/reports/premium" linkLabel={t('labels.view_details')} />
+          <PaidAccessCard overview={paidAccess.overview} />
         </WidgetCard>
       </div>
 

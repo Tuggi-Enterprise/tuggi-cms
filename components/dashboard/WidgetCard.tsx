@@ -2,7 +2,7 @@
 
 import { ReactNode } from 'react'
 import { Link } from '@/navigation'
-import { ArrowRight, LucideIcon } from 'lucide-react'
+import { ArrowRight, Info, LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 // ============================================================================
@@ -48,6 +48,8 @@ interface SectionHeaderProps {
   /** Conteúdo extra à direita (ex.: badge "realtime"), substitui o link se passado. */
   right?: ReactNode
   className?: string
+  /** The definition of what the card counts, behind an info mark next to the title (native tooltip and screen reader). */
+  hint?: string
   /**
    * Heading level. `h3` by default, as every dashboard card has rendered so far; a page whose cards
    * sit right under the `h1` passes `h2` (axe `heading-order`), as `CardTitle` of `card.tsx` does.
@@ -63,6 +65,7 @@ export function SectionHeader({
   linkLabel = 'ver detalhes',
   right,
   className,
+  hint,
   as: Heading = 'h3',
 }: SectionHeaderProps) {
   return (
@@ -72,6 +75,11 @@ export function SectionHeader({
         <Heading className="text-xs font-black uppercase tracking-widest text-gray-700 dark:text-gray-300 truncate">
           {title}
         </Heading>
+        {hint && (
+          <span role="img" aria-label={hint} title={hint} className="shrink-0 cursor-help text-gray-400">
+            <Info className="h-3.5 w-3.5" aria-hidden="true" />
+          </span>
+        )}
       </div>
 
       {right ? (

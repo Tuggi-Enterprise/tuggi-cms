@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button'
 import { Select } from '@/components/ui/select'
 import { DIM } from '@/components/ui/dense-table'
 import { cn } from '@/lib/utils'
+import { monthHeader, monthLong, monthShort } from '@/lib/format/month'
 import {
   bankSliceEmpty,
   buildGrid,
@@ -89,19 +90,6 @@ export interface EngagementReportProps {
 }
 
 const CARD_ICONS = { card_people_time: Users, card_frequency: Repeat, card_after_first: Sparkles } as const
-
-/** `ago 2026`: the month and year without a preposition (spec §3). */
-function monthHeader(month: string, locale: string): string {
-  const parts = new Intl.DateTimeFormat(locale, { month: 'short', year: 'numeric', timeZone: 'UTC' }).formatToParts(
-    new Date(`${month}-15T12:00:00Z`)
-  )
-  const m = parts.find((p) => p.type === 'month')?.value.replace('.', '') ?? month
-  const y = parts.find((p) => p.type === 'year')?.value ?? ''
-  return `${m} ${y}`
-}
-
-const monthLong = (month: string, locale: string) =>
-  new Date(`${month}-15T12:00:00Z`).toLocaleDateString(locale, { month: 'long', year: 'numeric', timeZone: 'UTC' })
 
 /** The month by name alone ("outubro"), for the answer sentences (copy §0). */
 const monthName = (month: string, locale: string) => new Date(`${month}-15T12:00:00Z`).toLocaleDateString(locale, { month: 'long', timeZone: 'UTC' })
@@ -400,7 +388,7 @@ export function EngagementReport({
         locale={locale}
         input={questionsInput}
         monthHeader={(m) => monthHeader(m, locale)}
-        monthShort={(m) => monthHeader(m, locale).split(' ')[0]}
+        monthShort={(m) => monthShort(m, locale)}
         monthName={(m) => monthName(m, locale)}
         day={day}
         onBankRetry={onBankRetry}
