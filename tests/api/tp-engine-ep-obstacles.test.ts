@@ -87,8 +87,10 @@ describe('INV-EPa / INV-EPb — the measured obstacles are layers of the city pr
   it('INV-EPa: canopy is the 90th percentile of the 1 m pixels of a cell — a crown over a tenth of it stands, a lone pixel does not', () => {
     const out = new Uint8Array(2)
     const p = new RowPercentile(2, out)
-    for (let k = 0; k < 100; k++) p.add(0, 0, k < 85 ? 0 : 20) // 15 % under crown
-    for (let k = 0; k < 100; k++) p.add(0, 1, k < 97 ? 0 : 40) // 3 % — a spike
+    // one source row of 200 pixels: the first 100 in cell 0 (15 % under crown), the rest in cell 1 (3 % — a spike)
+    const cols = Int32Array.from({ length: 200 }, (_, k) => (k < 100 ? 0 : 1))
+    const row = Uint8Array.from({ length: 200 }, (_, k) => (k < 100 ? (k < 85 ? 0 : 20) : k - 100 < 97 ? 0 : 40))
+    p.addRow(0, cols, row, 0)
     p.flush()
     assert.deepEqual([...out], [20, 0])
   })

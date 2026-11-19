@@ -162,9 +162,10 @@ export const GLOBFP_3D = {
 /**
  * Meta / WRI High Resolution Canopy Height Maps v1 (`alsgedi_global_v6_float`): canopy height in
  * metres (Uint8), ~1.19 m pixels in EPSG:3857, one GeoTIFF per zoom-9 quadkey tile; the tile
- * index is `tiles.geojson`. The files are strip-organised (not tiled), so they are downloaded
- * whole and aggregated once per city to the obstacle lattice by the 90th percentile of the
- * pixels of each cell (`CANOPY_PERCENTILE`): a crown that covers a tenth of the cell stands in it.
+ * index is `tiles.geojson`. The files are strip-organised (not tiled, no overview), so they are
+ * downloaded whole and aggregated once per quadkey (`chm-quadkey`) to the global obstacle lattice
+ * by the 90th percentile of the pixels of each cell (`CANOPY_PERCENTILE`): a crown that covers a
+ * tenth of the cell stands in it.
  * Registry: https://registry.opendata.aws/dataforgood-fb-forests/ (AWS Open Data, no account).
  * Licence: CC BY 4.0 — cite Tolan et al. 2024.
  */

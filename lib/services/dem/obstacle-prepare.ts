@@ -6,7 +6,8 @@
  *    height its source measured and the tier that says which source it was
  *    (`dem-sources#BUILDING_TIER`). A footprint with no height stays `UNMEASURED`: E3 and E8
  *    read surface − ground there, never a number made up for it.
- *  - `canopy` — Meta/WRI canopy height, 1 m aggregated to the lattice by the 90th percentile.
+ *  - `canopy` — Meta/WRI canopy height, 1 m aggregated to the lattice by the 90th percentile,
+ *    once per quadkey tile (`chm-quadkey#metaChmReader`).
  *
  * Attribution of each source is in `dem-sources` (OVERTURE_BUILDINGS, GLOBFP_3D, META_CHM) and
  * travels in the manifest: Overture buildings (ODbL; © OpenStreetMap contributors, Microsoft ML
@@ -26,7 +27,6 @@ import { createHash, randomBytes } from 'crypto'
 import { execFileSync } from 'child_process'
 import { Readable } from 'stream'
 import { pipeline } from 'stream/promises'
-import { fromFile } from 'geotiff'
 import { asyncBufferFromUrl, parquetMetadataAsync, parquetReadObjects } from 'hyparquet'
 import { compressors } from 'hyparquet-compressors'
 import {
@@ -229,11 +229,16 @@ export class RowPercentile {
     this.top = new Uint8Array(width)
   }
 
-  add(row: number, col: number, v: number): void {
+  /** Adds a whole source row: pixel x goes to column `cols[x]`. */
+  addRow(row: number, cols: Int32Array, data: Uint8Array, offset: number): void {
     if (row !== this.row) { this.flush(); this.row = row }
-    this.hist[col * 256 + v]++
-    this.count[col]++
-    if (v > this.top[col]) this.top[col] = v
+    const hist = this.hist, count = this.count, top = this.top
+    for (let x = 0; x < cols.length; x++) {
+      const c = cols[x], v = data[offset + x]
+      hist[c * 256 + v]++
+      count[c]++
+      if (v > top[c]) top[c] = v
+    }
   }
 
   flush(): void {
@@ -264,7 +269,7 @@ const WEB_MERCATOR_R = 6_378_137
 /** Zenodo answers 403 to a request without a User-Agent. */
 const HTTP_HEADERS = { 'user-agent': 'tuggi-cms-ep/1.0 (+https://tuggi.app)' }
 
-async function withRetry<T>(what: string, fn: () => Promise<T>, attempts = 3): Promise<T> {
+export async function withRetry<T>(what: string, fn: () => Promise<T>, attempts = 3): Promise<T> {
   let last: unknown
   for (let i = 0; i < attempts; i++) {
     try {
@@ -277,13 +282,13 @@ async function withRetry<T>(what: string, fn: () => Promise<T>, attempts = 3): P
   throw new Error(`${what}: ${(last as Error)?.message ?? String(last)}`)
 }
 
-async function head(url: string): Promise<{ size: number; etag: string | null; lastModified: string | null }> {
+export async function head(url: string): Promise<{ size: number; etag: string | null; lastModified: string | null }> {
   const res = await fetch(url, { method: 'HEAD', redirect: 'follow', headers: HTTP_HEADERS })
   if (!res.ok) throw new Error(`HEAD ${url} → ${res.status}`)
   return { size: Number(res.headers.get('content-length') ?? NaN), etag: res.headers.get('etag'), lastModified: res.headers.get('last-modified') }
 }
 
-async function getJson<T>(url: string): Promise<T> {
+export async function getJson<T>(url: string): Promise<T> {
   return withRetry(`GET ${url}`, async () => {
     const r = await fetch(url, { headers: HTTP_HEADERS })
     if (!r.ok) throw new Error(`${r.status}`)
@@ -335,7 +340,7 @@ export async function cachedDownload(url: string, file: string, expect: { size?:
   })
 }
 
-const intersects = (a: DemArea, b: DemArea) => a.west < b.east && a.east > b.west && a.south < b.north && a.north > b.south
+export const intersects = (a: DemArea, b: DemArea) => a.west < b.east && a.east > b.west && a.south < b.north && a.north > b.south
 
 /** Some land (per the ground layer) inside the box? Sampled on a ~300 m step. */
 function anyLand(box: DemArea, area: DemArea, landAt: LandAt): boolean {
@@ -607,8 +612,8 @@ export function quadkeyBox(quadkey: string): { x0: number; y0: number; size: num
   return { x0: -world / 2 + x * size, y0: world / 2 - y * size, size }
 }
 
-const mercToLat = (y: number) => (Math.atan(Math.sinh(y / WEB_MERCATOR_R)) * 180) / Math.PI
-const mercToLng = (x: number) => (x / WEB_MERCATOR_R) * (180 / Math.PI)
+export const mercToLat = (y: number) => (Math.atan(Math.sinh(y / WEB_MERCATOR_R)) * 180) / Math.PI
+export const mercToLng =(x: number) => (x / WEB_MERCATOR_R) * (180 / Math.PI)
 
 /** Marks in `indexed` the cells of `grid` whose centre lies inside the quadkey tile. */
 export function markQuadkeyCells(grid: DemGrid, quadkey: string, indexed: Uint8Array): void {
@@ -618,93 +623,4 @@ export function markQuadkeyCells(grid: DemGrid, quadkey: string, indexed: Uint8A
   const c0 = Math.max(0, Math.ceil((west - grid.west) / grid.res)), c1 = Math.min(grid.width - 1, Math.ceil((east - grid.west) / grid.res) - 1)
   const r0 = Math.max(0, Math.ceil((grid.north - north) / grid.res)), r1 = Math.min(grid.height - 1, Math.ceil((grid.north - south) / grid.res) - 1)
   for (let r = r0; r <= r1; r++) indexed.fill(1, r * grid.width + c0, r * grid.width + c1 + 1)
-}
-
-export function metaChmReader(cacheDir: string): CanopyReader {
-  return {
-    source: META_CHM.id,
-    version: META_CHM.version,
-    attribution: META_CHM.attribution,
-    async read(grid) {
-      const values = new Uint8Array(grid.width * grid.height)
-      const covered = new Uint8Array(grid.width * grid.height)
-      const indexed = new Uint8Array(grid.width * grid.height)
-      const tiles: DemTileRecord[] = []
-      const failures: string[] = []
-      const south = grid.north - (grid.height - 1) * grid.res, east = grid.west + (grid.width - 1) * grid.res
-      const box: DemArea = { south: south - grid.res, north: grid.north + grid.res, west: grid.west - grid.res, east: east + grid.res }
-      try {
-        type Index = { features: Array<{ properties: { tile: string }; geometry: { coordinates: number[][][] } }> }
-        const index = await getJson<Index>(META_CHM.tilesIndexUrl)
-        const hits = index.features.filter(f => {
-          const xs = f.geometry.coordinates[0].map(p => p[0]), ys = f.geometry.coordinates[0].map(p => p[1])
-          return intersects({ west: Math.min(...xs), east: Math.max(...xs), south: Math.min(...ys), north: Math.max(...ys) }, box)
-        })
-        for (const hit of hits) {
-          const qk = hit.properties.tile
-          const url = META_CHM.tileUrl(qk)
-          markQuadkeyCells(grid, qk, indexed) // before the download: a failed tile stays a hole
-          try {
-            const meta = await withRetry(`HEAD ${qk}`, () => head(url))
-            const file = path.join(cacheDir, META_CHM.id, `${qk}.tif`)
-            await cachedDownload(url, file, { size: meta.size })
-            await aggregateChmTile(file, qk, grid, values, covered)
-            tiles.push({ name: qk, url, status: 'downloaded', etag: meta.etag, lastModified: meta.lastModified })
-          } catch (err) {
-            failures.push(`meta-chm ${qk}: ${(err as Error).message}`)
-          }
-        }
-      } catch (err) {
-        failures.push(`meta-chm: ${(err as Error).message}`)
-      }
-      return { values, covered, indexed, tiles, failures }
-    },
-  }
-}
-
-/** Reads one CHM tile in full (every strip) and adds its pixels to the cells of `grid`. */
-async function aggregateChmTile(file: string, quadkey: string, grid: DemGrid, values: Uint8Array, covered: Uint8Array): Promise<void> {
-  const image = await (await fromFile(file)).getImage()
-  const [ox, oy] = image.getOrigin()
-  const [rx, ry] = image.getResolution()
-  const w = image.getWidth(), h = image.getHeight()
-  const qb = quadkeyBox(quadkey)
-  // The georeference must be the quadkey tile (EP: "coordenadas batendo").
-  if (Math.abs(ox - qb.x0) > 1 || Math.abs(oy - qb.y0) > 1 || Math.abs(w * rx - qb.size) > 1 || Math.abs(-h * ry - qb.size) > 1) {
-    throw new Error(`georeference ${ox},${oy} ${w}×${h}@${rx} is not tile ${quadkey}`)
-  }
-  const colOf = new Int32Array(w)
-  let x0 = w, x1 = -1
-  for (let x = 0; x < w; x++) {
-    const c = Math.round((mercToLng(ox + (x + 0.5) * rx) - grid.west) / grid.res)
-    colOf[x] = c >= 0 && c < grid.width ? c : -1
-    if (colOf[x] >= 0) { if (x < x0) x0 = x; x1 = x }
-  }
-  if (x1 < 0) return
-  const rowOf = (y: number) => Math.round((grid.north - mercToLat(oy + (y + 0.5) * ry)) / grid.res)
-  let y0 = 0, y1 = h - 1
-  while (y0 < h && rowOf(y0) < 0) y0++
-  while (y1 >= 0 && rowOf(y1) >= grid.height) y1--
-  if (y0 > y1) return
-  const acc = new RowPercentile(grid.width, values)
-  const CHUNK = 256
-  for (let ya = y0; ya <= y1; ya += CHUNK) {
-    const yb = Math.min(y1 + 1, ya + CHUNK)
-    const win = (await image.readRasters({ window: [x0, ya, x1 + 1, yb], samples: [0] })) as unknown as Uint8Array[]
-    const data = win[0]
-    const ww = x1 + 1 - x0
-    if (data.length !== ww * (yb - ya)) throw new Error(`read ${data.length} pixels, expected ${ww * (yb - ya)}`)
-    for (let y = ya; y < yb; y++) {
-      const r = rowOf(y)
-      if (r < 0 || r >= grid.height) continue
-      const off = (y - ya) * ww
-      for (let x = x0; x <= x1; x++) {
-        const c = colOf[x]
-        if (c < 0) continue
-        acc.add(r, c, data[off + x - x0])
-        covered[r * grid.width + c] = 1
-      }
-    }
-  }
-  acc.flush()
 }

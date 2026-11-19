@@ -32,13 +32,13 @@ import {
 import {
   BuildingRaster,
   globfpReader,
-  metaChmReader,
   obstacleSourceFiles,
   overtureReader,
   type BuildingReader,
   type CanopyReader,
   type DemArea,
 } from './obstacle-prepare'
+import { metaChmReader } from './chm-quadkey'
 import {
   DEM_MANIFEST_FILE,
   DemNotPreparedError,
@@ -461,8 +461,10 @@ export function demCellArea(cell: DemCell, marginM: number): DemArea {
 }
 
 /**
- * Free-disk floor of an automatic preparation, `DEM_MIN_FREE_GB` (default 10). One cell downloads
- * ~0.4 GB in Brazil and up to several GB of canopy tiles and building zips before cleaning them up.
+ * Free-disk floor of an automatic preparation, `DEM_MIN_FREE_GB` (default 10). One cell holds up
+ * to `META_CHM_PARALLEL` canopy tiles of ~390 MB at once (each removed once its quadkey product,
+ * ~0.5–7 MB, is cached for good) plus the 3D-GloBFP zips and their 1.4 GB unzip; before the
+ * per-quadkey products a cell in Brazil peaked at ~3.5 GB of canopy tiles alone.
  */
 export function demMinFreeBytes(): number {
   const gb = Number(process.env.DEM_MIN_FREE_GB)
