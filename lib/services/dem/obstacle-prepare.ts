@@ -64,8 +64,13 @@ export interface BuildingReader extends ObstacleSourceInfo {
 }
 
 export interface CanopyReader extends ObstacleSourceInfo {
-  /** values: canopy height in metres per cell of `grid`; covered: 1 where a source tile covers the cell */
-  read(grid: DemGrid): Promise<{ values: Uint8Array; covered: Uint8Array; tiles: DemTileRecord[]; failures: string[] }>
+  /**
+   * values: canopy height in metres per cell of `grid`; covered: 1 where a source tile covers the cell;
+   * indexed: 1 where the cell lies in a tile the source lists. Outside every listed tile the source
+   * declares no data (open water, e.g. the Great Lakes): canopy 0, not a hole — the same convention
+   * as the ocean. Inside a listed tile and not covered is a hole (download or read failed).
+   */
+  read(grid: DemGrid): Promise<{ values: Uint8Array; covered: Uint8Array; indexed: Uint8Array; tiles: DemTileRecord[]; failures: string[] }>
 }
 
 // ── Buildings raster ──────────────────────────────────────────────────────────
@@ -605,6 +610,16 @@ export function quadkeyBox(quadkey: string): { x0: number; y0: number; size: num
 const mercToLat = (y: number) => (Math.atan(Math.sinh(y / WEB_MERCATOR_R)) * 180) / Math.PI
 const mercToLng = (x: number) => (x / WEB_MERCATOR_R) * (180 / Math.PI)
 
+/** Marks in `indexed` the cells of `grid` whose centre lies inside the quadkey tile. */
+export function markQuadkeyCells(grid: DemGrid, quadkey: string, indexed: Uint8Array): void {
+  const qb = quadkeyBox(quadkey)
+  const west = mercToLng(qb.x0), east = mercToLng(qb.x0 + qb.size)
+  const north = mercToLat(qb.y0), south = mercToLat(qb.y0 - qb.size)
+  const c0 = Math.max(0, Math.ceil((west - grid.west) / grid.res)), c1 = Math.min(grid.width - 1, Math.ceil((east - grid.west) / grid.res) - 1)
+  const r0 = Math.max(0, Math.ceil((grid.north - north) / grid.res)), r1 = Math.min(grid.height - 1, Math.ceil((grid.north - south) / grid.res) - 1)
+  for (let r = r0; r <= r1; r++) indexed.fill(1, r * grid.width + c0, r * grid.width + c1 + 1)
+}
+
 export function metaChmReader(cacheDir: string): CanopyReader {
   return {
     source: META_CHM.id,
@@ -613,6 +628,7 @@ export function metaChmReader(cacheDir: string): CanopyReader {
     async read(grid) {
       const values = new Uint8Array(grid.width * grid.height)
       const covered = new Uint8Array(grid.width * grid.height)
+      const indexed = new Uint8Array(grid.width * grid.height)
       const tiles: DemTileRecord[] = []
       const failures: string[] = []
       const south = grid.north - (grid.height - 1) * grid.res, east = grid.west + (grid.width - 1) * grid.res
@@ -627,6 +643,7 @@ export function metaChmReader(cacheDir: string): CanopyReader {
         for (const hit of hits) {
           const qk = hit.properties.tile
           const url = META_CHM.tileUrl(qk)
+          markQuadkeyCells(grid, qk, indexed) // before the download: a failed tile stays a hole
           try {
             const meta = await withRetry(`HEAD ${qk}`, () => head(url))
             const file = path.join(cacheDir, META_CHM.id, `${qk}.tif`)
@@ -640,7 +657,7 @@ export function metaChmReader(cacheDir: string): CanopyReader {
       } catch (err) {
         failures.push(`meta-chm: ${(err as Error).message}`)
       }
-      return { values, covered, tiles, failures }
+      return { values, covered, indexed, tiles, failures }
     },
   }
 }

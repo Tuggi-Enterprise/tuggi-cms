@@ -327,7 +327,18 @@ export interface PrepareCityDemInput {
 export async function prepareCityDem(input: PrepareCityDemInput): Promise<DemManifest> {
   const readers = input.readers ?? [copernicusReader(), gedtm30Reader()]
   const sourcesDir = path.join(input.dir ?? defaultDemCacheDir(), '_sources')
-  const obstacles = input.obstacles ?? { buildings: [overtureReader(), globfpReader(sourcesDir)], canopy: metaChmReader(sourcesDir) }
+  // DEM_CANOPY_ZERO=1: skip the Meta/WRI download and write canopy 0 (high Arctic, no trees, where
+  // the canopy tiles cost most of an area's time). The manifest says so in `source`/`version`.
+  const canopyReader: CanopyReader = process.env.DEM_CANOPY_ZERO === '1'
+    ? {
+        source: 'zeroed', version: 'DEM_CANOPY_ZERO=1', attribution: '',
+        read: async g => {
+          const n = g.width * g.height
+          return { values: new Uint8Array(n), covered: new Uint8Array(n).fill(1), indexed: new Uint8Array(n).fill(1), tiles: [], failures: [] }
+        },
+      }
+    : metaChmReader(sourcesDir)
+  const obstacles = input.obstacles ?? { buildings: [overtureReader(), globfpReader(sourcesDir)], canopy: canopyReader }
   const cityDir = path.join(input.dir ?? defaultDemCacheDir(), slugCity(input.city))
   fs.mkdirSync(cityDir, { recursive: true })
   const grid = snapGrid(input.area)
@@ -384,9 +395,13 @@ export async function prepareCityDem(input: PrepareCityDemInput): Promise<DemMan
     const canopy = await obstacles.canopy.read(og)
     console.error(`EP ${input.city}: ${obstacles.canopy.source} ${Math.round((Date.now() - t0) / 1000)} s, ${canopy.failures.length} failures`)
     failures.push(...canopy.failures)
-    let treeCells = 0, holes = 0
+    // Outside every tile the source lists there is no data by declaration (open water such as the
+    // Great Lakes, which `landAt` calls land): canopy 0, not a hole. Inside a listed tile, a cell
+    // with no pixel is a failed download or read, and fails the city.
+    let treeCells = 0, holes = 0, unindexedCells = 0
     for (let i = 0; i < canopy.values.length; i++) {
       if (canopy.values[i] > 0) treeCells++
+      if (!canopy.indexed[i]) { unindexedCells++; continue }
       if (!canopy.covered[i] && landAt(og.north - Math.floor(i / og.width) * og.res, og.west + (i % og.width) * og.res)) holes++
     }
     if (holes > 0) failures.push(`${holes} land cells without a canopy tile`)
@@ -394,7 +409,7 @@ export async function prepareCityDem(input: PrepareCityDemInput): Promise<DemMan
       record: { layer: 'canopy', source: obstacles.canopy.source, version: obstacles.canopy.version, attribution: obstacles.canopy.attribution, file: 'canopy.u8', tiles: canopy.tiles },
       data: canopy.values,
     })
-    obstacleChecks = { buildings: { ...raster.counts, cells: builtCells, globfpCalibrated: calibrated }, canopy: { treeCells, landHoles: holes } }
+    obstacleChecks = { buildings: { ...raster.counts, cells: builtCells, globfpCalibrated: calibrated }, canopy: { treeCells, landHoles: holes, unindexedCells } }
   }
   const layers: DemLayerRecord[] = []
   const write = (file: string, data: Float32Array | Uint16Array | Uint8Array) => {

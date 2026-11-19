@@ -85,7 +85,8 @@ export interface DemManifest {
     /** footprints read per tier, and cells of the lattice they cover (#783) */
     buildings?: { overture: number; globfp: number; unmeasured: number; cells: number; globfpCalibrated?: { tiles: number; cells: number } }
     /** cells with canopy > 0, and land cells no canopy tile covers (a hole fails the city) */
-    canopy?: { treeCells: number; landHoles: number }
+    /** unindexedCells: cells outside every tile the source lists (no data by declaration, canopy 0) */
+    canopy?: { treeCells: number; landHoles: number; unindexedCells?: number }
   }
 }
 

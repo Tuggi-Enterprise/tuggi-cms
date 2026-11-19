@@ -21,8 +21,15 @@ export function fakeBuildings(
   }
 }
 
-/** A canopy source with no network: height per cell from a function; `covered` false leaves a hole. */
-export function fakeCanopy(value: (r: number, c: number, g: DemGrid) => number = () => 0, covered: (r: number, c: number) => boolean = () => true): CanopyReader {
+/**
+ * A canopy source with no network: height per cell from a function; `covered` false inside a
+ * listed tile leaves a hole; `indexed` false puts the cell outside every listed tile (open water).
+ */
+export function fakeCanopy(
+  value: (r: number, c: number, g: DemGrid) => number = () => 0,
+  covered: (r: number, c: number) => boolean = () => true,
+  indexed: (r: number, c: number) => boolean = () => true
+): CanopyReader {
   return {
     source: META_CHM.id,
     version: 'test',
@@ -30,11 +37,13 @@ export function fakeCanopy(value: (r: number, c: number, g: DemGrid) => number =
     async read(grid) {
       const values = new Uint8Array(grid.width * grid.height)
       const cov = new Uint8Array(grid.width * grid.height)
+      const idx = new Uint8Array(grid.width * grid.height)
       for (let r = 0; r < grid.height; r++) for (let c = 0; c < grid.width; c++) {
         values[r * grid.width + c] = value(r, c, grid)
         cov[r * grid.width + c] = covered(r, c) ? 1 : 0
+        idx[r * grid.width + c] = indexed(r, c) ? 1 : 0
       }
-      return { values, covered: cov, tiles: [{ name: 'chm-tile', url: 'fake://', status: 'downloaded' }], failures: [] }
+      return { values, covered: cov, indexed: idx, tiles: [{ name: 'chm-tile', url: 'fake://', status: 'downloaded' }], failures: [] }
     },
   }
 }

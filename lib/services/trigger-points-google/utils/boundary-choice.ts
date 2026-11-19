@@ -218,11 +218,11 @@ const isClosed = (ring: LatLng[]): boolean =>
  * - the POI is a node and a member of the relation (Overpass `members`), in a role other than
  *   `label` or `admin_centre` (those place a node on an area without making it the area).
  * Of the tied elements, the smallest that is plausible (`isCuratedBoundaryImplausible`: the pin is
- * often on the street beside its building). A municipality never is one (BR-POI-010: only the
- * seat, on its own path). A name ties nothing: the spring "Morava" (Q179251) stood in the historic
- * region "Morava" (Q43266, 34,226 km²) and took it as its border; an unnamed polygon under a pin
- * is the ground, not the POI. Without a tie there is no border here, and the caller draws the
- * point circle (INV-E1b). Elements holding the pin that are refused go to the trace.
+ * on the street beside its building). A municipality never is one (BR-POI-010: only the seat, on
+ * its own path). A name ties nothing: the spring "Morava" (Q179251) stood in the historic region
+ * "Morava" (Q43266, 34,226 km²) and took it as its border; an unnamed polygon under a pin is the
+ * ground, not the POI. Without a tie there is no border here, and the caller draws the point
+ * circle (INV-E1b). Elements holding the pin that are refused go to the trace.
  */
 export function chooseContainingBoundary(
   pin: LatLng,

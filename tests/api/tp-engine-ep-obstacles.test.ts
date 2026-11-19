@@ -8,6 +8,7 @@ import {
   BuildingRaster,
   RowPercentile,
   decodeBuilding,
+  markQuadkeyCells,
   quadkeyBox,
   rasterizeRing,
   readShapefilePolygons,
@@ -156,6 +157,42 @@ describe('INV-EPa / INV-EPb — the measured obstacles are layers of the city pr
     })
     assert.equal(m.status, 'failed')
     assert.match(m.failures.join(), /1 land cells without a canopy tile/)
+  })
+
+  it('INV-EPb: a cell outside every tile the canopy source lists is no data by declaration (Great Lakes water), not a hole', async () => {
+    const outside = (r: number, c: number) => r < 5 // rows the index has no tile for
+    const m = await prepareCityDem({
+      city: 'Cidade Lago', area: { south: -13.502, west: -43.502, north: -13.498, east: -43.498 }, marginM: 0, dir: tmp, readers: RELIEF(),
+      obstacles: fakeObstacles(undefined, fakeCanopy(() => 0, (r, c) => !outside(r, c), (r, c) => !outside(r, c))),
+    })
+    assert.equal(m.status, 'ok', m.failures.join())
+    assert.equal(m.checks.canopy?.landHoles, 0)
+    assert.equal(m.checks.canopy?.unindexedCells, 5 * m.obstacleGrid!.width)
+  })
+
+  it('INV-EPb: inside a listed canopy tile an uncovered cell still fails the city, even next to unindexed water', async () => {
+    const m = await prepareCityDem({
+      city: 'Cidade Lago Furado', area: { south: -14.502, west: -44.502, north: -14.498, east: -44.498 }, marginM: 0, dir: tmp, readers: RELIEF(),
+      obstacles: fakeObstacles(undefined, fakeCanopy(() => 0, (r, c) => r >= 5 && !(r === 7 && c === 3), (r) => r >= 5)),
+    })
+    assert.equal(m.status, 'failed')
+    assert.match(m.failures.join(), /1 land cells without a canopy tile/)
+  })
+
+  it('INV-EPb: the canopy index marks the cells whose centre lies in a listed quadkey tile, and only those', () => {
+    const qk = '211200012' // over Rio
+    const b = quadkeyBox(qk)
+    const R = 6378137
+    const lng = (x: number) => (x / R) * (180 / Math.PI), lat = (y: number) => (Math.atan(Math.sinh(y / R)) * 180) / Math.PI
+    const east = lng(b.x0 + b.size), north = lat(b.y0)
+    // a 10×10 grid straddling the tile's north-east corner: the tile holds its south-west quarter
+    const res = 0.01
+    const grid: DemGrid = { north: north + 4.5 * res, west: east - 5.5 * res, res, width: 10, height: 10 }
+    const indexed = new Uint8Array(100)
+    markQuadkeyCells(grid, qk, indexed)
+    for (let r = 0; r < 10; r++) for (let c = 0; c < 10; c++) {
+      assert.equal(indexed[r * 10 + c], r >= 5 && c <= 5 ? 1 : 0, `cell ${r},${c}`)
+    }
   })
 
   it('INV-EPb: a city prepared before #783 (relief only) is refused until prepared again', () => {
