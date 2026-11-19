@@ -1,12 +1,29 @@
 'use client'
 
 import type { ReactNode } from 'react'
-import { Bar, BarChart, CartesianGrid, ComposedChart, Line, Rectangle, ReferenceDot, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  ComposedChart,
+  DefaultZIndexes,
+  Line,
+  Rectangle,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+  ZIndexLayer,
+  usePlotArea,
+  useXAxisScale,
+  useYAxisScale,
+} from 'recharts'
 import { CHART_COLORS } from '@/lib/constants/chart-colors'
 import { useWide } from '@/components/dashboard/reports/engagement/useWide'
 import { PARTIAL_OPACITY } from '@/components/dashboard/reports/engagement/question-charts'
 import type { DayPoint, HourUsage } from '@/lib/dashboard/usage'
 import { DAILY_PX, HOURLY_PX, peakHour } from '@/lib/dashboard/usage'
+import { LABEL_FONT_MIN, clampCentre, dropColliding, fitFont, labelHeight, labelWidth } from '@/lib/dashboard/chart-labels'
 
 /**
  * The two charts of the "use by hour" card (#1204, spec-cms-dashboard-uso §4): by hour (average people
@@ -14,7 +31,7 @@ import { DAILY_PX, HOURLY_PX, peakHour } from '@/lib/dashboard/usage'
  * module because both come from the same call and the same period; loaded with next/dynamic, since
  * recharts inspects the concrete type of its children.
  *
- * Values ride on bar shapes and on a `ReferenceDot`, never on `LabelList`: recharts 3.10 hands
+ * Values ride on bar shapes and on recharts' scales, never on `LabelList`: recharts 3.10 hands
  * `LabelList` an index that is not the row's (fato-recharts3-labellist).
  */
 
@@ -92,6 +109,69 @@ function DayTooltip({ active, payload, labels, locale }: DayTooltipProps & { lab
   )
 }
 
+/**
+ * The peak concurrent of every hour above it, in the line's orange (#1204, "numbers always visible"):
+ * only where it is above zero, over the higher mark of the hour (bar or line). The highest peak keeps
+ * the heavier weight. When 24 labels do not fit (390 px with wide numbers), the font shrinks to 9 px
+ * first; a label that still collides is dropped, the lower peak first, and the highest always stays.
+ */
+function PeakValues({ hours, peakHourOf, format }: { hours: HourUsage[]; peakHourOf: number | null; format: (v: number) => string }) {
+  const x = useXAxisScale()
+  const y = useYAxisScale()
+  const area = usePlotArea()
+  if (!x || !y || !area) return null
+
+  const points = hours.flatMap((h) => {
+    const start = x(h.hour, { position: 'start' })
+    const end = x(h.hour, { position: 'end' })
+    const top = y(Math.max(h.peak_concurrent, h.avg_unique_users))
+    if (h.peak_concurrent <= 0 || start === undefined || end === undefined || top === undefined) return []
+    return [{ h, text: format(h.peak_concurrent), centre: (start + end) / 2, band: end - start, top }]
+  })
+  if (points.length === 0) return null
+
+  const fontSize = fitFont(points.map((p) => p.text), Math.min(...points.map((p) => p.band)) - 4) ?? LABEL_FONT_MIN
+  const height = labelHeight(fontSize)
+  const labels = points.map((p) => {
+    // The white halo (stroke 3) widens the ink by 1.5 px on each side.
+    const width = labelWidth(p.text, fontSize) + 3
+    return {
+      key: p.h.hour,
+      text: p.text,
+      top: p.h.hour === peakHourOf,
+      x: clampCentre(p.centre, width, area.x, area.x + area.width),
+      y: p.top - 6,
+      width,
+      height,
+      priority: p.h.peak_concurrent,
+    }
+  })
+
+  return (
+    <ZIndexLayer zIndex={DefaultZIndexes.label}>
+      <g data-testid="hourly-peak-values">
+        {dropColliding(labels).map((l) => (
+          <text
+            key={l.key}
+            data-testid={l.top ? 'hourly-peak-value' : undefined}
+            x={l.x}
+            y={l.y}
+            textAnchor="middle"
+            fill={CHART_COLORS.orange}
+            stroke="#fff"
+            strokeWidth={3}
+            fontSize={fontSize}
+            fontWeight={l.top ? 900 : 600}
+            style={{ paintOrder: 'stroke' }}
+          >
+            {l.text}
+          </text>
+        ))}
+      </g>
+    </ZIndexLayer>
+  )
+}
+
 export function UsageByHourChart({
   hours,
   days,
@@ -166,31 +246,7 @@ export function UsageByHourChart({
             activeDot={{ r: 3.5, fill: CHART_COLORS.orange, stroke: '#fff', strokeWidth: 1 }}
             isAnimationActive={false}
           />
-          {peak && (
-            <ReferenceDot
-              x={peak.hour}
-              y={Math.max(peak.peak_concurrent, peak.avg_unique_users)}
-              r={0}
-              fill="none"
-              stroke="none"
-              label={({ viewBox }: { viewBox?: { x?: number; y?: number; width?: number } }) => (
-                <text
-                  data-testid="hourly-peak-value"
-                  x={(viewBox?.x ?? 0) + (viewBox?.width ?? 0) / 2}
-                  y={(viewBox?.y ?? 0) - 6}
-                  textAnchor="middle"
-                  fill={CHART_COLORS.orange}
-                  stroke="#fff"
-                  strokeWidth={3}
-                  fontSize={11}
-                  fontWeight={900}
-                  style={{ paintOrder: 'stroke' }}
-                >
-                  {integer.format(peak.peak_concurrent)}
-                </text>
-              )}
-            />
-          )}
+          <PeakValues hours={hours} peakHourOf={peak?.hour ?? null} format={(v) => integer.format(v)} />
         </ComposedChart>
       </ResponsiveContainer>
       {middle}

@@ -182,7 +182,17 @@ export function MonthlyUsageCard({ months, className }: { months: string[]; clas
           <CardEmpty icon={CalendarDays} text={t('labels.monthly_usage_empty')} />
         ) : (
           <>
-            <MonthBars label={summary} rows={rows} series={series} mode="stack" format={(v) => number.format(v)} axis={(v) => number.format(v)} tooltip={tooltip} />
+            <MonthBars
+              label={summary}
+              rows={rows}
+              series={series}
+              mode="stack"
+              format={(v) => number.format(v)}
+              axis={(v) => number.format(v)}
+              tooltip={tooltip}
+              // The first measured month is a floor (spec §2, DS-COMPONENTE-084): its total reads "≥ N".
+              values={(v, row) => (typeof row.values[MONTHLY_KEYS.unsplit] === 'number' ? `≥ ${number.format(v)}` : number.format(v))}
+            />
             <Legend>
               {drawnLegend(series, rows).map((s) => (
                 <li key={s.key} className="flex items-center gap-1.5" title={s.key === MONTHLY_KEYS.unsplit && since ? since : undefined}>
