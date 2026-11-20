@@ -47,11 +47,11 @@ export const ROUTE_REVISION_PUSH_COPY: Readonly<
   pt: {
     approved: {
       title: 'Seu roteiro foi aprovado',
-      body: '“{{name}}” já está no ar. Toque para ver e compartilhar o link.',
+      body: '“{{name}}” já está no ar, com uma imagem pronta para compartilhar.',
     },
     approved_edit: {
       title: 'Sua edição foi aprovada',
-      body: 'A nova versão de “{{name}}” já está no ar, com o mesmo link.',
+      body: '“{{name}}” está no ar com o mesmo link e uma imagem pronta para compartilhar.',
     },
     rejected: {
       title: 'Seu roteiro precisa de ajustes',
@@ -65,11 +65,11 @@ export const ROUTE_REVISION_PUSH_COPY: Readonly<
   en: {
     approved: {
       title: 'Your itinerary was approved',
-      body: '“{{name}}” is live now. Tap to see it and share the link.',
+      body: '“{{name}}” is live, with an image ready to share.',
     },
     approved_edit: {
       title: 'Your edit was approved',
-      body: 'The new version of “{{name}}” is live, with the same link.',
+      body: '“{{name}}” is live with the same link and an image ready to share.',
     },
     rejected: {
       title: 'Your itinerary needs changes',
@@ -83,11 +83,11 @@ export const ROUTE_REVISION_PUSH_COPY: Readonly<
   es: {
     approved: {
       title: 'Tu itinerario fue aprobado',
-      body: '“{{name}}” ya está publicado. Toca para verlo y compartir el enlace.',
+      body: '“{{name}}” ya está publicado, con una imagen lista para compartir.',
     },
     approved_edit: {
       title: 'Tu edición fue aprobada',
-      body: 'La nueva versión de “{{name}}” ya está publicada, con el mismo enlace.',
+      body: '“{{name}}” ya está publicado con el mismo enlace y una imagen para compartir.',
     },
     rejected: {
       title: 'Tu itinerario necesita cambios',
@@ -101,11 +101,11 @@ export const ROUTE_REVISION_PUSH_COPY: Readonly<
   fr: {
     approved: {
       title: 'Ton itinéraire est validé',
-      body: '«\u00a0{{name}}\u00a0» est en ligne. Touche pour le voir et partager le lien.',
+      body: '«\u00a0{{name}}\u00a0» est en ligne, avec une image prête à partager.',
     },
     approved_edit: {
       title: 'Ta modification est validée',
-      body: 'La nouvelle version de «\u00a0{{name}}\u00a0» est en ligne, avec le même lien.',
+      body: '«\u00a0{{name}}\u00a0» est en ligne avec le même lien et une image prête à partager.',
     },
     rejected: {
       title: 'Ton itinéraire doit être modifié',
@@ -119,11 +119,11 @@ export const ROUTE_REVISION_PUSH_COPY: Readonly<
   it: {
     approved: {
       title: 'Il tuo itinerario è stato approvato',
-      body: '“{{name}}” è online. Tocca per vederlo e condividere il link.',
+      body: '“{{name}}” è online, con un\'immagine pronta da condividere.',
     },
     approved_edit: {
       title: 'La tua modifica è stata approvata',
-      body: 'La nuova versione di “{{name}}” è online, con lo stesso link.',
+      body: '“{{name}}” è online con lo stesso link e un\'immagine pronta da condividere.',
     },
     rejected: {
       title: 'Il tuo itinerario va modificato',
@@ -137,11 +137,11 @@ export const ROUTE_REVISION_PUSH_COPY: Readonly<
   de: {
     approved: {
       title: 'Deine Route ist freigegeben',
-      body: '„{{name}}“ ist jetzt online. Tippe, um sie anzusehen und den Link zu teilen.',
+      body: '„{{name}}“ ist jetzt online, mit einem fertigen Bild zum Teilen.',
     },
     approved_edit: {
       title: 'Deine Änderung ist freigegeben',
-      body: 'Die neue Version von „{{name}}“ ist online, mit demselben Link.',
+      body: '„{{name}}“ ist online, mit demselben Link und einem fertigen Bild zum Teilen.',
     },
     rejected: {
       title: 'Deine Route braucht Änderungen',
@@ -162,12 +162,14 @@ export function routeNameForPush(name: unknown): string {
 }
 
 /**
- * Approved opens the route; rejected opens the author's routes, where the reason is. The app has no
- * `/my-routes` path yet: until it does, a tap on the rejected push lands in the Correio (contract §2).
+ * Approved opens the route with `share=1` (#1220): the app opens the sheet and then the author's art,
+ * only when the route is theirs; an app from before #1220 ignores the parameter and opens the sheet.
+ * Rejected opens the author's routes, where the reason is (#1124). The Correio row carries the same
+ * link in `data.deeplink`, so its tap opens the same thing.
  */
 export function routeRevisionDeeplink(decision: 'approved' | 'rejected', routeId: string): string {
   const id = encodeURIComponent(routeId);
-  return decision === 'approved' ? `tuggi://route?id=${id}` : `tuggi://my-routes?route_id=${id}`;
+  return decision === 'approved' ? `tuggi://route?id=${id}&share=1` : `tuggi://my-routes?route_id=${id}`;
 }
 
 /** What the rows say about one decided version. */

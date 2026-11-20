@@ -16,6 +16,7 @@ import {
   type RouteRevisionDeps,
   type RouteRevisionQuery,
   routeNameForPush,
+  routeRevisionDeeplink,
   runRouteRevisionPush,
 } from '../_shared/route-revision-push.ts';
 
@@ -161,8 +162,15 @@ Deno.test('BR-ROTA-006 item 3: an approved first version goes to the author, app
   assert(!('localized' in sends[0]), 'the language of one person is already known');
   const n = notification(sends[0]);
   assertEquals(n.title, ROUTE_REVISION_PUSH_COPY.pt.approved.title);
-  assertEquals(n.body, '“Orla de Búzios” já está no ar. Toque para ver e compartilhar o link.');
-  assertEquals(n.data, { type: 'route_revision_approved', deeplink: `tuggi://route?id=${ROUTE}` });
+  assertEquals(n.body, '“Orla de Búzios” já está no ar, com uma imagem pronta para compartilhar.');
+  assertEquals(n.data, { type: 'route_revision_approved', deeplink: `tuggi://route?id=${ROUTE}&share=1` });
+});
+
+Deno.test('#1220: approved opens the route with share=1 (the author art); rejected keeps the author routes', () => {
+  assertEquals(routeRevisionDeeplink('approved', ROUTE), `tuggi://route?id=${ROUTE}&share=1`);
+  assertEquals(routeRevisionDeeplink('rejected', ROUTE), `tuggi://my-routes?route_id=${ROUTE}`);
+  // The id is encoded, so nothing in it can add a parameter of its own.
+  assertEquals(routeRevisionDeeplink('approved', 'a&share=0'), 'tuggi://route?id=a%26share%3D0&share=1');
 });
 
 Deno.test('BR-ROTA-006 items 3 and 10: an approved edit (another version approved before) reads approved_edit', async () => {
