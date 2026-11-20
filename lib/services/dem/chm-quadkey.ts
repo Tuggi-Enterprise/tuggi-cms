@@ -64,7 +64,17 @@ type ProductHeader = Omit<QuadkeyProduct, 'values'> & { format: number; percenti
 
 /** Reads one CHM tile in full and returns the p90 of each global lattice cell its pixels fall in. */
 export async function buildQuadkeyProduct(file: string, quadkey: string): Promise<Omit<QuadkeyProduct, 'url' | 'etag' | 'lastModified'>> {
-  const image = await (await fromFile(file)).getImage()
+  // `fromFile` holds a descriptor until close(): on Windows the tif deleted right after keeps its
+  // ~400 MB on disk until the process exits (Nordeste batch, 2026-11-19: −60 GB in 3 h).
+  const tiff = await fromFile(file)
+  try {
+    return await productOf(file, quadkey, await tiff.getImage())
+  } finally {
+    await tiff.close()
+  }
+}
+
+async function productOf(file: string, quadkey: string, image: TiffImage): Promise<Omit<QuadkeyProduct, 'url' | 'etag' | 'lastModified'>> {
   const [ox, oy] = image.getOrigin()
   const [rx, ry] = image.getResolution()
   const w = image.getWidth(), h = image.getHeight()
