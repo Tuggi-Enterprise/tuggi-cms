@@ -78,6 +78,7 @@
     "toggle_theme": "Alternar tema",
     "notifications": "Push Notifications",
     "weekly_push": "Régua de push",
+    "trip_reminder": "Lembrete de viagem",
     "social": "Redes sociais",
     "marketing": "Marketing",
     "events": "Eventos",
@@ -7129,6 +7130,232 @@
       "empty": "Nenhum local com comissão em {month}.",
       "error": "Não deu para ler os repasses.",
       "reload": "Recarregar"
+    }
+  },
+  "TripReminder": {
+    "title": "Viagem marcada e lembrete",
+    "subtitle": "O painel das viagens marcadas, as chaves e os números do lembrete, os segredos dos fornecedores e o registro de envios.",
+    "tabs": {
+      "panel": "Painel",
+      "settings": "Configuração",
+      "secrets": "Segredos",
+      "sends": "Envios"
+    },
+    "loading": "Carregando…",
+    "load_error": "Não foi possível ler esta parte.",
+    "reload": "Recarregar",
+    "errors": {
+      "forbidden": "Só um administrador ativo do CMS pode alterar isto.",
+      "unknown_key": "Esta chave não existe mais no banco. Recarregue a página.",
+      "unknown_slot": "Este segredo não existe mais no banco. Recarregue a página.",
+      "invalid_secret": "O segredo está vazio ou passa de 4.096 caracteres.",
+      "not_a_message_channel": "Modelo só vale para canal de mensagem no celular.",
+      "invalid_value": "O banco recusou o valor. Confira o formato.",
+      "invalid_body": "O pedido saiu com formato errado. Recarregue a página e tente de novo.",
+      "relogin": "Sua sessão expirou. Entre de novo.",
+      "unknown": "Não deu certo. Tente de novo.",
+      "unknown_code": "Não deu certo (código {code}). Tente de novo."
+    },
+    "pieces": {
+      "phone_confirmation": "Confirmação do celular",
+      "trip_reminder_before": "Lembrete antes da viagem",
+      "trip_reminder_day": "Lembrete no dia",
+      "test": "Teste"
+    },
+    "channels": {
+      "push": "Push",
+      "email": "E-mail",
+      "whatsapp": "WhatsApp",
+      "sms": "SMS"
+    },
+    "languages": {
+      "pt": "Português",
+      "en": "Inglês",
+      "es": "Espanhol",
+      "fr": "Francês",
+      "it": "Italiano",
+      "de": "Alemão"
+    },
+    "switches": {
+      "heading": "Chaves",
+      "intro": "Cada chave vale na hora, para todo mundo. Canal desligado não envia e não aparece no app.",
+      "on": "Ligada",
+      "off": "Desligada",
+      "changed": "Alterada em {date}",
+      "saved_on": "{label}: ligada.",
+      "saved_off": "{label}: desligada.",
+      "ask_phone_on": "O app pede o celular agora.",
+      "ask_phone_off": "O app não pede o celular agora. Para pedir, ligue \"Pedir o celular\" e um canal de mensagem (WhatsApp ou SMS).",
+      "items": {
+        "entry_requires_account": {
+          "label": "Entrada com conta obrigatória",
+          "hint": "A entrada passa a exigir conta e faz a pergunta da próxima viagem."
+        },
+        "trip_reminder_enabled": {
+          "label": "Lembrete de viagem",
+          "hint": "Desligado, nenhum lembrete sai. A hora de viagem continua sendo creditada."
+        },
+        "trip_reminder_same_day": {
+          "label": "Lembrete no dia da viagem",
+          "hint": "Além do lembrete dos dias antes, um na manhã do dia da viagem."
+        },
+        "phone_ask": {
+          "label": "Pedir o celular",
+          "hint": "Só vale com WhatsApp ou SMS ligado."
+        },
+        "phone_confirmation": {
+          "label": "Confirmação ao cadastrar o celular",
+          "hint": "Mensagem que confirma o número logo depois de salvo."
+        },
+        "channel_push": {
+          "label": "Canal push",
+          "hint": "Lembrete pela notificação do app."
+        },
+        "channel_email": {
+          "label": "Canal e-mail",
+          "hint": "Lembrete por e-mail."
+        },
+        "channel_whatsapp": {
+          "label": "Canal WhatsApp",
+          "hint": "Lembrete e confirmação pelo WhatsApp. É o primeiro canal tentado no celular."
+        },
+        "channel_sms": {
+          "label": "Canal SMS",
+          "hint": "Lembrete e confirmação por SMS, quando o WhatsApp não entrega."
+        }
+      }
+    },
+    "numbers": {
+      "heading": "Números",
+      "intro": "Valor novo vale para as próximas concessões e os próximos lembretes. Hora já creditada não muda."
+    },
+    "templates": {
+      "heading": "Modelos do WhatsApp",
+      "intro": "O nome do modelo aprovado pela Meta para cada mensagem e idioma. Modelo sem aprovação falha calado, então confira com o envio de teste.",
+      "empty": "Nenhum modelo cadastrado.",
+      "piece": "Mensagem",
+      "language": "Idioma",
+      "name": "Nome do modelo",
+      "provider_language": "Código de idioma da Meta",
+      "updated": "Alterado em",
+      "edit": "Editar",
+      "edit_aria": "Editar o modelo de {piece} em {language}",
+      "remove": "Remover",
+      "remove_aria": "Remover o modelo de {piece} em {language}",
+      "form_heading": "Cadastrar ou trocar um modelo",
+      "save": "Salvar modelo",
+      "saving": "Salvando…",
+      "name_problem": "Use só letras minúsculas, números e _.",
+      "provider_language_problem": "Use o código da Meta, como pt_BR ou fr.",
+      "saved": "Modelo salvo.",
+      "removed": "Modelo removido."
+    },
+    "secrets": {
+      "heading": "Segredos dos fornecedores",
+      "intro": "O valor salvo nunca volta à tela: aparecem só a data e os 4 últimos caracteres. Para trocar, digite o valor novo.",
+      "configured": "Configurado em {date}",
+      "configured_last4": "Configurado em {date}, termina em {last4}",
+      "not_configured": "Não configurado",
+      "set": "Configurar",
+      "replace": "Trocar",
+      "set_aria": "Configurar {name}",
+      "replace_aria": "Trocar {name}",
+      "field_label": "Valor novo de {name}",
+      "save": "Salvar segredo",
+      "saving": "Salvando…",
+      "cancel": "Cancelar",
+      "saved": "{name} salvo.",
+      "history_heading": "Histórico de trocas",
+      "history_intro": "As trocas mais recentes, com quem e quando, sem o valor.",
+      "history_empty": "Nenhuma troca registrada.",
+      "when": "Quando",
+      "slot": "Segredo",
+      "who": "Quem",
+      "groups": {
+        "whatsapp": "WhatsApp",
+        "sms": "SMS",
+        "email": "E-mail"
+      },
+      "slots": {
+        "whatsapp_access_token": "Token de acesso da API do WhatsApp",
+        "whatsapp_phone_number_id": "ID do número que envia",
+        "whatsapp_app_secret": "Chave secreta do app da Meta, para a assinatura do webhook",
+        "whatsapp_webhook_verify_token": "Token de verificação do webhook",
+        "sms_account_id": "ID da conta do fornecedor de SMS",
+        "sms_auth_token": "Token de autenticação do fornecedor de SMS",
+        "sms_sender": "Remetente do SMS: número ou ID do serviço",
+        "email_api_key": "Chave da API do fornecedor de e-mail",
+        "email_webhook_secret": "Segredo de assinatura do webhook de e-mail"
+      }
+    },
+    "test": {
+      "heading": "Enviar teste para mim",
+      "intro": "O teste vai para o seu e-mail e para o celular do seu cadastro no CMS, e entra no registro abaixo como Teste.",
+      "channel_off": "desligado",
+      "send": "Enviar teste",
+      "sending": "Enviando…",
+      "ok": "Enviado",
+      "failed": "Falhou: {code}",
+      "not_applicable": "Não se aplica",
+      "aria": "Enviar teste de {piece} por {channel}"
+    },
+    "sends": {
+      "heading": "Registro de envios",
+      "intro": "Os últimos envios, do mais novo para o mais antigo. Do celular, só os 4 últimos dígitos.",
+      "all": "Todos",
+      "empty": "Nenhum envio registrado.",
+      "when": "Quando",
+      "piece": "Mensagem",
+      "channel": "Canal",
+      "outcome": "Resultado",
+      "reason": "Motivo",
+      "phone": "Celular",
+      "updated": "Atualizado em",
+      "phone_last4": "final {last4}",
+      "refresh": "Atualizar",
+      "outcomes": {
+        "sent": "Enviado",
+        "delivered": "Entregue",
+        "failed": "Falhou"
+      }
+    },
+    "panel": {
+      "trips": "Viagens marcadas",
+      "trips_column": "Viagens",
+      "with_date": "Com data",
+      "with_destination": "Com destino",
+      "accounts": "Contas com viagem",
+      "trip_hours_credited": "Horas de viagem liberadas",
+      "trip_hours_hint": "Viagens cuja hora de viagem já foi creditada no primeiro lembrete.",
+      "email_stopped": "Pararam o lembrete por e-mail",
+      "answers_heading": "Respostas à pergunta da próxima viagem",
+      "answers": {
+        "now": "Viajando agora",
+        "planned": "Tem viagem marcada",
+        "unsure": "Ainda não sabe"
+      },
+      "by_destination_heading": "Viagens por destino e mês",
+      "by_destination_intro": "Só contagem, nunca a pessoa. Viagem passada conta até a pessoa apagar.",
+      "month": "Mês",
+      "destination": "Destino",
+      "no_date": "Sem data",
+      "no_destination": "Sem destino",
+      "contacts_heading": "Celulares por canal",
+      "contacts_intro": "Quantos números cadastrados, por canal descoberto e situação. Nenhum número aparece aqui.",
+      "channel": "Canal",
+      "state": "Situação",
+      "stopped": "Parado",
+      "contacts": "Números",
+      "no_channel_yet": "Ainda sem canal",
+      "yes": "Sim",
+      "no": "Não",
+      "states": {
+        "pending": "Aguardando confirmação",
+        "confirmed": "Confirmado",
+        "no_channel": "Sem canal que entregue",
+        "undeliverable": "Não entrega"
+      },
+      "empty": "Nenhuma viagem marcada ainda."
     }
   }
 }

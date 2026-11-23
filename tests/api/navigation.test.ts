@@ -210,6 +210,8 @@ test('o catálogo do admin é exatamente este — apagar um destino tem de doer'
     '/admin/social',
     // Os votos nas histórias (#950).
     '/admin/story-feedback',
+    // The planned trip and its reminder (#1233), next to the weekly push.
+    '/admin/trip-reminder',
     '/admin/users',
     // The weekly push (#1047).
     '/admin/weekly-push',
@@ -394,8 +396,8 @@ test('o rótulo fala a língua da tela que ele abre', () => {
   // vezes em 2026-09-09: `Finance` GANHOU tradução de verdade (19 chaves em `en` e `es`) e saiu
   // desta lista com o rótulo dele; e os rótulos de `materials` e `partnerships` tinham sido
   // traduzidos numa passada de i18n sem que as telas fossem, e voltaram ao português.
-  const PT_ONLY = { materials: 'Material', partnerships: 'Parcerias' }
-  const namespaces = ['Materials', 'Partnerships'] as const
+  const PT_ONLY = { materials: 'Material', partnerships: 'Parcerias', trip_reminder: 'Lembrete de viagem' }
+  const namespaces = ['Materials', 'Partnerships', 'TripReminder'] as const
 
   for (const locale of ['en', 'es']) {
     const file = messages(locale)

@@ -60,6 +60,7 @@ import {
   BarChart3,
   Bell,
   BellRing,
+  CalendarClock,
   CalendarDays,
   Coins,
   Database,
@@ -252,6 +253,8 @@ function catalogue(): { basic: NavEntry[]; modules: NavEntry[] } {
               item('/dashboard/marketing/notifications', 'notifications', Bell),
               // The weekly push (#1047), next to the one-off push, where the operator looks for push.
               item('/admin/weekly-push', 'weekly_push', BellRing),
+              // The planned trip and its reminder (#1233): panel, switches, numbers, secrets and sends.
+              item('/admin/trip-reminder', 'trip_reminder', CalendarClock),
               // The campaigns of the app (#1192): carousel, launch sheet and Explore card, on and off without a release.
               item('/admin/app-campaigns', 'app_campaigns', Megaphone),
               // The social analytics (#1059): our posts, the competitors and the Instagram funnel.
