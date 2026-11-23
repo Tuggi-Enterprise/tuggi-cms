@@ -36,12 +36,13 @@ export type PushKind =
   | 'account_welcome'
   | 'caravan_joined'
   | 'hours_gifted'
-  | 'hours_expiring';
+  | 'hours_expiring'
+  | 'trip_reminder';
 
 export interface PushKindPolicy {
   /**
-   * BR-COMUNICACAO-019 item 3.a to 3.c: the person asked for it, so it is outside the cap and the
-   * quiet hours (never outside consent). No sender of a requested push exists yet.
+   * BR-COMUNICACAO-019 item 3.a to 3.c and 3.s: the person asked for it, so it is outside the cap
+   * and the quiet hours (never outside consent). The one sender is the trip reminder (#1231).
    */
   requested: boolean;
   /** Item 2, 3.e and 3.j: push only for someone who opened the app or had the guide on lately. */
@@ -113,6 +114,10 @@ export const PUSH_KINDS: Readonly<Record<PushKind, PushKindPolicy>> = {
   // every cap (3.h.2.e), consent only; the quiet hours are applied by the sender
   // (`_shared/tourist-lifecycle-email.ts`, `planEveNotices`). Sender: `tourist-lifecycle-email/eve`.
   hours_expiring: { requested: false, requiresActive: false, vacancyPriority: 4, outsideCaps: true },
+  // Item 3.s (#1231): the trip reminder the person asked for when giving the date (BR-COMUNICACAO-023).
+  // Requested, as 3.a: outside every cap and the quiet hours, consent only. Sender: `trip-reminder`
+  // (`_shared/trip-reminder.ts`).
+  trip_reminder: { requested: true, requiresActive: false, vacancyPriority: 4, outsideCaps: true },
 };
 
 /** `null` for anything that is not a known kind: an unknown kind is refused, never defaulted. */

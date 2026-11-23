@@ -6,6 +6,8 @@
 // (BR-COMUNICACAO-015; BR-COMUNICACAO-020 item 4). Moved out of `send-newsletter` in #957 so the
 // second sender does not grow a second copy. Pure: no remote import, so `tests/api` loads it.
 
+import { constantTimeEqual } from './constant-time.ts';
+
 const toBase64Url = (bytes: Uint8Array): string => {
   let bin = '';
   for (const b of bytes) bin += String.fromCharCode(b);
@@ -76,4 +78,53 @@ export function unsubscribeHeaders(oneClickUrl: string): Record<string, string> 
     'List-Unsubscribe': `<${oneClickUrl}>`,
     'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
   };
+}
+
+/**
+ * A link with a SCOPE (#1231): it stops one kind of message and nothing else, and the general link
+ * above cannot be replayed as a scoped one, nor the other way round, because the signed text differs
+ * (`<scope>:<address>` against the bare address). Same secret, `NEWSLETTER_SECRET`.
+ *
+ * The one scope today is `trip_reminder`: the trip reminder was asked for by the person, so the
+ * general unsubscribe of BR-COMUNICACAO-020 item 4 also stops it, and this link stops only it
+ * (`docs/design/copy/proxima-viagem-1229-2026-11.md` §9.b). The function that honours it is
+ * `trip-reminder/stop`, which calls `drive.stop_trip_reminder_emails`.
+ */
+export type UnsubscribeScope = 'trip_reminder';
+
+export function signScopedEmail(scope: UnsubscribeScope, email: string, secret: string): Promise<string> {
+  return signEmail(`${scope}:${email.toLowerCase().trim()}`, secret);
+}
+
+export async function buildScopedStopUrl(
+  scope: UnsubscribeScope,
+  email: string,
+  functionsUrl: string,
+  secret: string,
+  lang: string
+): Promise<string> {
+  const e = encodeEmail(email);
+  const s = await signScopedEmail(scope, email, secret);
+  return `${functionsUrl.replace(/\/$/, '')}/trip-reminder/stop?e=${e}&s=${s}&scope=${scope}&lang=${encodeURIComponent(lang)}`;
+}
+
+/** The address of a scoped link, or `null` when the link was not signed by us for that scope. */
+export async function verifyScopedStop(
+  scope: UnsubscribeScope,
+  encoded: string | null,
+  signature: string | null,
+  secret: string
+): Promise<string | null> {
+  if (!encoded || !signature || !secret) return null;
+  let email: string;
+  try {
+    const b64 = encoded.replace(/-/g, '+').replace(/_/g, '/');
+    const bin = atob(b64 + '='.repeat((4 - (b64.length % 4)) % 4));
+    email = new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0)));
+  } catch {
+    return null;
+  }
+  if (!/^[^\s@]{1,128}@[^\s@]{1,253}$/.test(email)) return null;
+  const expected = await signScopedEmail(scope, email, secret);
+  return constantTimeEqual(expected, signature) ? email.toLowerCase().trim() : null;
 }
