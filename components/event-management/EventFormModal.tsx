@@ -331,13 +331,13 @@ export function EventFormModal({ eventId, isOpen, onClose, onSaved }: EventFormM
 
       {isEdit && (
         <>
-          {/* Host POI (vínculo) */}
+          {/* Host (link): a POI or a place, #1242 */}
           <section className={sectionCard}>
             <h4 className={sectionTitle}><Link2 className="h-4 w-4 text-tuggi-blue" />{t('sections.host')}</h4>
             <label className={fieldLabel}>{L('venue')}</label>
             <VenuePicker
-              value={form.venue_attraction_id ? { id: form.venue_attraction_id, name: form.venue_name || '', city: form.city } : null}
-              onChange={(v) => { set('venue_attraction_id', v?.id || null); set('venue_name', v?.name || null) }}
+              value={form.venue_attraction_id ? { id: form.venue_attraction_id, name: form.venue_name || '', city: form.city, kind: form.venue_kind } : null}
+              onChange={(v) => { set('venue_attraction_id', v?.id || null); set('venue_name', v?.name || null); set('venue_kind', v?.kind) }}
               disabled={!canEdit}
             />
             <p className="text-[11px] text-gray-400 mt-3 leading-relaxed">

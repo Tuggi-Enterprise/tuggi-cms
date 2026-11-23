@@ -3308,17 +3308,19 @@
         "organizer_url": "URL do organizador",
         "ticket_url": "URL de ingressos",
         "poster_url": "URL do cartaz",
-        "venue": "POI anfitrião",
-        "venue_search_placeholder": "Buscar POI por nome…",
-        "venue_no_results": "Nenhum POI encontrado",
+        "venue": "Anfitrião (POI ou local)",
+        "venue_search_placeholder": "Buscar POI ou local por nome…",
+        "venue_no_results": "Nenhum POI ou local encontrado",
         "venue_remove": "Remover vínculo",
+        "venue_kind_poi": "POI",
+        "venue_kind_place": "Local",
         "approved": "Aprovado",
         "active": "Ativo",
         "priority": "Prioridade"
       },
       "tags_hint": "separadas por vírgula",
-      "venue_hint": "Vincule este evento ao POI onde ele acontece — o POI passa a narrá-lo.",
-      "venue_linked_hint": "Vinculado. Os trigger points próprios do evento foram desativados: quem narra é o POI anfitrião.",
+      "venue_hint": "Vincule este evento ao POI ou local onde ele acontece: o anfitrião passa a narrá-lo.",
+      "venue_linked_hint": "Vinculado. Os trigger points próprios do evento foram desativados: quem narra é o anfitrião.",
       "reused_note": "Boundary, Trigger Points e Descrição/Áudio reusam os editores de POI (por attraction_id) — a plugar em seguida.",
       "validation_missing": "Preencha os campos obrigatórios: {fields}.",
       "location_detecting": "Detectando cidade, estado e país…",
@@ -3450,7 +3452,7 @@
     "POIDetails": {
       "trigger_disabled": {
         "title": "Trigger points desabilitados",
-        "body": "Este evento está vinculado ao POI anfitrião {venue}, que é quem narra. Trigger points não se aplicam."
+        "body": "Este evento está vinculado ao anfitrião {venue}, que é quem narra. Trigger points não se aplicam."
       },
       "tabs": {
         "create": "Criar",

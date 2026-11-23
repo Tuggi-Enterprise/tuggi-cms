@@ -2966,17 +2966,19 @@
         "organizer_url": "Organizer URL",
         "ticket_url": "Ticket URL",
         "poster_url": "Poster URL",
-        "venue": "Host POI",
-        "venue_search_placeholder": "Search POI by name…",
-        "venue_no_results": "No POI found",
+        "venue": "Host (POI or place)",
+        "venue_search_placeholder": "Search POI or place by name…",
+        "venue_no_results": "No POI or place found",
         "venue_remove": "Remove link",
+        "venue_kind_poi": "POI",
+        "venue_kind_place": "Place",
         "approved": "Approved",
         "active": "Active",
         "priority": "Priority"
       },
       "tags_hint": "comma-separated",
-      "venue_hint": "Link this event to the POI where it happens — the POI then narrates it.",
-      "venue_linked_hint": "Linked. The event's own trigger points were deactivated: the host POI is what narrates.",
+      "venue_hint": "Link this event to the POI or place where it happens: the host then narrates it.",
+      "venue_linked_hint": "Linked. The event's own trigger points were deactivated: the host is what narrates.",
       "reused_note": "Boundary, Trigger Points and Description/Audio reuse the POI editors (keyed by attraction_id) — wired in a follow-up.",
       "validation_missing": "Fill in the required fields: {fields}.",
       "location_detecting": "Detecting city, state and country…",
@@ -3090,7 +3092,7 @@
     "POIDetails": {
       "trigger_disabled": {
         "title": "Trigger points disabled",
-        "body": "This event is linked to its host POI {venue}, which is what narrates. Trigger points don't apply."
+        "body": "This event is linked to its host {venue}, which is what narrates. Trigger points don't apply."
       },
       "tabs": {
         "create": "Create",
