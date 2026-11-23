@@ -436,7 +436,7 @@ test('#1238 BR-MONETIZACAO-091 2.a and 2.d: one amount per length band, shortest
   // The single amount left the database in #1237: nothing names it any more.
   assert.equal(rewards.labelOf('planned_trip.minutes'), 'planned_trip.minutes')
   assert.equal(rewards.hintOf('planned_trip.minutes_short'), 'Vale também para a viagem sem duração informada.')
-  assert.equal(rewards.hintOf('planned_trip.interval_months'), '0 é sem intervalo: toda viagem ganha a sua hora.')
+  assert.equal(rewards.hintOf('planned_trip.interval_months'), '0 é sem intervalo: toda viagem ganha a sua hora, salvo a que se sobrepõe a uma viagem já creditada.')
   // Mirror of reward_settings_value_ck after #1237: 0 for the interval only, never below.
   assert.equal(rewards.validateRewardValue(0, 'months', 'planned_trip.interval_months'), null)
   assert.equal(rewards.validateRewardValue(-1, 'months', 'planned_trip.interval_months'), 'negative')

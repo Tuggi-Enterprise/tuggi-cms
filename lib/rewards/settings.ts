@@ -187,7 +187,8 @@ const NAMED: Record<string, string> = {
 const HINTS: Record<string, string> = {
   'welcome.validity_days': 'Acima de 5 dias, as boas-vindas perdem o aviso da véspera.',
   'planned_trip.minutes_short': 'Vale também para a viagem sem duração informada.',
-  'planned_trip.interval_months': '0 é sem intervalo: toda viagem ganha a sua hora.',
+  'planned_trip.interval_months':
+    '0 é sem intervalo: toda viagem ganha a sua hora, salvo a que se sobrepõe a uma viagem já creditada.',
 }
 
 export function hintOf(key: string): string | null {
