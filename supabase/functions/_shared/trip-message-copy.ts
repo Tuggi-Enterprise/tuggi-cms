@@ -7,11 +7,13 @@
  * - push: `docs/design/copy/voz-do-push-2026-11.md` §3.2 to §3.5, variant A (pt, en, fr), which
  *   fixes three holes of `proxima-viagem-1229-2026-11.md` §9.a (M2 without the validity, M3 and M5
  *   claiming a story at the destination, the day without the month-only version). es, it and de
- *   are the dev's over the pt, with the words of §9.a and the glossary of `push-2026-11.md`.
+ *   were written over the pt with the words of §9.a and the glossary of `push-2026-11.md`, and
+ *   reviewed by the `copy` on 2026-11-23. The validity line never agrees with the hours (es "con
+ *   validez hasta el", it "da usare entro il", de "gültig bis zum"), as the SMS of §9.d.
  * - e-mail: §9.b (five languages; a German reader gets English, BR-COMUNICACAO-020 item 6).
  * - SMS: §9.d. WhatsApp: the parameters of the models of §9.c; the text is Meta's, by model name.
- * - The month-only versions of the e-mail day reminder are the dev's (023 item 6: with a month only,
- *   the day reminder does not say "today"); the `copy` reviews them.
+ * - The month-only body of the e-mail day reminder (023 item 6: with a month only, the day reminder
+ *   does not say "today") is the `copy`'s, 2026-11-23.
  *
  * What the copy may say (023, ceiling): the date, the destination when given, and in the first
  * reminder the trip hours and until when they are valid. No welcome hours, no tip about the
@@ -158,10 +160,10 @@ export const TRIP_PUSH_COPY = {
   m2_body: {
     pt: '+{{trip_hours}} da viagem já no seu saldo. Vale até {{date}}.',
     en: '+{{trip_hours}} for the trip, already in your balance. Valid until {{date}}.',
-    es: '+{{trip_hours}} para el viaje, ya en tu saldo. Válido hasta el {{date}}.',
+    es: '+{{trip_hours}} para el viaje, ya en tu saldo, con validez hasta el {{date}}.',
     fr: "+{{trip_hours}} pour le voyage, déjà dans ton solde. Valable jusqu'au {{date}}.",
-    it: '+{{trip_hours}} per il viaggio, già nel tuo saldo. Valide fino al {{date}}.',
-    de: '+{{trip_hours}} für die Reise, schon in deinem Guthaben. Gültig bis {{date}}.',
+    it: '+{{trip_hours}} per il viaggio, già nel tuo saldo. Da usare entro il {{date}}.',
+    de: '+{{trip_hours}} für die Reise, schon in deinem Guthaben. Gültig bis zum {{date}}.',
   },
   m3_title_destination: {
     pt: '{{destination}} daqui a {{days}}',
@@ -182,10 +184,10 @@ export const TRIP_PUSH_COPY = {
   m3_body: {
     pt: 'Deixe o Tuggi no celular. Onde houver história, um toque no lugar do mapa e você ouve, sem precisar de horas.',
     en: "Keep Tuggi on your phone. Wherever there's a story, tap the place on the map to listen, no hours needed.",
-    es: 'Deja Tuggi en el móvil. Donde haya una historia, toca el lugar en el mapa y escucha, sin necesitar horas.',
+    es: 'Deja Tuggi en el móvil. Donde haya una historia, toca el lugar en el mapa y escucha, sin necesidad de horas.',
     fr: 'Garde Tuggi sur ton téléphone. Là où il y a une histoire, touche le lieu sur la carte, même sans heures.',
     it: "Tieni Tuggi sul telefono. Dove c'è una storia, tocca il luogo sulla mappa e ascolta, senza bisogno di ore.",
-    de: 'Lass Tuggi auf dem Handy. Wo es eine Geschichte gibt: Ort auf der Karte antippen und hören, ohne Stunden.',
+    de: 'Lass Tuggi auf dem Handy. Wo es eine Geschichte gibt: auf der Karte antippen und zuhören, auch ohne Guthaben.',
   },
   m4_title: {
     pt: 'Boa viagem · {{balance}} de guia',
@@ -214,9 +216,9 @@ export const TRIP_PUSH_COPY = {
   m4_month_body: {
     pt: 'Você tem {{balance}} de guia. No dia, ligue o guia e ouça a história dos lugares por onde passar.',
     en: 'You have {{balance}} of guide time. On the day, turn on the guide and hear the stories of the places you pass.',
-    es: 'Tienes {{balance}} de guía. Ese día, activa la guía y escucha la historia de los lugares por donde pases.',
+    es: 'Tienes {{balance}} de guía. El día del viaje, activa la guía y escucha la historia de los lugares del camino.',
     fr: "Tu as {{balance}} de guide. Le jour J, active le guide et écoute l'histoire des lieux où tu passes.",
-    it: 'Hai {{balance}} di guida. Quel giorno, attiva la guida e ascolta la storia dei luoghi dove passi.',
+    it: 'Hai {{balance}} di guida. Il giorno del viaggio, attiva la guida e ascolta la storia dei luoghi dove passi.',
     de: 'Du hast {{balance}} Guide. Schalte ihn am Reisetag ein und hör die Geschichten der Orte unterwegs.',
   },
   m5_title: {
@@ -230,10 +232,10 @@ export const TRIP_PUSH_COPY = {
   m5_body: {
     pt: 'No mapa, toque num lugar com história e ouça, sem precisar de horas.',
     en: 'On the map, tap a place with a story and listen, no hours needed.',
-    es: 'En el mapa, toca un lugar con historia y escucha, sin necesitar horas.',
+    es: 'En el mapa, toca un lugar con historia y escucha, sin necesidad de horas.',
     fr: 'Sur la carte, touche un lieu qui a une histoire et écoute-la, même sans heures.',
     it: 'Sulla mappa, tocca un luogo con una storia e ascolta, senza bisogno di ore.',
-    de: 'Tipp auf der Karte einen Ort mit Geschichte an und hör zu, ohne Stunden.',
+    de: 'Tipp auf der Karte einen Ort mit Geschichte an und hör zu, auch ohne Guthaben.',
   },
 } satisfies Record<string, Six>;
 
@@ -320,11 +322,11 @@ export const TRIP_EMAIL_COPY = {
     it: 'Oggi è il giorno del viaggio che hai segnato su Tuggi.',
   },
   day_month_body: {
-    pt: 'Este é o mês da viagem que você marcou no Tuggi.',
-    en: 'This is the month of the trip you added in Tuggi.',
-    es: 'Este es el mes del viaje que marcaste en Tuggi.',
-    fr: "C'est ce mois-ci, le voyage que tu as noté dans Tuggi.",
-    it: 'Questo è il mese del viaggio che hai segnato su Tuggi.',
+    pt: 'A viagem que você marcou no Tuggi é este mês.',
+    en: 'The trip you added in Tuggi is this month.',
+    es: 'El viaje que marcaste en Tuggi es este mes.',
+    fr: "Le voyage que tu as noté dans Tuggi, c'est ce mois-ci.",
+    it: 'Il viaggio che hai segnato su Tuggi è questo mese.',
   },
   balance: {
     pt: 'Você tem {{balance}} na carteira.',

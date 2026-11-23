@@ -169,7 +169,7 @@ const HOURS_EARNED = {
  * §3.3 — the spec publishes the plural only; the selection sends it at 3 days (and never at 1).
  * `subject_eve` is the eve of a short concession (BR-COMUNICACAO-019 3.h.2, #1231): the title of
  * the eve push in `docs/design/copy/voz-do-push-2026-11.md` §3.1 (pt, en; fr with the e-mail's
- * "heures gratuites"); es and it are the dev's, provisional until the `copy` reviews them.
+ * "heures gratuites"); es and it follow the `subject` above, reviewed by the `copy` on 2026-11-23.
  */
 const HOURS_EXPIRING = {
   subject: {

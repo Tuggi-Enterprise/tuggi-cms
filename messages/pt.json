@@ -7231,7 +7231,7 @@
     },
     "templates": {
       "heading": "Modelos do WhatsApp",
-      "intro": "O nome do modelo aprovado pela Meta para cada mensagem e idioma. Modelo sem aprovação falha calado, então confira com o envio de teste.",
+      "intro": "O nome do modelo aprovado pela Meta para cada mensagem e idioma. Modelo sem aprovação falha sem aviso, então confira com o envio de teste.",
       "empty": "Nenhum modelo cadastrado.",
       "piece": "Mensagem",
       "language": "Idioma",

@@ -3,8 +3,9 @@
  * item 6.b, type `hours_expiring` (BR-COMUNICACAO-016). #1231.
  *
  * Copy: `docs/design/copy/voz-do-push-2026-11.md` §3.1, variants A and B, pt, en and fr. es, it and
- * de are the dev's over the pt, with the glossary of `push-2026-11.md` (de: du, Guthaben); they are
- * provisional until the `copy` reviews them. Each person gets one variant for good, by the id
+ * de were written over the pt with the glossary of `push-2026-11.md` (de: du, Guthaben) and reviewed
+ * by the `copy` on 2026-11-23; it says "ore gratis", the word of the app's wallet line
+ * (`expiry_tomorrow`). Each person gets one variant for good, by the id
  * (`eveVariant`), and `data.variant` carries it for the measurement (no new type, 016 item 3).
  *
  * 3.h.2.f, the ceiling: how much expires (the served value, as the balance), that it expires
@@ -47,7 +48,7 @@ export const HOURS_EXPIRING_PUSH_COPY: Readonly<Record<EveVariant, Record<Rankin
       body: "Tu as {{duration}} de guide offert. Active le guide et écoute l'histoire des lieux où tu passes.",
     },
     it: {
-      title: 'Le tue ore gratuite scadono domani',
+      title: 'Le tue ore gratis scadono domani',
       body: 'Hai {{duration}} di guida gratis. Attiva la guida e ascolta la storia dei luoghi dove passi.',
     },
     de: {
