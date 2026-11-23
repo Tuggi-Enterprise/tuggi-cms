@@ -26,6 +26,7 @@
 
 import { isApplePrivateRelayAddress, isRelayDomainVerified } from './newsletter-metrics.ts';
 import {
+  DEFAULT_TIME_ZONE,
   daysUntil,
   localDay,
   normalizeTouristLang,
@@ -71,6 +72,13 @@ export interface LifecycleCandidateRow {
   expiring_at: string | null;
   balance_minutes: number | null;
   sent_keys: string[] | null;
+  /**
+   * BR-COMUNICACAO-019 3.h.2 (#1230 D11): the local expiry date of a short concession, set only
+   * while its eve notice is due (from 12:00 local of the eve), and the minutes of every earned hour
+   * expiring that date. Absent on a database before #1230.
+   */
+  short_expiring_on?: string | null;
+  short_expiring_minutes?: number | null;
 }
 
 export interface LifecycleRecipient {
@@ -300,4 +308,236 @@ export function lifecycleAuditLine(plan: LifecyclePlan, dryRun: boolean): string
     `address_superseded=${d.address_superseded}, already_claimed=${d.already_claimed}, ` +
     `claim_failed=${d.claim_failed}) no_cadence_arbiter=${reengagement}`
   );
+}
+
+// ===============================================================================================
+// THE EVE OF A SHORT CONCESSION (BR-COMUNICACAO-019 3.h.2, BR-MONETIZACAO-086 6.b, #1231)
+// ===============================================================================================
+//
+// The database says WHO and WHEN (`short_expiring_on` is set only while the notice is due); this
+// part says WHICH CHANNEL, and runs the claims and the sends. The rules that differ from the daily
+// e-mails above:
+//
+// - 3.h.2.b: using the app or not. There is no `active` gate here.
+// - E-mail: BR-COMUNICACAO-020 still applies (an address, not unsubscribed, the relay domain), and
+//   the key is the one of the e-mail of 3 days before, `hours_expiring:<date>`, so one expiry e-mail
+//   leaves per date whatever the rule (3.h.2.d).
+// - Push: claimed by `drive.claim_hours_expiring_push`, sent with the kind `hours_expiring`, whose
+//   gate asks consent only (outside every cap, 3.h.2.e). The quiet hours of item 5 are checked HERE:
+//   the row stays due until the local midnight, and 22:00 is inside the quiet hours. A push not sent
+//   by 22:00 is dropped, not deferred, because at 08:00 "tomorrow" is false (item 5).
+// - Reserved is never given back (3.h.2.d): a failed send is a log line.
+
+/** BR-COMUNICACAO-019 item 5: no unrequested push from 22:00 to 08:00 in the person's zone. */
+export const QUIET_HOURS_START = 22;
+export const QUIET_HOURS_END = 8;
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+const hourFormats = new Map<string, Intl.DateTimeFormat>();
+
+/** The local hour (0 to 23) of `now` in `zone`, falling back to `DEFAULT_TIME_ZONE` (item 5). */
+export function localHour(now: Date, zone: string | null | undefined): number {
+  const make = (z: string) => {
+    let f = hourFormats.get(z);
+    if (!f) {
+      f = new Intl.DateTimeFormat('en-US', { hour: 'numeric', hourCycle: 'h23', timeZone: z });
+      hourFormats.set(z, f);
+    }
+    return Number(f.format(now));
+  };
+  try {
+    return make(zone || DEFAULT_TIME_ZONE);
+  } catch {
+    return make(DEFAULT_TIME_ZONE);
+  }
+}
+
+export function insideQuietHours(now: Date, zone: string | null | undefined): boolean {
+  const h = localHour(now, zone);
+  return h >= QUIET_HOURS_START || h < QUIET_HOURS_END;
+}
+
+export type EveEmailSkip =
+  | 'no_address'
+  | 'unsubscribed'
+  | 'apple_relay_domain_unverified'
+  | 'already_sent'
+  | 'address_superseded';
+
+export interface EveNotice {
+  user_id: string;
+  /** Where the e-mail goes, or `null` when it does not (`email_skip` says why). */
+  email: string | null;
+  email_skip: EveEmailSkip | null;
+  /** The e-mail language. */
+  lang: TouristEmailLang;
+  /** The profile language as stored, for the push (six languages, BR-COMUNICACAO-019 item 11). */
+  language: string | null;
+  /** The local expiry date, `YYYY-MM-DD`: the claim keys of both channels. */
+  expires_on: string;
+  minutes: number;
+  /** `hours_expiring:<date>`, the e-mail claim key. */
+  dedupe_key: string;
+  /** `false` inside the quiet hours. */
+  push: boolean;
+}
+
+export interface EvePlan {
+  notices: EveNotice[];
+  candidates: number;
+  email_skipped: Record<EveEmailSkip, number>;
+  /** Notices whose push is not sent now because of the quiet hours. */
+  quiet_hours: number;
+}
+
+export function planEveNotices(input: LifecyclePlanInput): EvePlan {
+  const relayVerified = isRelayDomainVerified(input.relayDomainVerifiedRaw);
+  const email_skipped: Record<EveEmailSkip, number> = {
+    no_address: 0,
+    unsubscribed: 0,
+    apple_relay_domain_unverified: 0,
+    already_sent: 0,
+    address_superseded: 0,
+  };
+  const notices: EveNotice[] = [];
+  const addresses = new Set<string>();
+  const people = new Set<string>();
+  let quiet = 0;
+
+  for (const row of input.rows) {
+    const on = String(row.short_expiring_on ?? '');
+    const minutes = positive(row.short_expiring_minutes);
+    if (!DATE_RE.test(on) || minutes <= 0) continue;
+    const userId = String(row.user_id ?? '');
+    if (!userId || people.has(userId)) continue;
+    people.add(userId);
+
+    const key = `hours_expiring:${on}`;
+    const address = String(row.email ?? '').trim();
+    let skip: EveEmailSkip | null = null;
+    if (!address) skip = 'no_address';
+    else if (row.unsubscribed !== false) skip = 'unsubscribed';
+    else if (!relayVerified && isApplePrivateRelayAddress(address)) skip = 'apple_relay_domain_unverified';
+    else if ((row.sent_keys ?? []).includes(key)) skip = 'already_sent';
+    else if (addresses.has(address.toLowerCase())) skip = 'address_superseded';
+    if (skip) email_skipped[skip] += 1;
+    else addresses.add(address.toLowerCase());
+
+    const push = !insideQuietHours(input.now, row.timezone);
+    if (!push) quiet += 1;
+
+    notices.push({
+      user_id: userId,
+      email: skip ? null : address,
+      email_skip: skip,
+      lang: normalizeTouristLang(row.language),
+      language: row.language ?? null,
+      expires_on: on,
+      minutes,
+      dedupe_key: key,
+      push,
+    });
+  }
+  return { notices, candidates: input.rows.length, email_skipped, quiet_hours: quiet };
+}
+
+export type EvePushOutcome = 'sent' | 'denied' | 'not_delivered' | 'failed';
+
+export interface EveDeps {
+  claimEmail: (n: EveNotice) => Promise<LifecycleClaimVerdict>;
+  claimPush: (n: EveNotice) => Promise<LifecycleClaimVerdict>;
+  /** `true` when `send-transactional` accepted the e-mail. */
+  sendEmail: (n: EveNotice) => Promise<boolean>;
+  sendPush: (n: EveNotice) => Promise<EvePushOutcome>;
+  sleep: (ms: number) => Promise<void>;
+  now: () => number;
+}
+
+export interface EveLimits {
+  /** People whose notice makes a call to another function in one run; the rest come back next run. */
+  maxSending: number;
+  /** Between two such people. */
+  minIntervalMs: number;
+}
+
+/**
+ * Each person costs up to two calls to other functions (`send-transactional`, the push), and
+ * Supabase gives a run 30 such calls per 60 s (https://supabase.com/docs/guides/functions/recursive-functions).
+ * One person every 4.2 s is at most 28.6 calls a minute; 25 people end inside 110 s. The row stays
+ * due until the local midnight, so whoever did not fit is served by the next hourly run.
+ */
+export const EVE_LIMITS: EveLimits = { maxSending: 25, minIntervalMs: 4200 };
+
+export interface EveReport {
+  candidates: number;
+  notices: number;
+  email: { sent: number; failed: number; already_claimed: number; claim_failed: number };
+  push: Record<EvePushOutcome, number> & { already_claimed: number; claim_failed: number };
+  email_skipped: Record<EveEmailSkip, number>;
+  quiet_hours: number;
+  /** Not claimed in this run because of `maxSending`. */
+  deferred: number;
+}
+
+async function verdictOf(claim: () => Promise<LifecycleClaimVerdict>): Promise<LifecycleClaimVerdict> {
+  try {
+    return await claim();
+  } catch {
+    return 'claim_failed';
+  }
+}
+
+/** Claims, then sends what it claimed. Never throws. */
+export async function runEveNotices(plan: EvePlan, deps: EveDeps, limits: EveLimits = EVE_LIMITS): Promise<EveReport> {
+  const report: EveReport = {
+    candidates: plan.candidates,
+    notices: plan.notices.length,
+    email: { sent: 0, failed: 0, already_claimed: 0, claim_failed: 0 },
+    push: { sent: 0, denied: 0, not_delivered: 0, failed: 0, already_claimed: 0, claim_failed: 0 },
+    email_skipped: { ...plan.email_skipped },
+    quiet_hours: plan.quiet_hours,
+    deferred: 0,
+  };
+  let sending = 0;
+  let nextAt = 0;
+  for (const notice of plan.notices) {
+    if (!notice.email && !notice.push) continue;
+    if (sending >= limits.maxSending) {
+      report.deferred += 1;
+      continue;
+    }
+    const push = notice.push ? await verdictOf(() => deps.claimPush(notice)) : null;
+    const email = notice.email ? await verdictOf(() => deps.claimEmail(notice)) : null;
+    if (push === 'already_claimed') report.push.already_claimed += 1;
+    if (push === 'claim_failed') report.push.claim_failed += 1;
+    if (email === 'already_claimed') report.email.already_claimed += 1;
+    if (email === 'claim_failed') report.email.claim_failed += 1;
+    if (push !== 'reserved' && email !== 'reserved') continue;
+
+    sending += 1;
+    const wait = nextAt - deps.now();
+    if (wait > 0) await deps.sleep(wait);
+    nextAt = deps.now() + limits.minIntervalMs;
+
+    if (email === 'reserved') {
+      let ok = false;
+      try {
+        ok = await deps.sendEmail(notice);
+      } catch {
+        ok = false;
+      }
+      report.email[ok ? 'sent' : 'failed'] += 1;
+    }
+    if (push === 'reserved') {
+      let outcome: EvePushOutcome = 'failed';
+      try {
+        outcome = await deps.sendPush(notice);
+      } catch {
+        outcome = 'failed';
+      }
+      report.push[outcome] += 1;
+    }
+  }
+  return report;
 }

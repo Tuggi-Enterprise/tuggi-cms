@@ -165,7 +165,12 @@ const HOURS_EARNED = {
   },
 } satisfies Record<string, Copy>;
 
-/** §3.3 — the spec publishes the plural only; the selection sends it at 3 days (and never at 1). */
+/**
+ * §3.3 — the spec publishes the plural only; the selection sends it at 3 days (and never at 1).
+ * `subject_eve` is the eve of a short concession (BR-COMUNICACAO-019 3.h.2, #1231): the title of
+ * the eve push in `docs/design/copy/voz-do-push-2026-11.md` §3.1 (pt, en; fr with the e-mail's
+ * "heures gratuites"); es and it are the dev's, provisional until the `copy` reviews them.
+ */
 const HOURS_EXPIRING = {
   subject: {
     pt: 'Suas horas grátis vencem em {{count}} dias',
@@ -173,6 +178,13 @@ const HOURS_EXPIRING = {
     es: 'Tus horas gratis vencen en {{count}} días',
     fr: 'Tes heures gratuites expirent dans {{count}} jours',
     it: 'Le tue ore gratuite scadono tra {{count}} giorni',
+  },
+  subject_eve: {
+    pt: 'Suas horas grátis vencem amanhã',
+    en: 'Your free hours expire tomorrow',
+    es: 'Tus horas gratis vencen mañana',
+    fr: 'Tes heures gratuites expirent demain',
+    it: 'Le tue ore gratuite scadono domani',
   },
   preheader: {
     pt: 'Ainda dá tempo de usar {{duration}}.',
@@ -310,6 +322,8 @@ export interface TouristEmailData {
   /** reengagement_7: the balance, shown only when > 0. */
   balance_minutes?: number | null;
   timezone?: string | null;
+  /** hours_expiring: the eve of a short concession (BR-COMUNICACAO-019 3.h.2): "tomorrow", no count. */
+  eve?: boolean;
 }
 
 export interface RenderedTouristEmail {
@@ -368,6 +382,12 @@ export function renderTouristEmail(
     );
     // Without an expiry (coupon, cms, partner never expire) the validity line leaves.
     if (date) body.push(fill(HOURS_EARNED.validity[lang], vars));
+  } else if (type === 'tourist_hours_expiring' && data.eve === true) {
+    // 3.h.2.f: how much expires and that it expires tomorrow; the date is the local expiry day.
+    if (!duration || !date) return null;
+    subject = HOURS_EXPIRING.subject_eve[lang];
+    preheader = fill(HOURS_EXPIRING.preheader[lang], vars);
+    body.push(fill(HOURS_EXPIRING.paragraph[lang], vars));
   } else if (type === 'tourist_hours_expiring') {
     const count = daysUntil(data.expires_at, now);
     // Plural only (spec §3.3), and an expiry already past is not a warning.

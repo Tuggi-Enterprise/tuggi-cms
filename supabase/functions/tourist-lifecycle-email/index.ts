@@ -8,6 +8,11 @@
 //   POST /run   { dry_run?: boolean }   [admin or machine key]
 //               DRY RUN IS THE DEFAULT: only `"dry_run": false` sends. A dry run reads the
 //               candidates and answers who WOULD receive what, and reserves nothing.
+//   POST /eve   { dry_run?: boolean }   [admin or machine key], hourly (#1231)
+//               The eve of a short concession's expiry, e-mail AND push (BR-COMUNICACAO-019
+//               3.h.2, BR-MONETIZACAO-086 6.b): the rows with `short_expiring_on`, using the app
+//               or not. Same dry-run default. The push goes to `firebase-push-notification/send`
+//               with the kind `hours_expiring`; the policy is `planEveNotices`/`runEveNotices`.
 //   GET  /health                        [public]
 //
 // The database gives FACTS (`marketing.get_tourist_lifecycle_email_candidates`) and the proof of
@@ -23,11 +28,17 @@
 
 import { requireAdmin } from '../_shared/auth-middleware.ts';
 import { getSecretKey } from '../_shared/secret-key.ts';
+import { hoursExpiringSendBody } from '../_shared/hours-expiring-push.ts';
+import { singleGateOutcome } from '../_shared/push-gate.ts';
 import {
   claimTouristLifecycleEmails,
   countByType,
   lifecycleAuditLine,
+  planEveNotices,
   planTouristLifecycleEmails,
+  runEveNotices,
+  type EveNotice,
+  type EvePushOutcome,
   type LifecycleCandidateRow,
   type LifecycleClaimVerdict,
   type LifecycleRecipient,
@@ -61,16 +72,16 @@ interface Ctx {
   key: string;
 }
 
-/** A `marketing` RPC over PostgREST. Throws a typed code, never the body (it may carry PII). */
-async function rpc<T>(ctx: Ctx, fn: string, args: Record<string, unknown>): Promise<T> {
+/** An RPC over PostgREST (`marketing` unless told). Throws a typed code, never the body (it may carry PII). */
+async function rpc<T>(ctx: Ctx, fn: string, args: Record<string, unknown>, schema = 'marketing'): Promise<T> {
   const res = await fetch(`${ctx.url}/rest/v1/rpc/${fn}`, {
     method: 'POST',
     headers: {
       apikey: ctx.key,
       Authorization: `Bearer ${ctx.key}`,
       'Content-Type': 'application/json',
-      'Content-Profile': 'marketing',
-      'Accept-Profile': 'marketing',
+      'Content-Profile': schema,
+      'Accept-Profile': schema,
     },
     body: JSON.stringify(args),
   });
@@ -85,6 +96,89 @@ async function rpc<T>(ctx: Ctx, fn: string, args: Record<string, unknown>): Prom
     throw new Error(`${fn}:${code}`);
   }
   return (await res.json()) as T;
+}
+
+const verdict = (reserved: unknown): LifecycleClaimVerdict =>
+  reserved === true ? 'reserved' : reserved === false ? 'already_claimed' : 'claim_failed';
+
+const sleepFor = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/** The eve run (#1231): e-mail through `send-transactional`, push through `firebase-push-notification`. */
+async function runEve(ctx: Ctx, rows: LifecycleCandidateRow[], dryRun: boolean, requestId: string): Promise<Response> {
+  const plan = planEveNotices({
+    rows,
+    now: new Date(),
+    relayDomainVerifiedRaw: Deno.env.get('APPLE_PRIVATE_RELAY_DOMAIN_VERIFIED'),
+  });
+  if (dryRun) {
+    console.log(`[${requestId}] eve notice: dry_run notices=${plan.notices.length} quiet_hours=${plan.quiet_hours}`);
+    return json({
+      dry_run: true,
+      would_notify: plan.notices.map((n) => ({
+        user_id: n.user_id,
+        expires_on: n.expires_on,
+        email: n.email !== null,
+        push: n.push,
+      })),
+      email_skipped: plan.email_skipped,
+      quiet_hours: plan.quiet_hours,
+      candidates: plan.candidates,
+    });
+  }
+
+  const report = await runEveNotices(plan, {
+    claimEmail: async (n: EveNotice) =>
+      verdict(
+        await rpc<unknown>(ctx, CLAIM_RPC, {
+          p_user_id: n.user_id,
+          p_kind: 'tourist_hours_expiring',
+          p_dedupe_key: n.dedupe_key,
+        })
+      ),
+    claimPush: async (n: EveNotice) =>
+      verdict(
+        await rpc<unknown>(ctx, 'claim_hours_expiring_push', { p_user_id: n.user_id, p_expires_on: n.expires_on }, 'drive')
+      ),
+    sendEmail: async (n: EveNotice) => {
+      const res = await fetch(`${ctx.url}/functions/v1/send-transactional/send`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${ctx.key}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'tourist_hours_expiring',
+          to: n.email,
+          lang: n.lang,
+          // The local expiry DATE, at noon UTC and read in UTC, so the long date is that day.
+          data: { minutes: n.minutes, expires_at: `${n.expires_on}T12:00:00.000Z`, timezone: 'UTC', eve: true },
+        }),
+      });
+      return res.ok;
+    },
+    sendPush: async (n: EveNotice): Promise<EvePushOutcome> => {
+      const body = hoursExpiringSendBody(n.user_id, n.language, n.minutes);
+      if (!body) return 'failed';
+      const res = await fetch(`${ctx.url}/functions/v1/firebase-push-notification/send`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${ctx.key}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) return 'failed';
+      switch (singleGateOutcome(await res.json().catch(() => null))) {
+        case 'sent':
+          return 'sent';
+        case 'denied':
+        case 'inactive':
+          return 'denied';
+        case 'not_delivered':
+          return 'not_delivered';
+        default:
+          return 'failed';
+      }
+    },
+    sleep: sleepFor,
+    now: () => Date.now(),
+  });
+  console.log(`[${requestId}] eve notice: ${JSON.stringify(report)}`);
+  return json({ dry_run: false, ...report });
 }
 
 async function claim(ctx: Ctx, r: LifecycleRecipient): Promise<LifecycleClaimVerdict> {
@@ -111,7 +205,7 @@ Deno.serve(async (req: Request) => {
     return auth;
   }
 
-  if (path !== '/run' || req.method !== 'POST') return json({ error: 'not_found' }, 404);
+  if ((path !== '/run' && path !== '/eve') || req.method !== 'POST') return json({ error: 'not_found' }, 404);
 
   const body = await req.json().catch(() => ({}));
   if (body !== null && typeof body !== 'object') return json({ error: 'invalid_body' }, 400);
@@ -132,6 +226,8 @@ Deno.serve(async (req: Request) => {
     console.error(`[${requestId}] candidates unavailable: ${(e as Error).message}`);
     return json({ error: 'candidates_unavailable', detail: (e as Error).message }, 503);
   }
+
+  if (path === '/eve') return runEve(ctx, rows, dryRun, requestId);
 
   const plan = planTouristLifecycleEmails({
     rows,

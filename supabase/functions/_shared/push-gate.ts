@@ -35,7 +35,8 @@ export type PushKind =
   | 'route_revision'
   | 'account_welcome'
   | 'caravan_joined'
-  | 'hours_gifted';
+  | 'hours_gifted'
+  | 'hours_expiring';
 
 export interface PushKindPolicy {
   /**
@@ -108,6 +109,10 @@ export const PUSH_KINDS: Readonly<Record<PushKind, PushKindPolicy>> = {
   // hours, consent only. The Correio row is written with push on or off, before the gate, by the
   // sender: `firebase-push-notification/account-welcome` (`_shared/account-welcome-push.ts`).
   account_welcome: { requested: false, requiresActive: false, vacancyPriority: 4, outsideCaps: true, inboxAlways: true },
+  // Item 3.h.2 (#1231): the eve of the expiry of a short concession, using the app or not. Outside
+  // every cap (3.h.2.e), consent only; the quiet hours are applied by the sender
+  // (`_shared/tourist-lifecycle-email.ts`, `planEveNotices`). Sender: `tourist-lifecycle-email/eve`.
+  hours_expiring: { requested: false, requiresActive: false, vacancyPriority: 4, outsideCaps: true },
 };
 
 /** `null` for anything that is not a known kind: an unknown kind is refused, never defaulted. */

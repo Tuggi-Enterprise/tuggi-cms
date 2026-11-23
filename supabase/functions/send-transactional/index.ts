@@ -467,6 +467,7 @@ async function renderTourist(
     nickname: typeof data.nickname === 'string' ? data.nickname.slice(0, 40) : null,
     balance_minutes: typeof data.balance_minutes === 'number' ? data.balance_minutes : null,
     timezone: typeof data.timezone === 'string' ? data.timezone : null,
+    eve: data.eve === true,
   });
   if (!rendered) return null;
 
