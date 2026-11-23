@@ -14,6 +14,11 @@
  * - the phone goes down the ladder of `message-channels.ts`; with the channel unknown (confirmation
  *   off) the first reminder discovers it.
  *
+ * Phase 2 (#1238, BR-MONETIZACAO-091 items 2.a, 5 and 9): every trip has its own reminders, so an
+ * account with two trips gets two, each speaking of the hours credited to that trip. Hours are named
+ * only when the payload carries `trip_hours` (the credit happened); a trip that got no hours, inside
+ * the interval or overlapping a credited one, gets the reminder without any hours line.
+ *
  * The tap opens `tuggi://map`. BR-COMUNICACAO-023 item 6 says the trip card, but the app has no link
  * to the card; the map is where the `copy` sends it (voz-do-push §3.7, amendment 4 to the `produto`).
  *
@@ -50,7 +55,13 @@ export interface DueReminder {
   push: boolean;
   email: string | null;
   phone: { phone_e164: string; channel: string | null; delivery_state: string | null; message_channels: string[] } | null;
+  /** The grant of this trip, first reminder only. The one source of the amount a message says. */
   trip_hours: { minutes: number; expires_at: string } | null;
+  /**
+   * The length band (#1237). No message reads it, and the amount is never derived from it: the CMS
+   * value of a band can change after the credit, `trip_hours` is what was granted.
+   */
+  duration_band?: 'short' | 'week' | 'long' | null;
 }
 
 export interface EmailConfig {

@@ -1,7 +1,8 @@
 /**
  * #1231, BR-COMUNICACAO-023: the trip reminder (`_shared/trip-reminder.ts`, `trip-reminder`), its
  * e-mail stop link of scope `trip_reminder`, the copy of the push and the e-mail, and the CMS "send a
- * test to me" (`trip-message-test`). Providers and the database are simulated.
+ * test to me" (`trip-message-test`). #1238: one reminder per trip, with that trip's hours or none.
+ * Providers and the database are simulated.
  */
 import { assert, assertEquals } from './assert.ts';
 import { fetchCalls, loadHandler, network, scenario } from './harness.ts';
@@ -9,6 +10,8 @@ import { PUSH_KINDS } from '../_shared/push-gate.ts';
 import {
   PUSH_BODY_MAX,
   PUSH_TITLE_MAX,
+  TRIP_EMAIL_COPY,
+  TRIP_PUSH_COPY,
   safeCity,
   tripReminderEmail,
   tripReminderPush,
@@ -169,8 +172,74 @@ Deno.test('BR-COMUNICACAO-023 item 6: with a month only, the day reminder does n
   const push = (f.pushes[0] as { notification: { title: string; body: string } }).notification;
   assertEquals(push.title, 'Sua viagem é este mês');
   const mail = f.mails[0] as { text: string; subject: string };
+  assertEquals(mail.subject, 'Sua viagem é este mês');
   assert(!/hoje/i.test(mail.text), 'the month e-mail says today');
   assert(mail.text.includes('fevereiro de 2027'), 'the detail line lost the month');
+});
+
+Deno.test('#1238 BR-COMUNICACAO-023 item 6: a month-only trip is reminded on day 1, so no language titles that e-mail "have a great trip"', () => {
+  const month: TripFacts = { ...BEFORE, piece: 'trip_reminder_day', date_precision: 'month', trip_date: '2027-02-01', trip_hours: null, balance_minutes: 90 };
+  for (const lang of ['pt', 'en', 'es', 'fr', 'it'] as const) {
+    for (const balance_minutes of [90, 0]) {
+      const subject = tripReminderEmail({ ...month, balance_minutes }, lang, NOW)?.subject;
+      assertEquals(subject, TRIP_PUSH_COPY.month_title[lang]);
+      assert(subject !== TRIP_EMAIL_COPY.day_subject[lang], `${lang}: ${subject}`);
+    }
+  }
+  assertEquals(tripReminderEmail({ ...month, balance_minutes: 0 }, 'en', NOW)?.subject, 'Your trip is this month');
+  // A trip with a day keeps the greeting of the day.
+  assertEquals(tripReminderEmail({ ...month, date_precision: 'day', trip_date: '2027-01-05' }, 'pt', NOW)?.subject, 'Boa viagem');
+});
+
+Deno.test('#1238 BR-MONETIZACAO-091 items 2.a and 9: two trips of one account get one reminder each, each naming the hours credited to that trip', async () => {
+  // The bands are deliberately off (week with 1 h): the message follows the grant, never the band.
+  const first: DueReminder = { ...BEFORE, duration_band: 'week' };
+  const second: DueReminder = {
+    ...BEFORE,
+    trip_id: 'trip-2',
+    trip_date: '2027-01-08',
+    destination: { city: 'Paraty', country_code: 'BR' },
+    duration_band: 'long',
+    trip_hours: { minutes: 180, expires_at: '2027-03-06T13:00:00Z' },
+    phone: null,
+  };
+  const f = fakeDeps({ reminders: [first, second] });
+  const report = await runTripReminders(f.deps);
+  assertEquals([report.claimed, report.push.sent, report.email.sent], [2, 2, 2]);
+  const pushes = f.pushes.map((p) => {
+    const { title, body } = (p as { notification: { title: string; body: string } }).notification;
+    return { title, body };
+  });
+  assertEquals(pushes, [
+    { title: 'Lisboa está chegando', body: 'Você ganhou 1 h de guia para a viagem, já no seu saldo. Vale até 6 de março.' },
+    { title: 'Paraty está chegando', body: 'Você ganhou 3 h de guia para a viagem, já no seu saldo. Vale até 6 de março.' },
+  ]);
+  const texts = f.mails.map((m) => (m as { text: string }).text);
+  assert(texts[0].includes('você ganhou 1 h de guia para ela'), texts[0]);
+  assert(texts[1].includes('daqui a 3 dias, e você ganhou 3 h de guia para ela'), texts[1]);
+  assertEquals(
+    f.recorded().map((r) => [r.p_channel, r.p_trip_id]),
+    [
+      ['push', 'trip-1'],
+      ['email', 'trip-1'],
+      ['whatsapp', 'trip-1'],
+      ['push', 'trip-2'],
+      ['email', 'trip-2'],
+    ]
+  );
+});
+
+Deno.test('#1238 BR-MONETIZACAO-091 item 5 and ceiling: a trip that got no hours (interval, or overlapping a credited trip) is reminded without any hours line', async () => {
+  const f = fakeDeps({ reminders: [{ ...BEFORE, duration_band: 'long', trip_hours: null, phone: null }] });
+  const report = await runTripReminders(f.deps);
+  assertEquals([report.push.sent, report.email.sent], [1, 1]);
+  const push = (f.pushes[0] as { notification: { title: string; body: string } }).notification;
+  assertEquals(push.title, 'Lisboa daqui a 7 dias');
+  const mail = f.mails[0] as { subject: string; text: string };
+  assertEquals(mail.subject, 'Sua viagem é daqui a 7 dias');
+  for (const text of [push.title, push.body, mail.subject, mail.text]) {
+    assert(!/ganhou|de guia|\d+\s?h\b|\d+\s?min\b/i.test(text), text);
+  }
 });
 
 Deno.test('BR-COMUNICACAO-020 item 7: a relay address before the domain is verified is recorded, not mailed', async () => {

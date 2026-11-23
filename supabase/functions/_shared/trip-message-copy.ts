@@ -13,7 +13,7 @@
  * - e-mail: §9.b (five languages; a German reader gets English, BR-COMUNICACAO-020 item 6).
  * - SMS: §9.d. WhatsApp: the parameters of the models of §9.c; the text is Meta's, by model name.
  * - The month-only body of the e-mail day reminder (023 item 6: with a month only, the day reminder
- *   does not say "today") is the `copy`'s, 2026-11-23.
+ *   does not say "today") is the `copy`'s, 2026-11-23. Its subject is the push month title (#1238).
  * - M2 (#1236, 2026-11-23): nothing in the app speaks of trip hours before the credit, so this reminder
  *   is where the person learns of them. It says what was gained and until when, never "held" or
  *   "released", and never a recurrence such as "every trip" (BR-MONETIZACAO-091, ceiling).
@@ -394,8 +394,11 @@ export function tripReminderEmail(facts: TripFacts, language: unknown, now: Date
     subject = facts.date_precision === 'month' ? TRIP_PUSH_COPY.m2_title[lang] : fill(c.m3_subject[lang], { days });
     body.push(c.m3_body[lang]);
   } else {
-    subject = c.day_subject[lang];
-    body.push(facts.date_precision === 'month' ? c.day_month_body[lang] : c.day_body[lang]);
+    // A month-only trip is reminded on day 1, which is not the day of the trip: no "Have a great trip"
+    // in the subject, the push month title instead (#1238).
+    const month = facts.date_precision === 'month';
+    subject = month ? TRIP_PUSH_COPY.month_title[lang] : c.day_subject[lang];
+    body.push(month ? c.day_month_body[lang] : c.day_body[lang]);
     const balance = formatDuration(facts.balance_minutes);
     if (piece === 'M4' && balance) body.push(fill(c.balance[lang], { balance }));
   }
