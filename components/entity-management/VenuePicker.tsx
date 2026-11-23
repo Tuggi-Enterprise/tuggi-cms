@@ -3,7 +3,7 @@
 /**
  * VenuePicker — autocomplete of the host of an Event: a POI or a place (#1242).
  *
- * The database guard `core.tg_event_venue_must_be_poi` accepts `entity_kind in ('poi','place')`
+ * The database guard `core.tg_event_venue_must_be_poi_or_place` (db-tuggiApp 20261123230000) accepts `entity_kind in ('poi','place')`
  * for `core.event_details.venue_attraction_id` (operator decision, 2026-11-23). So the picker
  * asks the two production searches that already exist, side by side, and tags each row with its
  * kind: `poiService.search` (`cms_list_pois`, POIs only) and `placeService.list`
