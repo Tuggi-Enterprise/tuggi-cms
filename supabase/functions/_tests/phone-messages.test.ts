@@ -202,7 +202,7 @@ Deno.test('security-reviewer #1230 condition 2: the phone messages carry numbers
   const { lang, vars } = phoneVars(FACTS, 'pt-BR', now);
   assertEquals(whatsappParameters('M2', vars), ['7 dias', '1 h', '6 de março']);
   const sms = smsText('M2', lang, vars) ?? '';
-  assertEquals(sms, 'Tuggi: liberamos 1 h na sua carteira para a viagem, com validade até 06/03. Para sair, responda STOP.');
+  assertEquals(sms, 'Tuggi: colocamos 1 h de guia no seu saldo para a viagem, com validade até 06/03. Para sair, responda STOP.');
   for (const text of [sms, ...(whatsappParameters('M2', vars) ?? [])]) assert(!text.includes('Lisboa'), text);
   assertEquals(whatsappParameters('M4', {}), null, 'a missing balance is a refusal, not an empty parameter');
 });

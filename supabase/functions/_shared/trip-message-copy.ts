@@ -14,6 +14,9 @@
  * - SMS: §9.d. WhatsApp: the parameters of the models of §9.c; the text is Meta's, by model name.
  * - The month-only body of the e-mail day reminder (023 item 6: with a month only, the day reminder
  *   does not say "today") is the `copy`'s, 2026-11-23.
+ * - M2 (#1236, 2026-11-23): nothing in the app speaks of trip hours before the credit, so this reminder
+ *   is where the person learns of them. It says what was gained and until when, never "held" or
+ *   "released", and never a recurrence such as "every trip" (BR-MONETIZACAO-091, ceiling).
  *
  * What the copy may say (023, ceiling): the date, the destination when given, and in the first
  * reminder the trip hours and until when they are valid. No welcome hours, no tip about the
@@ -158,12 +161,12 @@ export const TRIP_PUSH_COPY = {
     de: 'Deine Reise rückt näher',
   },
   m2_body: {
-    pt: '+{{trip_hours}} da viagem já no seu saldo. Vale até {{date}}.',
-    en: '+{{trip_hours}} for the trip, already in your balance. Valid until {{date}}.',
-    es: '+{{trip_hours}} para el viaje, ya en tu saldo, con validez hasta el {{date}}.',
-    fr: "+{{trip_hours}} pour le voyage, déjà dans ton solde. Valable jusqu'au {{date}}.",
-    it: '+{{trip_hours}} per il viaggio, già nel tuo saldo. Da usare entro il {{date}}.',
-    de: '+{{trip_hours}} für die Reise, schon in deinem Guthaben. Gültig bis zum {{date}}.',
+    pt: 'Você ganhou {{trip_hours}} de guia para a viagem, já no seu saldo. Vale até {{date}}.',
+    en: 'You got {{trip_hours}} of guide time for the trip, already in your balance. Valid until {{date}}.',
+    es: 'Ganaste {{trip_hours}} de guía para el viaje, ya en tu saldo, con validez hasta el {{date}}.',
+    fr: "Tu as gagné {{trip_hours}} de guide pour le voyage, déjà dans ton solde, à utiliser jusqu'au {{date}}.",
+    it: 'Hai ricevuto {{trip_hours}} di guida per il viaggio, già nel tuo saldo. Da usare entro il {{date}}.',
+    de: 'Du hast {{trip_hours}} Guide für die Reise bekommen, schon in deinem Guthaben. Gültig bis zum {{date}}.',
   },
   m3_title_destination: {
     pt: '{{destination}} daqui a {{days}}',
@@ -286,18 +289,18 @@ type Five = Record<TouristEmailLang, string>;
 export const TRIP_EMAIL_COPY = {
   greeting: { pt: 'Olá,', en: 'Hi,', es: 'Hola,', fr: 'Bonjour,', it: 'Ciao,' },
   m2_subject: {
-    pt: 'Liberamos as horas da sua viagem',
-    en: 'Your trip hours are ready',
-    es: 'Ya liberamos las horas de tu viaje',
-    fr: 'Les heures de ton voyage sont prêtes',
-    it: 'Le ore del tuo viaggio sono pronte',
+    pt: 'Você ganhou horas de guia para a viagem',
+    en: 'You got guide hours for your trip',
+    es: 'Ganaste horas de guía para tu viaje',
+    fr: 'Tu as gagné des heures de guide pour ton voyage',
+    it: 'Hai ricevuto ore di guida per il tuo viaggio',
   },
   m2_body: {
-    pt: 'Sua viagem é daqui a {{days}}. Liberamos {{trip_hours}} na sua carteira do Tuggi, com validade até {{valid_until}}.',
-    en: "Your trip is in {{days}}. We've released {{trip_hours}} to your Tuggi wallet, valid until {{valid_until}}.",
-    es: 'Tu viaje es dentro de {{days}}. Liberamos {{trip_hours}} en tu cartera de Tuggi, con validez hasta el {{valid_until}}.',
-    fr: "Ton voyage, c'est dans {{days}}. On a libéré {{trip_hours}} dans ton portefeuille Tuggi, avec une validité jusqu'au {{valid_until}}.",
-    it: 'Il tuo viaggio è tra {{days}}. Abbiamo liberato {{trip_hours}} nel tuo portafoglio Tuggi, con validità fino al {{valid_until}}.',
+    pt: 'Sua viagem é daqui a {{days}}, e você ganhou {{trip_hours}} de guia para ela, já no seu saldo do Tuggi e com validade até {{valid_until}}.',
+    en: 'Your trip is in {{days}}, and you got {{trip_hours}} of guide time for it, already in your Tuggi balance and valid until {{valid_until}}.',
+    es: 'Tu viaje es dentro de {{days}}, y ganaste {{trip_hours}} de guía para él, ya en tu saldo de Tuggi y con validez hasta el {{valid_until}}.',
+    fr: "Ton voyage, c'est dans {{days}}. Tu as gagné {{trip_hours}} de guide pour ce voyage, déjà dans ton solde Tuggi, à utiliser jusqu'au {{valid_until}}.",
+    it: 'Il tuo viaggio è tra {{days}}. Per questo viaggio hai ricevuto {{trip_hours}} di guida, già nel tuo saldo Tuggi e da usare entro il {{valid_until}}.',
   },
   m3_subject: {
     pt: 'Sua viagem é daqui a {{days}}',
@@ -421,12 +424,12 @@ export const TRIP_SMS_COPY = {
     de: 'Tuggi: Alles klar, wir erinnern dich per SMS an deine Reise. Abmelden: STOP antworten.',
   },
   M2: {
-    pt: 'Tuggi: liberamos {{trip_hours}} na sua carteira para a viagem, com validade até {{valid_until}}. Para sair, responda STOP.',
-    en: "Tuggi: we've released {{trip_hours}} to your wallet for your trip, valid until {{valid_until}}. Reply STOP to cancel.",
-    es: 'Tuggi: liberamos {{trip_hours}} en tu cartera para el viaje, con validez hasta el {{valid_until}}. Para salir, responde STOP.',
-    fr: "Tuggi : on a libéré {{trip_hours}} dans ton portefeuille pour le voyage, à utiliser jusqu'au {{valid_until}}. Pour te désinscrire, réponds STOP.",
-    it: 'Tuggi: abbiamo liberato {{trip_hours}} nel tuo portafoglio per il viaggio, da usare entro il {{valid_until}}. Per non ricevere più messaggi, rispondi STOP.',
-    de: 'Tuggi: Wir haben {{trip_hours}} für deine Reise in dein Guthaben gelegt, gültig bis {{valid_until}}. Abmelden: STOP antworten.',
+    pt: 'Tuggi: colocamos {{trip_hours}} de guia no seu saldo para a viagem, com validade até {{valid_until}}. Para sair, responda STOP.',
+    en: 'Tuggi: you got {{trip_hours}} of guide time for your trip, in your balance until {{valid_until}}. Reply STOP to cancel.',
+    es: 'Tuggi: ganaste {{trip_hours}} para el viaje, ya en tu saldo hasta el {{valid_until}}. Para salir, responde STOP.',
+    fr: "Tuggi : tu as gagné {{trip_hours}} de guide pour le voyage, à utiliser jusqu'au {{valid_until}}. Pour te désinscrire, réponds STOP.",
+    it: 'Tuggi: hai ricevuto {{trip_hours}} di guida per il viaggio, da usare entro il {{valid_until}}. Per non ricevere più messaggi, rispondi STOP.',
+    de: 'Tuggi: Du hast {{trip_hours}} Guide für deine Reise bekommen, gültig bis {{valid_until}}. Abmelden: STOP antworten.',
   },
   M3: {
     pt: 'Tuggi: lembrete da sua viagem marcada, daqui a {{days}}. Para sair, responda STOP.',

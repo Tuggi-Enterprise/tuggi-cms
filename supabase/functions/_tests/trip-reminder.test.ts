@@ -111,7 +111,7 @@ Deno.test('BR-COMUNICACAO-016 and 019 3.s: the reminder push declares `trip_remi
   assertEquals(push.userIds, [USER]);
   assertEquals(push.notification.data, { type: 'trip_reminder', deeplink: 'tuggi://map', piece: 'trip_reminder_before', variant: 'a' });
   assertEquals(push.notification.title, 'Lisboa está chegando');
-  assertEquals(push.notification.body, '+1 h da viagem já no seu saldo. Vale até 6 de março.');
+  assertEquals(push.notification.body, 'Você ganhou 1 h de guia para a viagem, já no seu saldo. Vale até 6 de março.');
   assertEquals(PUSH_KINDS.trip_reminder, { requested: true, requiresActive: false, vacancyPriority: 4, outsideCaps: true });
 });
 
@@ -185,7 +185,7 @@ Deno.test('copy §9.b: the reminder e-mail stops by its own signed link, scope t
   await runTripReminders(f.deps);
   const mail = f.mails[0] as { to: string[]; subject: string; html: string; text: string; headers: Record<string, string> };
   assertEquals(mail.to, ['ana@example.com']);
-  assertEquals(mail.subject, 'Liberamos as horas da sua viagem');
+  assertEquals(mail.subject, 'Você ganhou horas de guia para a viagem');
   const link = mail.headers['List-Unsubscribe'].slice(1, -1);
   assert(link.startsWith('https://p.supabase.co/functions/v1/trip-reminder/stop?'), link);
   assertEquals(mail.headers['List-Unsubscribe-Post'], 'List-Unsubscribe=One-Click');
@@ -246,7 +246,7 @@ Deno.test('BR-COMUNICACAO-023 item 6: the first reminder says until when the tri
     assert(push && /6|mar/i.test(push.body), `${lang}: ${push?.body}`);
   }
   const mail = tripReminderEmail({ ...BEFORE, balance_minutes: null }, 'en', NOW);
-  assertEquals(mail?.paragraphs[1], "Your trip is in 7 days. We've released 1 h to your Tuggi wallet, valid until March 6.");
+  assertEquals(mail?.paragraphs[1], 'Your trip is in 7 days, and you got 1 h of guide time for it, already in your Tuggi balance and valid until March 6.');
 });
 
 Deno.test('a destination that is not a name is dropped, never the message', () => {
