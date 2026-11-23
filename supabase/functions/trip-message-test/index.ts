@@ -5,14 +5,17 @@
  *   POST { piece: 'phone_confirmation' | 'trip_reminder_before' | 'trip_reminder_day',
  *          channel: 'push' | 'email' | 'whatsapp' | 'sms' }
  *   Authorization: Bearer <the access token of the admin signed in to the CMS>
+ *   x-cms-job-secret: <CMS_JOB_SECRET>, the secret the CMS server and the functions share
  *   -> 200 { ok, channel, error_code? }   the attempt was made (or refused for a reason in error_code)
  *   -> 400 { ok: false, error_code: 'invalid_body' }
- *   -> 401 / 403 { ok: false }            no user / not an active admin of core.cms_users
+ *   -> 401 / 403 { ok: false }            no job secret or no user / not an active admin of core.cms_users
  *
  * The message goes to the e-mail and to `core.cms_users.phone` of that admin, never to an address in
  * the body, and is recorded with `p_piece = 'test'`. The work is `_shared/trip-message-test.ts`.
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { constantTimeEqual } from '../_shared/constant-time.ts';
+import { CMS_JOB_SECRET_HEADER } from '../_shared/places-payout.ts';
 import type { DriveRpc } from '../_shared/push-gate.ts';
 import { createPushSender } from '../_shared/push-send.ts';
 import { getSecretKey } from '../_shared/secret-key.ts';
@@ -26,6 +29,11 @@ const env = (name: string) => (Deno.env.get(name) ?? '').trim();
 
 Deno.serve(async (req: Request) => {
   if (req.method !== 'POST') return json({ ok: false, error_code: 'method_not_allowed' }, 405);
+  // Only the CMS server: the shared `CMS_JOB_SECRET`, checked before the token (the pattern of the
+  // support actions of `places-payment`, #1054, which the caller of #1233 follows).
+  const expected = env('CMS_JOB_SECRET');
+  const provided = (req.headers.get(CMS_JOB_SECRET_HEADER) ?? '').trim();
+  if (!expected || !provided || !constantTimeEqual(provided, expected)) return json({ ok: false }, 401);
   const token = req.headers.get('authorization')?.replace(/^Bearer\s+/i, '').trim() ?? '';
   if (!token) return json({ ok: false }, 401);
 

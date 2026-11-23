@@ -262,6 +262,7 @@ Deno.test('a destination that is not a name is dropped, never the message', () =
 // ===============================================================================================
 
 Deno.env.set('NEWSLETTER_SECRET', SECRET);
+Deno.env.set('CMS_JOB_SECRET', 'cms-job-secret');
 const reminderHandler = await loadHandler('trip-reminder');
 const testHandler = await loadHandler('trip-message-test');
 
@@ -309,15 +310,23 @@ Deno.test('BR-COMUNICACAO-024 item 9: trip-message-test refuses whoever is not a
   const res = await testHandler(
     new Request('http://edge.test/trip-message-test', {
       method: 'POST',
-      headers: { authorization: 'Bearer admin-session', 'content-type': 'application/json' },
+      headers: { authorization: 'Bearer admin-session', 'x-cms-job-secret': 'cms-job-secret', 'content-type': 'application/json' },
       body: JSON.stringify({ piece: 'trip_reminder_before', channel: 'push' }),
     })
   );
   assertEquals(res.status, 403);
   assert(!scenario.calls.includes('rpc:record_message_send'));
   scenario.user = null;
-  const anon = await testHandler(new Request('http://edge.test/trip-message-test', { method: 'POST', headers: { authorization: 'Bearer x' } }));
+  const anon = await testHandler(
+    new Request('http://edge.test/trip-message-test', { method: 'POST', headers: { authorization: 'Bearer x', 'x-cms-job-secret': 'cms-job-secret' } })
+  );
   assertEquals(anon.status, 401);
+  // Without the CMS job secret nobody reaches the token check.
+  scenario.calls.length = 0;
+  scenario.user = { id: USER, email: 'curator@tuggi.app', is_anonymous: false };
+  const noSecret = await testHandler(new Request('http://edge.test/trip-message-test', { method: 'POST', headers: { authorization: 'Bearer admin-session' } }));
+  assertEquals(noSecret.status, 401);
+  assertEquals(scenario.calls.includes('auth:getUser'), false);
 });
 
 Deno.test('BR-COMUNICACAO-024 item 9: the test goes to the admin, is recorded as `test`, and answers ok, channel and the code', async () => {
