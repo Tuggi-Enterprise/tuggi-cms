@@ -7185,7 +7185,7 @@
       "saved_on": "{label}: ligada.",
       "saved_off": "{label}: desligada.",
       "ask_phone_on": "O app pede o celular agora.",
-      "ask_phone_off": "O app não pede o celular agora. Para pedir, ligue \"Pedir o celular\" e um canal de mensagem (WhatsApp ou SMS).",
+      "ask_phone_off": "O app não pede o celular agora. Para pedir, ligue \"Pedir o celular\".",
       "items": {
         "entry_requires_account": {
           "label": "Entrada com conta obrigatória",
@@ -7201,7 +7201,7 @@
         },
         "phone_ask": {
           "label": "Pedir o celular",
-          "hint": "Só vale com WhatsApp ou SMS ligado."
+          "hint": "Com WhatsApp e SMS desligados, o número fica guardado e nada é enviado a ele."
         },
         "phone_confirmation": {
           "label": "Confirmação ao cadastrar o celular",
@@ -7326,7 +7326,7 @@
       "with_destination": "Com destino",
       "accounts": "Contas com viagem",
       "trip_hours_credited": "Horas de viagem liberadas",
-      "trip_hours_hint": "Viagens cuja hora de viagem já foi creditada no primeiro lembrete.",
+      "trip_hours_hint": "Viagens cuja hora de viagem já foi creditada.",
       "email_stopped": "Pararam o lembrete por e-mail",
       "answers_heading": "Respostas à pergunta da próxima viagem",
       "answers": {
@@ -7334,12 +7334,20 @@
         "planned": "Tem viagem marcada",
         "unsure": "Ainda não sabe"
       },
-      "by_destination_heading": "Viagens por destino e mês",
-      "by_destination_intro": "Só contagem, nunca a pessoa. Viagem passada conta até a pessoa apagar.",
+      "by_duration_heading": "Viagens por duração",
+      "by_destination_heading": "Viagens por destino, mês e duração",
+      "by_destination_intro": "Só contagem, nunca a pessoa. Uma conta pode ter várias viagens, e cada uma conta. Viagem passada conta até a pessoa apagar.",
       "month": "Mês",
       "destination": "Destino",
+      "duration": "Duração",
+      "bands": {
+        "short": "Até 3 dias",
+        "week": "De 4 a 7 dias",
+        "long": "Mais de 7 dias"
+      },
       "no_date": "Sem data",
       "no_destination": "Sem destino",
+      "no_duration": "Sem duração",
       "contacts_heading": "Celulares por canal",
       "contacts_intro": "Quantos números cadastrados, por canal descoberto e situação. Nenhum número aparece aqui.",
       "channel": "Canal",

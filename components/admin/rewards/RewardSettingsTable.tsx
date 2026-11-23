@@ -68,7 +68,7 @@ export function RewardSettingsTable({
 
   const editing = settings.find((s) => s.key === editingKey) ?? null
   const parsed = parseRewardValue(draft)
-  const problem = editing ? validateRewardValue(parsed, editing.unit) : null
+  const problem = editing ? validateRewardValue(parsed, editing.unit, editing.key) : null
   const unchanged = editing !== null && parsed === editing.value
 
   const startEdit = (setting: RewardSetting) => {

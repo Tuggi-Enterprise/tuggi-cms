@@ -406,6 +406,96 @@ test('#1233 BR-MONETIZACAO-086 2.d and BR-MONETIZACAO-091: the numbers go to the
   assert.equal(rewards.labelOf('earned_credit.validity_days').includes('boas-vindas'), false)
 })
 
+test('#1238 BR-MONETIZACAO-091 2.a and 2.d: one amount per length band, shortest first, named; the interval alone may be 0', () => {
+  const at = { rule_id: 'BR-MONETIZACAO-091', updated_at: null }
+  const settings = lib.numbersAsRewardSettings({
+    'planned_trip.minutes_long': { value: 180, unit: 'minutes', ...at },
+    'planned_trip.interval_months': { value: 0, unit: 'months', ...at },
+    'planned_trip.minutes_week': { value: 120, unit: 'minutes', ...at },
+    'planned_trip.lead_days': { value: 3, unit: 'days', ...at },
+    'planned_trip.minutes_short': { value: 60, unit: 'minutes', ...at },
+  })
+  const order = [
+    'planned_trip.interval_months',
+    'planned_trip.lead_days',
+    'planned_trip.minutes_short',
+    'planned_trip.minutes_week',
+    'planned_trip.minutes_long',
+  ]
+  assert.deepEqual(
+    settings.map((s: { key: string; value: number }) => [s.key, s.value]),
+    order.map((key, i) => [key, [0, 3, 60, 120, 180][i]])
+  )
+  // The page of every key (`/admin/reward-settings`) reads in the same order.
+  const merged = rewards.mergeRewardReads({ settings: Object.fromEntries([...order].reverse().map((k) => [k, { value: 5, unit: 'minutes' }])) }, null)
+  assert.deepEqual(merged.settings.map((s: { key: string }) => s.key), order)
+  assert.deepEqual(
+    ['planned_trip.minutes_short', 'planned_trip.minutes_week', 'planned_trip.minutes_long'].map(rewards.labelOf),
+    ['Hora de viagem: até 3 dias', 'Hora de viagem: de 4 a 7 dias', 'Hora de viagem: mais de 7 dias']
+  )
+  // The single amount left the database in #1237: nothing names it any more.
+  assert.equal(rewards.labelOf('planned_trip.minutes'), 'planned_trip.minutes')
+  assert.equal(rewards.hintOf('planned_trip.minutes_short'), 'Vale também para a viagem sem duração informada.')
+  assert.equal(rewards.hintOf('planned_trip.interval_months'), '0 é sem intervalo: toda viagem ganha a sua hora.')
+  // Mirror of reward_settings_value_ck after #1237: 0 for the interval only, never below.
+  assert.equal(rewards.validateRewardValue(0, 'months', 'planned_trip.interval_months'), null)
+  assert.equal(rewards.validateRewardValue(-1, 'months', 'planned_trip.interval_months'), 'negative')
+  assert.equal(rewards.validateRewardValue(0, 'minutes', 'planned_trip.minutes_short'), 'not_positive')
+  assert.equal(rewards.validateRewardValue(0, 'days', 'planned_trip.lead_days'), 'not_positive')
+  assert.equal(rewards.validateRewardValue(0, 'months'), 'not_positive')
+  assert.equal(rewards.validateRewardValue(62, 'minutes', 'planned_trip.minutes_week'), 'not_multiple_of_5')
+})
+
+test('#1238 BR-USUARIO-055 item 6.c: the panel hands counts by destination, month and band, and nothing a later column adds about a person', async () => {
+  answers.cms_get_planned_trips_panel = {
+    data: {
+      by_destination_month: [
+        { country_code: 'PT', city: 'Lisboa', month: '2026-12-01', duration_band: 'long', trips: 2, user_id: 'u-person-1' },
+        { country_code: 'BR', city: null, month: null, duration_band: null, trips: 1, phone_e164: '+5511987654321' },
+      ],
+      totals: {
+        trips: 3,
+        with_date: 2,
+        with_destination: 3,
+        accounts: 1,
+        trip_hours_credited: 1,
+        by_duration_band: { short: 0, week: 0, long: 2, none: 1 },
+        emails: ['ana@example.com'],
+      },
+      answers: { now: 0, planned: 1, unsure: 0 },
+      contacts_by_channel: [{ channel: null, delivery_state: 'pending', stopped: false, contacts: 1, phone_e164: '+5511987654321' }],
+      email_reminders_stopped: 0,
+      people: [{ id: 'u-person-1' }],
+    },
+  }
+  const res = await panelRoute.GET(req('GET', '/panel'), ctx)
+  assert.equal(res.status, 200)
+  const body = await res.json()
+  assert.deepEqual(body, {
+    by_destination_month: [
+      { country_code: 'PT', city: 'Lisboa', month: '2026-12-01', duration_band: 'long', trips: 2 },
+      { country_code: 'BR', city: null, month: null, duration_band: null, trips: 1 },
+    ],
+    totals: {
+      trips: 3,
+      with_date: 2,
+      with_destination: 3,
+      accounts: 1,
+      trip_hours_credited: 1,
+      by_duration_band: { short: 0, week: 0, long: 2, none: 1 },
+    },
+    answers: { now: 0, planned: 1, unsure: 0 },
+    contacts_by_channel: [{ channel: null, delivery_state: 'pending', stopped: false, contacts: 1 }],
+    email_reminders_stopped: 0,
+  })
+  assert.equal(/u-person-1|5511987654321|ana@example/.test(JSON.stringify(body)), false)
+  // A read with nothing in it still draws the panel with zeros.
+  answers.cms_get_planned_trips_panel = { data: null }
+  const empty = await (await panelRoute.GET(req('GET', '/panel'), ctx)).json()
+  assert.deepEqual(empty.totals.by_duration_band, { short: 0, week: 0, long: 0, none: 0 })
+  assert.deepEqual(empty.by_destination_month, [])
+})
+
 test('#1233 BR-COMUNICACAO-024 item 5: the confirmation of the number is tested only on a phone channel', () => {
   assert.equal(lib.canTest('phone_confirmation', 'phone'), true)
   assert.equal(lib.canTest('phone_confirmation', 'email'), false)

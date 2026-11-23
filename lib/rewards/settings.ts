@@ -72,7 +72,7 @@ export function mergeRewardReads(
       unit: isRewardUnit(unit) ? unit : (SERVER_ONLY_UNITS[key] ?? null),
     })
   }
-  settings.sort((a, b) => a.key.localeCompare(b.key))
+  settings.sort((a, b) => compareRewardKeys(a.key, b.key))
   return {
     updated_at: typeof appRead?.updated_at === 'string' ? appRead.updated_at : null,
     settings,
@@ -152,7 +152,10 @@ export function ruleOf(key: string): string | null {
 const NAMED: Record<string, string> = {
   'welcome.minutes': 'Horas de boas-vindas',
   'welcome.validity_days': 'Validade das boas-vindas',
-  'planned_trip.minutes': 'Hora de viagem',
+  // BR-MONETIZACAO-091 2.a: one amount per length band; the band names are the app's (copy #1236).
+  'planned_trip.minutes_short': 'Hora de viagem: até 3 dias',
+  'planned_trip.minutes_week': 'Hora de viagem: de 4 a 7 dias',
+  'planned_trip.minutes_long': 'Hora de viagem: mais de 7 dias',
   'planned_trip.lead_days': 'Dias antes da viagem: lembrete e liberação da hora',
   'planned_trip.validity_days': 'Validade da hora de viagem',
   'planned_trip.interval_months': 'Intervalo mínimo entre duas liberações',
@@ -183,10 +186,24 @@ const NAMED: Record<string, string> = {
  */
 const HINTS: Record<string, string> = {
   'welcome.validity_days': 'Acima de 5 dias, as boas-vindas perdem o aviso da véspera.',
+  'planned_trip.minutes_short': 'Vale também para a viagem sem duração informada.',
+  'planned_trip.interval_months': '0 é sem intervalo: toda viagem ganha a sua hora.',
 }
 
 export function hintOf(key: string): string | null {
   return HINTS[key] ?? null
+}
+
+const BAND_RANK: Record<string, number> = { short: 1, week: 2, long: 3 }
+const BAND_KEY_RE = /^planned_trip\.minutes_(short|week|long)$/
+
+/**
+ * Reading order of the keys: alphabetical, except the three trip length bands, which read from the
+ * shortest trip to the longest (BR-MONETIZACAO-091 2.a) instead of long, short, week.
+ */
+export function compareRewardKeys(a: string, b: string): number {
+  const readable = (key: string) => key.replace(BAND_KEY_RE, (_, band: string) => `planned_trip.minutes_${BAND_RANK[band]}`)
+  return readable(a).localeCompare(readable(b))
 }
 
 const SUFFIX: Record<string, string> = {
@@ -235,7 +252,10 @@ export const UNIT_LABEL: Record<RewardUnit, string> = {
 
 // ── Validation (mirror of `reward_settings_value_ck`) ────────────────────────────────────
 
-export type RewardValueProblem = 'not_a_number' | 'not_positive' | 'not_integer' | 'not_multiple_of_5'
+export type RewardValueProblem = 'not_a_number' | 'not_positive' | 'negative' | 'not_integer' | 'not_multiple_of_5'
+
+/** The one key `reward_settings_value_ck` lets be 0, meaning no interval (#1237 D3, BR-MONETIZACAO-091 2.d). */
+const ZERO_ALLOWED_KEYS: ReadonlySet<string> = new Set(['planned_trip.interval_months'])
 
 /** Parses what the operator typed; accepts the pt-BR decimal comma. */
 export function parseRewardValue(input: string): number {
@@ -244,9 +264,11 @@ export function parseRewardValue(input: string): number {
   return Number(normalized)
 }
 
-export function validateRewardValue(value: number, unit: RewardUnit | null): RewardValueProblem | null {
+export function validateRewardValue(value: number, unit: RewardUnit | null, key?: string): RewardValueProblem | null {
   if (!Number.isFinite(value)) return 'not_a_number'
-  if (value <= 0) return 'not_positive'
+  if (key !== undefined && ZERO_ALLOWED_KEYS.has(key)) {
+    if (value < 0) return 'negative'
+  } else if (value <= 0) return 'not_positive'
   // Unknown unit: only the database knows. Positive is the floor every unit shares.
   if (unit === null) return null
   if (unit !== 'points' && !Number.isInteger(value)) return 'not_integer'
@@ -257,6 +279,7 @@ export function validateRewardValue(value: number, unit: RewardUnit | null): Rew
 export const PROBLEM_TEXT: Record<RewardValueProblem, string> = {
   not_a_number: 'Digite um número.',
   not_positive: 'O valor precisa ser maior que zero.',
+  negative: 'O valor não pode ser negativo.',
   not_integer: 'Use um número inteiro.',
   not_multiple_of_5: 'Minutos vão de 5 em 5.',
 }

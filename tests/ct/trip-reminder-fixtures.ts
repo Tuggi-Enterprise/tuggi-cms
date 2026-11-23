@@ -1,7 +1,7 @@
 /**
  * Replies of the `/api/admin/trip-reminder/*` routes for the #1233 component tests, in the shape
- * of `docs/contracts/viagem-marcada-e-lembrete.md`. Seeds of the 120000 migration for switches,
- * numbers and slots; panel and sends are invented counts, never a person.
+ * of `docs/contracts/viagem-marcada-e-lembrete.md`. Seeds of the 120000 migration for switches and
+ * slots, of the 210000 (#1237) for the numbers; panel and sends are invented counts, never a person.
  */
 
 export const SETTINGS = {
@@ -17,9 +17,11 @@ export const SETTINGS = {
     { key: 'channel.sms', is_on: false, channel_kind: 'phone', channel_order: 4, rule_id: 'BR-COMUNICACAO-024', updated_at: null },
   ],
   numbers: {
-    'planned_trip.interval_months': { value: 6, unit: 'months', rule_id: 'BR-MONETIZACAO-091', updated_at: '2026-11-23T15:00:00Z' },
-    'planned_trip.lead_days': { value: 7, unit: 'days', rule_id: 'BR-MONETIZACAO-091', updated_at: '2026-11-23T15:00:00Z' },
-    'planned_trip.minutes': { value: 60, unit: 'minutes', rule_id: 'BR-MONETIZACAO-091', updated_at: '2026-11-23T15:00:00Z' },
+    'planned_trip.interval_months': { value: 0, unit: 'months', rule_id: 'BR-MONETIZACAO-091', updated_at: '2026-11-23T21:00:00Z' },
+    'planned_trip.lead_days': { value: 3, unit: 'days', rule_id: 'BR-MONETIZACAO-091', updated_at: '2026-11-23T21:00:00Z' },
+    'planned_trip.minutes_long': { value: 180, unit: 'minutes', rule_id: 'BR-MONETIZACAO-091', updated_at: '2026-11-23T21:00:00Z' },
+    'planned_trip.minutes_short': { value: 60, unit: 'minutes', rule_id: 'BR-MONETIZACAO-091', updated_at: '2026-11-23T21:00:00Z' },
+    'planned_trip.minutes_week': { value: 120, unit: 'minutes', rule_id: 'BR-MONETIZACAO-091', updated_at: '2026-11-23T21:00:00Z' },
     'planned_trip.validity_days': { value: 60, unit: 'days', rule_id: 'BR-MONETIZACAO-086', updated_at: '2026-11-23T15:00:00Z' },
     'welcome.minutes': { value: 60, unit: 'minutes', rule_id: 'BR-MONETIZACAO-058', updated_at: '2026-10-01T12:00:00Z' },
     'welcome.validity_days': { value: 5, unit: 'days', rule_id: 'BR-MONETIZACAO-086', updated_at: '2026-11-23T15:00:00Z' },
@@ -48,14 +50,22 @@ export const SETTINGS = {
 
 export const PANEL = {
   by_destination_month: [
-    { country_code: 'BR', city: 'Búzios', month: '2026-12-01', trips: 14 },
-    { country_code: 'PT', city: 'Lisboa', month: '2026-12-01', trips: 6 },
-    { country_code: 'BR', city: 'Paraty', month: '2027-01-01', trips: 9 },
-    { country_code: 'FR', city: null, month: '2027-02-01', trips: 2 },
-    { country_code: null, city: null, month: '2027-03-01', trips: 4 },
-    { country_code: 'BR', city: 'Ouro Preto', month: null, trips: 3 },
+    { country_code: 'BR', city: 'Búzios', month: '2026-12-01', duration_band: 'short', trips: 9 },
+    { country_code: 'BR', city: 'Búzios', month: '2026-12-01', duration_band: 'week', trips: 5 },
+    { country_code: 'PT', city: 'Lisboa', month: '2026-12-01', duration_band: 'long', trips: 6 },
+    { country_code: 'BR', city: 'Paraty', month: '2027-01-01', duration_band: null, trips: 9 },
+    { country_code: 'FR', city: null, month: '2027-02-01', duration_band: 'long', trips: 2 },
+    { country_code: null, city: null, month: '2027-03-01', duration_band: 'week', trips: 4 },
+    { country_code: 'BR', city: 'Ouro Preto', month: null, duration_band: 'short', trips: 3 },
   ],
-  totals: { trips: 38, with_date: 35, with_destination: 34, accounts: 37, trip_hours_credited: 5 },
+  totals: {
+    trips: 38,
+    with_date: 35,
+    with_destination: 34,
+    accounts: 31,
+    trip_hours_credited: 5,
+    by_duration_band: { short: 12, week: 9, long: 8, none: 9 },
+  },
   answers: { now: 12, planned: 38, unsure: 21 },
   contacts_by_channel: [{ channel: null, delivery_state: 'pending', stopped: false, contacts: 3 }],
   email_reminders_stopped: 1,

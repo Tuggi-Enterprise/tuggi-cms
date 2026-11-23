@@ -1,9 +1,11 @@
 'use client'
 
 /**
- * Painel tab of `/admin/trip-reminder` (#1233): `drive.cms_get_planned_trips_panel()` as it came.
- * BR-USUARIO-055 item 6.c: counts only. The read has no person and no phone number, and this block
- * prints nothing that is not a count, a month, a destination or a channel.
+ * Painel tab of `/admin/trip-reminder` (#1233): `drive.cms_get_planned_trips_panel()`, through
+ * `normalizePlannedTripsPanel` on the route. BR-USUARIO-055 item 6.c: counts only. The read has no
+ * person and no phone number, and this block prints nothing that is not a count, a month, a
+ * destination, a length band or a channel. #1238: an account may have many trips, each counted, and
+ * every row and total is split by the band the person picked (BR-MONETIZACAO-091 2.a).
  */
 
 import { useCallback, useEffect, useState } from 'react'
@@ -13,7 +15,7 @@ import { Button } from '@/components/ui/button'
 import { CountryFlag } from '@/components/ui/CountryFlag'
 import { StatCard, StatCardRow } from '@/components/ui/StatCard'
 import { CELL, DIM, HEAD_SOLO, HEAD_SOLO_NUM, NUM } from '@/components/ui/dense-table'
-import type { PlannedTripsPanel, TripAdminError } from '@/lib/trip-reminder/settings'
+import { DURATION_BANDS, isDurationBand, type PlannedTripsPanel, type TripAdminError } from '@/lib/trip-reminder/settings'
 import { countFormat, errorText, formatMonth } from './format'
 
 type Load =
@@ -22,6 +24,7 @@ type Load =
   | { state: 'ready'; data: PlannedTripsPanel }
 
 const ANSWERS = ['planned', 'now', 'unsure'] as const
+const BAND_TOTALS = [...DURATION_BANDS, 'none'] as const
 const KNOWN_STATES = ['pending', 'confirmed', 'no_channel', 'undeliverable']
 
 export function TripPanel() {
@@ -68,6 +71,8 @@ export function TripPanel() {
 
   const { totals, answers, by_destination_month: rows, contacts_by_channel: contacts } = load.data
   const n = (value: number | undefined) => countFormat.format(Number(value ?? 0))
+  const bandName = (band: string | null) =>
+    band === null || band === 'none' ? t('panel.no_duration') : isDurationBand(band) ? t(`panel.bands.${band}`) : band
 
   return (
     <div className="space-y-8">
@@ -100,6 +105,20 @@ export function TripPanel() {
         </dl>
       </section>
 
+      <section aria-labelledby="trip-bands">
+        <h2 id="trip-bands" className="mb-2 text-lg font-bold text-gray-900 dark:text-gray-100">
+          {t('panel.by_duration_heading')}
+        </h2>
+        <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {BAND_TOTALS.map((band) => (
+            <div key={band} className="rounded-lg border border-gray-200 bg-white px-3 py-2 dark:border-gray-800 dark:bg-gray-900">
+              <dt className={`text-xs ${DIM}`}>{bandName(band)}</dt>
+              <dd className="text-xl font-bold tabular-nums text-gray-900 dark:text-gray-100">{n(totals?.by_duration_band?.[band])}</dd>
+            </div>
+          ))}
+        </dl>
+      </section>
+
       <section aria-labelledby="trip-destinations">
         <h2 id="trip-destinations" className="text-lg font-bold text-gray-900 dark:text-gray-100">
           {t('panel.by_destination_heading')}
@@ -112,12 +131,13 @@ export function TripPanel() {
                 <tr>
                   <th className={HEAD_SOLO}>{t('panel.month')}</th>
                   <th className={HEAD_SOLO}>{t('panel.destination')}</th>
+                  <th className={HEAD_SOLO}>{t('panel.duration')}</th>
                   <th className={HEAD_SOLO_NUM}>{t('panel.trips_column')}</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((row, index) => (
-                  <tr key={`${row.month}-${row.country_code}-${row.city}-${index}`} className="border-t border-gray-100 dark:border-gray-800">
+                  <tr key={`${row.month}-${row.country_code}-${row.city}-${row.duration_band}-${index}`} className="border-t border-gray-100 dark:border-gray-800">
                     <td className={`${CELL} whitespace-nowrap`}>{formatMonth(row.month) ?? <span className={DIM}>{t('panel.no_date')}</span>}</td>
                     <td className={CELL}>
                       {row.country_code ? (
@@ -128,6 +148,9 @@ export function TripPanel() {
                       ) : (
                         <span className={DIM}>{t('panel.no_destination')}</span>
                       )}
+                    </td>
+                    <td className={CELL}>
+                      {row.duration_band === null ? <span className={DIM}>{bandName(null)}</span> : bandName(row.duration_band)}
                     </td>
                     <td className={NUM}>{n(row.trips)}</td>
                   </tr>

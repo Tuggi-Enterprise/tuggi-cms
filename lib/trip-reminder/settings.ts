@@ -11,7 +11,7 @@
  */
 
 import type { RewardSetting, RewardUnit } from '@/lib/rewards/settings'
-import { isRewardUnit } from '@/lib/rewards/settings'
+import { compareRewardKeys, isRewardUnit } from '@/lib/rewards/settings'
 import { WEEKLY_PUSH_LANGUAGES } from '@/lib/notifications/weekly-push'
 
 // ── Lists ───────────────────────────────────────────────────────────────────────────────
@@ -204,7 +204,7 @@ export function numbersAsRewardSettings(numbers: Record<string, TripNumber>): Re
       rule_id: typeof n?.rule_id === 'string' ? n.rule_id : null,
     }))
     .filter((s) => Number.isFinite(s.value))
-    .sort((a, b) => a.key.localeCompare(b.key))
+    .sort((a, b) => compareRewardKeys(a.key, b.key))
 }
 
 /** The reminder channels (`channel.<name>` rows), in the order the sender tries them. */
@@ -237,12 +237,73 @@ export interface MessageSend {
   phone_last4: string | null
 }
 
+/** `planned_trips_duration_band_ck` (#1237): the length the person picked; `null` when skipped. */
+export const DURATION_BANDS = ['short', 'week', 'long'] as const
+export type DurationBand = (typeof DURATION_BANDS)[number]
+
+export function isDurationBand(value: unknown): value is DurationBand {
+  return typeof value === 'string' && (DURATION_BANDS as readonly string[]).includes(value)
+}
+
 export interface PlannedTripsPanel {
-  by_destination_month: { country_code: string | null; city: string | null; month: string | null; trips: number }[]
-  totals: { trips: number; with_date: number; with_destination: number; accounts: number; trip_hours_credited: number }
-  answers: Partial<Record<'now' | 'planned' | 'unsure', number>>
+  /** One row per destination, month and band (#1238). A band this screen does not know stays raw. */
+  by_destination_month: { country_code: string | null; city: string | null; month: string | null; duration_band: string | null; trips: number }[]
+  totals: {
+    trips: number
+    with_date: number
+    with_destination: number
+    accounts: number
+    trip_hours_credited: number
+    by_duration_band: Record<DurationBand | 'none', number>
+  }
+  answers: Record<'now' | 'planned' | 'unsure', number>
   contacts_by_channel: { channel: string | null; delivery_state: string; stopped: boolean; contacts: number }[]
   email_reminders_stopped: number
+}
+
+/**
+ * `drive.cms_get_planned_trips_panel()` as the route hands it to the browser, field by field
+ * (BR-USUARIO-055 item 6.c): counts, months, destinations, bands and channels. A column added later
+ * to that read never reaches the page by accident, the same guard as `pickSecret`.
+ */
+export function normalizePlannedTripsPanel(data: unknown): PlannedTripsPanel {
+  const record = (value: unknown): Record<string, unknown> =>
+    value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
+  const rows = (value: unknown): Record<string, unknown>[] => (Array.isArray(value) ? value.map(record) : [])
+  const count = (value: unknown): number => {
+    const n = Number(value)
+    return Number.isFinite(n) ? n : 0
+  }
+  const text = (value: unknown): string | null => (typeof value === 'string' ? value : null)
+  const d = record(data)
+  const totals = record(d.totals)
+  const bands = record(totals.by_duration_band)
+  const answers = record(d.answers)
+  return {
+    by_destination_month: rows(d.by_destination_month).map((r) => ({
+      country_code: text(r.country_code),
+      city: text(r.city),
+      month: text(r.month),
+      duration_band: text(r.duration_band),
+      trips: count(r.trips),
+    })),
+    totals: {
+      trips: count(totals.trips),
+      with_date: count(totals.with_date),
+      with_destination: count(totals.with_destination),
+      accounts: count(totals.accounts),
+      trip_hours_credited: count(totals.trip_hours_credited),
+      by_duration_band: { short: count(bands.short), week: count(bands.week), long: count(bands.long), none: count(bands.none) },
+    },
+    answers: { now: count(answers.now), planned: count(answers.planned), unsure: count(answers.unsure) },
+    contacts_by_channel: rows(d.contacts_by_channel).map((r) => ({
+      channel: text(r.channel),
+      delivery_state: text(r.delivery_state) ?? '',
+      stopped: r.stopped === true,
+      contacts: count(r.contacts),
+    })),
+    email_reminders_stopped: count(d.email_reminders_stopped),
+  }
 }
 
 // ── Test send ───────────────────────────────────────────────────────────────────────────
