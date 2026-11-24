@@ -121,7 +121,7 @@ export async function sendTestMessage(deps: TestDeps, admin: TestAdmin, req: Tes
     // The confirmation exists only on the phone: it is what discovers the channel (§9).
     if (req.piece === 'phone_confirmation') return { ok: false, channel: req.channel, error_code: 'piece_not_on_channel' };
     if (req.channel === 'push') {
-      const body = tripReminderSendBody(reminder, facts, now);
+      const body = tripReminderSendBody(reminder, facts);
       if (!body) return fail('missing_fact');
       try {
         const answer = await deps.sendPush(body);
@@ -134,7 +134,7 @@ export async function sendTestMessage(deps: TestDeps, admin: TestAdmin, req: Tes
       return { ok: true, channel: 'push' };
     }
     if (!deps.email) return fail('not_configured');
-    const mail = await renderTripReminderEmail(reminder, facts, deps.email, now);
+    const mail = await renderTripReminderEmail(reminder, facts, deps.email);
     if (!mail) return fail('missing_fact');
     try {
       const res = await deps.fetch('https://api.resend.com/emails', {

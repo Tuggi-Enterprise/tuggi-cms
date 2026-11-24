@@ -19,7 +19,7 @@ import {
   type LadderAttempt,
   type LadderDeps,
 } from '../_shared/message-channels.ts';
-import { isStopReply, phoneVars, smsText, whatsappParameters, type TripFacts } from '../_shared/trip-message-copy.ts';
+import { copyPieceOf, isStopReply, phoneVars, smsText, whatsappParameters, type TripFacts } from '../_shared/trip-message-copy.ts';
 
 const PHONE = '+5511987654321';
 const WA_SECRETS = { 'whatsapp.access_token': 'EAAG-test-token', 'whatsapp.phone_number_id': '1234567890' };
@@ -60,7 +60,7 @@ Deno.test('BR-COMUNICACAO-024 item 8: WhatsApp sends the approved model by name,
     to: PHONE,
     templateName: 'trip_hours_released',
     languageCode: 'pt_BR',
-    parameters: ['7 dias', '1 h', '21 de janeiro'],
+    parameters: ['1 h', '21 de janeiro'],
   });
   assertEquals(out, { outcome: 'sent', providerMessageId: 'wamid.HBgTEST', reason: null });
   assertEquals(asked[0].url, 'https://graph.facebook.com/v26.0/1234567890/messages');
@@ -71,7 +71,7 @@ Deno.test('BR-COMUNICACAO-024 item 8: WhatsApp sends the approved model by name,
   assertEquals(body.template, {
     name: 'trip_hours_released',
     language: { code: 'pt_BR' },
-    components: [{ type: 'body', parameters: [{ type: 'text', text: '7 dias' }, { type: 'text', text: '1 h' }, { type: 'text', text: '21 de janeiro' }] }],
+    components: [{ type: 'body', parameters: [{ type: 'text', text: '1 h' }, { type: 'text', text: '21 de janeiro' }] }],
   });
 });
 
@@ -200,11 +200,46 @@ const FACTS: TripFacts = {
 Deno.test('security-reviewer #1230 condition 2: the phone messages carry numbers and dates, never the destination', () => {
   const now = new Date('2027-01-05T13:00:00Z');
   const { lang, vars } = phoneVars(FACTS, 'pt-BR', now);
-  assertEquals(whatsappParameters('M2', vars), ['7 dias', '1 h', '6 de março']);
+  assertEquals(whatsappParameters('M2', vars), ['1 h', '6 de março']);
   const sms = smsText('M2', lang, vars) ?? '';
   assertEquals(sms, 'Tuggi: colocamos 1 h de guia no seu saldo para a viagem, com validade até 06/03. Para sair, responda STOP.');
   for (const text of [sms, ...(whatsappParameters('M2', vars) ?? [])]) assert(!text.includes('Lisboa'), text);
   assertEquals(whatsappParameters('M4', {}), null, 'a missing balance is a refusal, not an empty parameter');
+});
+
+Deno.test('copy §4.3 and §4.1 (#1244): the WhatsApp parameters of each model, in order; M2 without the days, M3 without any', () => {
+  const now = new Date('2027-01-05T13:00:00Z');
+  const { vars } = phoneVars({ ...FACTS, balance_minutes: 90 }, 'pt-BR', now);
+  assertEquals(whatsappParameters('M2', vars), ['1 h', '6 de março']);
+  assertEquals(whatsappParameters('M4', vars), ['1 h 30 min']);
+  for (const piece of ['M1', 'M3', 'M5', 'month_ask_nodate'] as const) assertEquals(whatsappParameters(piece, vars), [], piece);
+  // The day ask: the month of the trip, in the person's language, no year.
+  const ask: TripFacts = { ...FACTS, piece: 'trip_month_ask', date_precision: 'month', trip_date: '2027-02-01', trip_hours: null };
+  assertEquals(copyPieceOf(ask), 'month_ask');
+  assertEquals(whatsappParameters('month_ask', phoneVars(ask, 'pt-BR', now).vars), ['fevereiro']);
+  assertEquals(whatsappParameters('month_ask', phoneVars(ask, 'en', now).vars), ['February']);
+  assertEquals(whatsappParameters('month_ask', {}), null, 'a missing month is a refusal, not an empty parameter');
+});
+
+Deno.test('copy §4.2 (#1244): the SMS of the day ask, six languages, filled, and GSM-7 in a month without ç or û', () => {
+  const now = new Date('2027-01-05T13:00:00Z');
+  const ask: TripFacts = { ...FACTS, piece: 'trip_month_ask', date_precision: 'month', trip_date: '2027-02-01', trip_hours: null };
+  const { lang, vars } = phoneVars(ask, 'pt-BR', now);
+  assertEquals(
+    smsText('month_ask', lang, vars),
+    'Tuggi: sua viagem é em fevereiro e ainda falta o dia. Marque no app para receber o lembrete na data certa. Para sair, responda STOP.'
+  );
+  // GSM-7 basic set plus the accented letters it carries (é, è, ù, ì, ò, à, ä, ö, ü, ß ...), no curly quote nor U+00A0.
+  const gsm7 = /^[A-Za-z0-9 @£$¥èéùìòÇØøÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ!"#¤%&'()*+,\-./:;<=>?¡ÄÖÑÜ§¿äöñüà\n]*$/;
+  for (const l of ['pt', 'en', 'es', 'fr', 'it', 'de'] as const) {
+    const month = phoneVars(ask, l, now).vars;
+    for (const piece of ['month_ask', 'month_ask_nodate'] as const) {
+      const text = smsText(piece, l, month);
+      assert(text && text.startsWith('Tuggi') && text.includes('STOP'), `${l} ${piece}: ${text}`);
+      assert(gsm7.test(text), `${l} ${piece} leaves GSM-7: ${text}`);
+      assert(!text.includes('Lisboa'), `${l} ${piece} carries the destination`);
+    }
+  }
 });
 
 Deno.test('BR-COMUNICACAO-024 item 7: STOP and its synonyms are a stop reply, anything else is not', () => {

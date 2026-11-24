@@ -22,6 +22,12 @@
  * The tap opens `tuggi://map`. BR-COMUNICACAO-023 item 6 says the trip card, but the app has no link
  * to the card; the map is where the `copy` sends it (voz-do-push §3.7, amendment 4 to the `produto`).
  *
+ * The day ask (#1244, 023 item 2.1): a month-only trip gets `trip_month_ask` on day 1 of its month,
+ * instead of the day reminder. Its tap opens that trip, `tuggi://trip?id=<trip_id>` (the exception
+ * of 023 item 6, the app opens the trip sheet at the date). Its e-mail button would too, but there is
+ * no universal link to a trip yet, so it opens the app by `TOURIST_APP_LINK` like the other pieces.
+ * It has no phone message until the phone phase and its Meta model: counted in `skipped_month`.
+ *
  * Pure: client, `fetch` and the push sender come in. Logs carry counts and codes only.
  */
 import { renderEmail, renderText } from './emailLayout.ts';
@@ -35,6 +41,12 @@ import { buildScopedStopUrl, unsubscribeHeaders } from './unsubscribe-link.ts';
 
 export const TRIP_REMINDER_TYPE = 'trip_reminder';
 export const TRIP_REMINDER_DEEPLINK = 'tuggi://map';
+export const TRIP_DEEPLINK = 'tuggi://trip';
+
+/** Where the tap goes: that trip for the day ask (023 item 6, exception of #1244), the map otherwise. */
+export function tripReminderDeeplink(r: Pick<DueReminder, 'piece' | 'trip_id'>): string {
+  return r.piece === 'trip_month_ask' ? `${TRIP_DEEPLINK}?id=${encodeURIComponent(r.trip_id)}` : TRIP_REMINDER_DEEPLINK;
+}
 
 /**
  * Reminders claimed per run. A run every 15 minutes takes 200 an hour; a claimed reminder that the
@@ -134,8 +146,8 @@ async function record(
 }
 
 /** The one-person `/send` body of the reminder push, or `null` when a fact is missing. */
-export function tripReminderSendBody(r: DueReminder, facts: TripFacts, now: Date): Record<string, unknown> | null {
-  const push = tripReminderPush(facts, r.language, now);
+export function tripReminderSendBody(r: DueReminder, facts: TripFacts): Record<string, unknown> | null {
+  const push = tripReminderPush(facts, r.language);
   if (!push) return null;
   return {
     type: 'user',
@@ -144,7 +156,7 @@ export function tripReminderSendBody(r: DueReminder, facts: TripFacts, now: Date
     notification: {
       title: push.title,
       body: push.body,
-      data: { type: TRIP_REMINDER_TYPE, deeplink: TRIP_REMINDER_DEEPLINK, piece: r.piece, variant: 'a' },
+      data: { type: TRIP_REMINDER_TYPE, deeplink: tripReminderDeeplink(r), piece: r.piece, variant: 'a' },
     },
     priority: 'high',
     // Sent at 10:00 local; a phone off for longer still gets it the same day.
@@ -152,8 +164,8 @@ export function tripReminderSendBody(r: DueReminder, facts: TripFacts, now: Date
   };
 }
 
-async function pushOne(deps: TripReminderDeps, r: DueReminder, facts: TripFacts, now: Date): Promise<boolean> {
-  const body = tripReminderSendBody(r, facts, now);
+async function pushOne(deps: TripReminderDeps, r: DueReminder, facts: TripFacts): Promise<boolean> {
+  const body = tripReminderSendBody(r, facts);
   if (!body) {
     await record(deps, r, 'push', 'failed', 'missing_fact', null);
     return false;
@@ -174,10 +186,9 @@ async function pushOne(deps: TripReminderDeps, r: DueReminder, facts: TripFacts,
 export async function renderTripReminderEmail(
   r: DueReminder,
   facts: TripFacts,
-  config: EmailConfig,
-  now: Date
+  config: EmailConfig
 ): Promise<{ subject: string; html: string; text: string; headers: Record<string, string> } | null> {
-  const copy = tripReminderEmail(facts, r.language, now);
+  const copy = tripReminderEmail(facts, r.language);
   if (!copy || !r.email) return null;
   const stopUrl = await buildScopedStopUrl('trip_reminder', r.email, config.functionsUrl, config.secret, copy.lang);
   const content = {
@@ -185,6 +196,7 @@ export async function renderTripReminderEmail(
     preheader: copy.paragraphs[1],
     paragraphs: [...copy.paragraphs, copy.detail],
     cta_label: copy.button,
+    // The day ask's button would open the trip (023 item 6); without a universal link to it, the app.
     cta_url: TOURIST_APP_LINK,
   };
   const opts = {
@@ -203,7 +215,7 @@ export async function renderTripReminderEmail(
   };
 }
 
-async function emailOne(deps: TripReminderDeps, r: DueReminder, facts: TripFacts, now: Date): Promise<boolean> {
+async function emailOne(deps: TripReminderDeps, r: DueReminder, facts: TripFacts): Promise<boolean> {
   const config = deps.email;
   if (!config) {
     await record(deps, r, 'email', 'failed', 'not_configured', null);
@@ -214,7 +226,7 @@ async function emailOne(deps: TripReminderDeps, r: DueReminder, facts: TripFacts
     await record(deps, r, 'email', 'failed', 'apple_relay_unverified', null);
     return false;
   }
-  const mail = await renderTripReminderEmail(r, facts, config, now);
+  const mail = await renderTripReminderEmail(r, facts, config);
   if (!mail) {
     await record(deps, r, 'email', 'failed', 'missing_fact', null);
     return false;
@@ -237,17 +249,23 @@ async function emailOne(deps: TripReminderDeps, r: DueReminder, facts: TripFacts
   return id !== null;
 }
 
-async function phoneOne(deps: TripReminderDeps, r: DueReminder, facts: TripFacts, now: Date): Promise<boolean> {
+async function phoneOne(
+  deps: TripReminderDeps,
+  r: DueReminder,
+  piece: Exclude<TripPiece, 'trip_month_ask'>,
+  facts: TripFacts,
+  now: Date
+): Promise<boolean> {
   const phone = r.phone;
   if (!phone) return false;
   const channels = channelOrder(phone.channel, phone.message_channels);
   if (channels.length === 0) return false;
   const { lang, vars } = phoneVars(facts, r.language, now);
   const result = await sendByLadder(
-    ladderDeps(deps, { userId: r.user_id, piece: r.piece, phoneE164: phone.phone_e164, tripId: r.trip_id }),
+    ladderDeps(deps, { userId: r.user_id, piece, phoneE164: phone.phone_e164, tripId: r.trip_id }),
     phone.phone_e164,
     channels,
-    { templatePiece: r.piece, copyPiece: copyPieceOf(facts), lang, languageBase: r.language_base, vars }
+    { templatePiece: piece, copyPiece: copyPieceOf(facts), lang, languageBase: r.language_base, vars }
   );
   // The channel was unknown (confirmation off): this reminder is the discovery (contract, Part 3).
   if (!phone.channel && result.state) {
@@ -268,7 +286,7 @@ function isReminder(value: unknown): value is DueReminder {
     !!r &&
     typeof r.trip_id === 'string' &&
     typeof r.user_id === 'string' &&
-    (r.piece === 'trip_reminder_before' || r.piece === 'trip_reminder_day') &&
+    (r.piece === 'trip_reminder_before' || r.piece === 'trip_reminder_day' || r.piece === 'trip_month_ask') &&
     typeof r.trip_date === 'string'
   );
 }
@@ -297,19 +315,19 @@ export async function runTripReminders(deps: TripReminderDeps): Promise<TripRemi
     };
     // Item 7: each channel on its own; one throwing does not stop the next.
     if (r.push) {
-      const ok = await pushOne(deps, r, facts, now).catch(() => false);
+      const ok = await pushOne(deps, r, facts).catch(() => false);
       report.push[ok ? 'sent' : 'failed'] += 1;
     }
     if (r.email) {
-      const ok = await emailOne(deps, r, facts, now).catch(() => false);
+      const ok = await emailOne(deps, r, facts).catch(() => false);
       report.email[ok ? 'sent' : 'failed'] += 1;
     }
     if (r.phone) {
-      // The approved models of the day say "today" (§9.c, §9.d); a month-only trip has none.
-      if (r.piece === 'trip_reminder_day' && facts.date_precision === 'month') {
+      // The day ask has no phone message before the phone phase (023 3.c) and its Meta model (#1244).
+      if (r.piece === 'trip_month_ask') {
         report.phone.skipped_month += 1;
       } else {
-        const ok = await phoneOne(deps, r, facts, now).catch(() => false);
+        const ok = await phoneOne(deps, r, r.piece, facts, now).catch(() => false);
         report.phone[ok ? 'sent' : 'failed'] += 1;
       }
     }

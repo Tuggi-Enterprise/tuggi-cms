@@ -2,12 +2,14 @@
  * #1231, BR-COMUNICACAO-023: the trip reminder (`_shared/trip-reminder.ts`, `trip-reminder`), its
  * e-mail stop link of scope `trip_reminder`, the copy of the push and the e-mail, and the CMS "send a
  * test to me" (`trip-message-test`). #1238: one reminder per trip, with that trip's hours or none.
+ * #1244: the concierge copy, and the day ask of a month-only trip (`trip_month_ask`, 023 item 2.1).
  * Providers and the database are simulated.
  */
 import { assert, assertEquals } from './assert.ts';
 import { fetchCalls, loadHandler, network, scenario } from './harness.ts';
 import { PUSH_KINDS } from '../_shared/push-gate.ts';
 import {
+  EMAIL_SUBJECT_MAX,
   PUSH_BODY_MAX,
   PUSH_TITLE_MAX,
   TRIP_EMAIL_COPY,
@@ -17,6 +19,7 @@ import {
   tripReminderPush,
   type TripFacts,
 } from '../_shared/trip-message-copy.ts';
+import { TOURIST_APP_LINK } from '../_shared/tourist-email.ts';
 import { runTripReminders, type DueReminder, type TripReminderDeps } from '../_shared/trip-reminder.ts';
 import { parseTestRequest, sendTestMessage } from '../_shared/trip-message-test.ts';
 import { buildScopedStopUrl, encodeEmail, signEmail, verifyScopedStop } from '../_shared/unsubscribe-link.ts';
@@ -39,6 +42,11 @@ const BEFORE: DueReminder = {
   phone: { phone_e164: '+5511987654321', channel: 'whatsapp', delivery_state: 'confirmed', message_channels: ['whatsapp'] },
   trip_hours: { minutes: 60, expires_at: '2027-03-06T13:00:00Z' },
 };
+
+/** The day ask on day 1 of a month-only trip, not the first send (the 2.a carried the hours). */
+const MONTH_ASK: DueReminder = { ...BEFORE, piece: 'trip_month_ask', date_precision: 'month', trip_date: '2027-02-01', trip_hours: null };
+const MONTH_ASK_FACTS: TripFacts = { ...MONTH_ASK, balance_minutes: null };
+const LANGS = ['pt', 'en', 'es', 'fr', 'it', 'de'] as const;
 
 type Call = { fn: string; args: Record<string, unknown> | undefined };
 
@@ -113,8 +121,8 @@ Deno.test('BR-COMUNICACAO-016 and 019 3.s: the reminder push declares `trip_remi
   assertEquals(push.push_kind, 'trip_reminder');
   assertEquals(push.userIds, [USER]);
   assertEquals(push.notification.data, { type: 'trip_reminder', deeplink: 'tuggi://map', piece: 'trip_reminder_before', variant: 'a' });
-  assertEquals(push.notification.title, 'Lisboa está chegando');
-  assertEquals(push.notification.body, 'Você ganhou 1 h de guia para a viagem, já no seu saldo. Vale até 6 de março.');
+  assertEquals(push.notification.title, 'Lisboa te espera');
+  assertEquals(push.notification.body, 'Você ganhou 1 h de guia para usar até 6 de março. Com ele ligado, nenhuma história passa batido.');
   assertEquals(PUSH_KINDS.trip_reminder, { requested: true, requiresActive: false, vacancyPriority: 4, outsideCaps: true });
 });
 
@@ -152,43 +160,93 @@ Deno.test('the claim failing aborts the run with its code; an empty claim sends 
   assertEquals(empty.pushes.length + empty.mails.length, 0);
 });
 
-Deno.test('BR-COMUNICACAO-023 item 6: the day reminder reads the balance; with it M4, without it (or unlimited) M5', async () => {
+Deno.test('BR-COMUNICACAO-023 item 6: the day reminder reads the balance; with it M4 names it, without it (or unlimited) M5 does not', async () => {
   const day: DueReminder = { ...BEFORE, piece: 'trip_reminder_day', trip_hours: null, phone: null, email: null };
   const withBalance = fakeDeps({ reminders: [day] });
   await runTripReminders(withBalance.deps);
-  assertEquals((withBalance.pushes[0] as { notification: { title: string } }).notification.title, 'Boa viagem · 1 h 30 min de guia');
+  const { title, body } = (withBalance.pushes[0] as { notification: { title: string; body: string } }).notification;
+  assertEquals([title, body], [
+    'Boa viagem, o Tuggi vai junto',
+    'Você tem 1 h 30 min de guia. Ligue o guia e ouça a história dos lugares por onde passar, até dirigindo.',
+  ]);
   for (const entitlement of [{ state: 'metered', balance_minutes: 0 }, { state: 'unlimited', balance_minutes: 0 }]) {
     const f = fakeDeps({ reminders: [day], entitlement });
     await runTripReminders(f.deps);
-    assertEquals((f.pushes[0] as { notification: { title: string } }).notification.title, 'Boa viagem');
+    const push = (f.pushes[0] as { notification: { title: string; body: string } }).notification;
+    assertEquals(push.title, 'Boa viagem, o Tuggi vai junto');
+    assertEquals(push.body, TRIP_PUSH_COPY.m5_body.pt);
   }
 });
 
-Deno.test('BR-COMUNICACAO-023 item 6: with a month only, the day reminder does not say today, and the phone models (which do) are skipped', async () => {
-  const month: DueReminder = { ...BEFORE, piece: 'trip_reminder_day', date_precision: 'month', trip_date: '2027-02-01', trip_hours: null };
-  const f = fakeDeps({ reminders: [month] });
+Deno.test('BR-COMUNICACAO-023 items 2.1 and 6 (#1244): the day ask opens that trip by push, asks the day by e-mail, and skips the phone', async () => {
+  const f = fakeDeps({ reminders: [MONTH_ASK] });
   const report = await runTripReminders(f.deps);
-  assertEquals(report.phone.skipped_month, 1);
-  const push = (f.pushes[0] as { notification: { title: string; body: string } }).notification;
-  assertEquals(push.title, 'Sua viagem é este mês');
-  const mail = f.mails[0] as { text: string; subject: string };
-  assertEquals(mail.subject, 'Sua viagem é este mês');
-  assert(!/hoje/i.test(mail.text), 'the month e-mail says today');
-  assert(mail.text.includes('fevereiro de 2027'), 'the detail line lost the month');
+  assertEquals(report, { claimed: 1, push: { sent: 1, failed: 0 }, email: { sent: 1, failed: 0 }, phone: { sent: 0, failed: 0, skipped_month: 1 } });
+  const push = f.pushes[0] as { push_kind: string; notification: { title: string; body: string; data: Record<string, string> } };
+  assertEquals(push.push_kind, 'trip_reminder');
+  assertEquals(push.notification.data, { type: 'trip_reminder', deeplink: 'tuggi://trip?id=trip-1', piece: 'trip_month_ask', variant: 'a' });
+  assertEquals(push.notification.title, 'Chegou fevereiro, e Lisboa te espera');
+  assertEquals(push.notification.body, 'Já sabe o dia? Marque no Tuggi, e a gente te lembra na hora certa de ouvir as histórias do caminho.');
+  const mail = f.mails[0] as { subject: string; text: string };
+  assertEquals(mail.subject, 'Chegou fevereiro, e Lisboa te espera');
+  for (const line of [
+    'Sua viagem é em fevereiro, e o Tuggi quer ir junto. Já sabe o dia? Marque no app, e a gente te lembra na hora certa.',
+    TRIP_EMAIL_COPY.month_ask_call.pt,
+    'Marcar o dia',
+    'Lisboa · fevereiro de 2027',
+    // No universal link opens a trip yet: the button opens the app, as the other pieces.
+    TOURIST_APP_LINK,
+  ]) {
+    assert(mail.text.includes(line), `missing: ${line}`);
+  }
+  assert(!/hoje|ganhou|de guia/i.test(push.notification.body + mail.text), 'the day ask says today or names hours it does not carry');
+  assertEquals(f.recorded().map((r) => [r.p_channel, r.p_outcome, r.p_piece]), [
+    ['push', 'sent', 'trip_month_ask'],
+    ['email', 'sent', 'trip_month_ask'],
+  ]);
+  // Every other piece still opens the map.
+  const before = fakeDeps({ reminders: [{ ...BEFORE, phone: null }] });
+  await runTripReminders(before.deps);
+  assertEquals((before.pushes[0] as { notification: { data: { deeplink: string } } }).notification.data.deeplink, 'tuggi://map');
 });
 
-Deno.test('#1238 BR-COMUNICACAO-023 item 6: a month-only trip is reminded on day 1, so no language titles that e-mail "have a great trip"', () => {
-  const month: TripFacts = { ...BEFORE, piece: 'trip_reminder_day', date_precision: 'month', trip_date: '2027-02-01', trip_hours: null, balance_minutes: 90 };
-  for (const lang of ['pt', 'en', 'es', 'fr', 'it'] as const) {
-    for (const balance_minutes of [90, 0]) {
-      const subject = tripReminderEmail({ ...month, balance_minutes }, lang, NOW)?.subject;
-      assertEquals(subject, TRIP_PUSH_COPY.month_title[lang]);
-      assert(subject !== TRIP_EMAIL_COPY.day_subject[lang], `${lang}: ${subject}`);
-    }
+Deno.test('BR-COMUNICACAO-023 2.1.f (#1244): the day ask that is the first send of the trip also says its hours; without them it names none', () => {
+  const first: TripFacts = { ...MONTH_ASK, trip_hours: { minutes: 60, expires_at: '2027-03-06T13:00:00Z' }, balance_minutes: null };
+  assertEquals(tripReminderPush(first, 'pt'), {
+    title: 'Chegou fevereiro, e Lisboa te espera',
+    body: 'Você ganhou 1 h de guia para usar até 6 de março. Já sabe o dia? Marque no Tuggi.',
+  });
+  assertEquals(tripReminderEmail(first, 'pt')?.paragraphs, [
+    'Olá,',
+    'Sua viagem é em fevereiro, e o Tuggi quer ir junto. Já sabe o dia? Marque no app, e a gente te lembra na hora certa.',
+    'Sua viagem está chegando, e você ganhou 1 h de guia para ela, já no seu saldo do Tuggi e com validade até 6 de março.',
+    TRIP_EMAIL_COPY.m2_call.pt,
+  ]);
+  const plain: TripFacts = { ...MONTH_ASK, balance_minutes: 90 };
+  for (const lang of LANGS) {
+    const push = tripReminderPush(plain, lang);
+    const mail = tripReminderEmail(plain, lang);
+    assert(push && mail, lang);
+    // Not even the balance: hours are named only where the payload carries them (BR-MONETIZACAO-091).
+    assert(!/\d+\s?h\b|\d+\s?min\b/i.test(push.body + mail.paragraphs.join(' ')), `${lang}: ${push.body}`);
+    assertEquals(mail.button, TRIP_EMAIL_COPY.month_ask_button[mail.lang]);
   }
-  assertEquals(tripReminderEmail({ ...month, balance_minutes: 0 }, 'en', NOW)?.subject, 'Your trip is this month');
-  // A trip with a day keeps the greeting of the day.
-  assertEquals(tripReminderEmail({ ...month, date_precision: 'day', trip_date: '2027-01-05' }, 'pt', NOW)?.subject, 'Boa viagem');
+  // Hours it should carry and cannot write: a missing fact, recorded, never the message without them.
+  assertEquals(tripReminderPush({ ...first, trip_hours: { minutes: 60, expires_at: 'x' } }, 'pt'), null);
+  assertEquals(tripReminderEmail({ ...first, trip_hours: { minutes: 60, expires_at: 'x' } }, 'pt'), null);
+});
+
+Deno.test('copy §2 and §3 (#1244): the day ask title keeps the destination while it fits, 40 in the push and 50 in the e-mail subject', () => {
+  const rio: TripFacts = { ...MONTH_ASK, destination: { city: 'Rio de Janeiro', country_code: 'BR' }, balance_minutes: null };
+  assertEquals(tripReminderPush(rio, 'pt')?.title, 'Chegou fevereiro, o mês da sua viagem');
+  const subject = tripReminderEmail(rio, 'pt')?.subject ?? '';
+  assertEquals(subject, 'Chegou fevereiro, e Rio de Janeiro te espera');
+  assert(subject.length <= EMAIL_SUBJECT_MAX, subject);
+  // The month as Intl spells it: capitalised in en and de, lower case elsewhere.
+  assertEquals(tripReminderPush(MONTH_ASK_FACTS, 'en')?.title, "It's February, and Lisboa awaits");
+  assertEquals(tripReminderPush(MONTH_ASK_FACTS, 'de')?.title, 'Februar ist da, Lisboa wartet');
+  assertEquals(tripReminderPush({ ...MONTH_ASK_FACTS, destination: null }, 'fr')?.title, 'Voilà février, le mois de ton voyage');
+  assertEquals(tripReminderEmail({ ...MONTH_ASK_FACTS, destination: null }, 'it')?.subject, 'Ecco febbraio, il mese del tuo viaggio');
 });
 
 Deno.test('#1238 BR-MONETIZACAO-091 items 2.a and 9: two trips of one account get one reminder each, each naming the hours credited to that trip', async () => {
@@ -211,12 +269,13 @@ Deno.test('#1238 BR-MONETIZACAO-091 items 2.a and 9: two trips of one account ge
     return { title, body };
   });
   assertEquals(pushes, [
-    { title: 'Lisboa está chegando', body: 'Você ganhou 1 h de guia para a viagem, já no seu saldo. Vale até 6 de março.' },
-    { title: 'Paraty está chegando', body: 'Você ganhou 3 h de guia para a viagem, já no seu saldo. Vale até 6 de março.' },
+    { title: 'Lisboa te espera', body: 'Você ganhou 1 h de guia para usar até 6 de março. Com ele ligado, nenhuma história passa batido.' },
+    { title: 'Paraty te espera', body: 'Você ganhou 3 h de guia para usar até 6 de março. Com ele ligado, nenhuma história passa batido.' },
   ]);
-  const texts = f.mails.map((m) => (m as { text: string }).text);
-  assert(texts[0].includes('você ganhou 1 h de guia para ela'), texts[0]);
-  assert(texts[1].includes('daqui a 3 dias, e você ganhou 3 h de guia para ela'), texts[1]);
+  const mails = f.mails.map((m) => m as { subject: string; text: string });
+  assertEquals(mails.map((m) => m.subject), ['Você ganhou 1 h de guia para a viagem', 'Você ganhou 3 h de guia para a viagem']);
+  assert(mails[0].text.includes('você ganhou 1 h de guia para ela'), mails[0].text);
+  assert(mails[1].text.includes('está chegando, e você ganhou 3 h de guia para ela'), mails[1].text);
   assertEquals(
     f.recorded().map((r) => [r.p_channel, r.p_trip_id]),
     [
@@ -234,9 +293,10 @@ Deno.test('#1238 BR-MONETIZACAO-091 item 5 and ceiling: a trip that got no hours
   const report = await runTripReminders(f.deps);
   assertEquals([report.push.sent, report.email.sent], [1, 1]);
   const push = (f.pushes[0] as { notification: { title: string; body: string } }).notification;
-  assertEquals(push.title, 'Lisboa daqui a 7 dias');
+  assertEquals(push.title, 'Lisboa te espera');
+  assertEquals(push.body, TRIP_PUSH_COPY.m3_body.pt);
   const mail = f.mails[0] as { subject: string; text: string };
-  assertEquals(mail.subject, 'Sua viagem é daqui a 7 dias');
+  assertEquals(mail.subject, 'Falta pouco para a viagem. Leve o Tuggi junto');
   for (const text of [push.title, push.body, mail.subject, mail.text]) {
     assert(!/ganhou|de guia|\d+\s?h\b|\d+\s?min\b/i.test(text), text);
   }
@@ -254,16 +314,16 @@ Deno.test('copy §9.b: the reminder e-mail stops by its own signed link, scope t
   await runTripReminders(f.deps);
   const mail = f.mails[0] as { to: string[]; subject: string; html: string; text: string; headers: Record<string, string> };
   assertEquals(mail.to, ['ana@example.com']);
-  assertEquals(mail.subject, 'Você ganhou horas de guia para a viagem');
+  assertEquals(mail.subject, 'Você ganhou 1 h de guia para a viagem');
   const link = mail.headers['List-Unsubscribe'].slice(1, -1);
   assert(link.startsWith('https://p.supabase.co/functions/v1/trip-reminder/stop?'), link);
   assertEquals(mail.headers['List-Unsubscribe-Post'], 'List-Unsubscribe=One-Click');
   const u = new URL(link);
   assertEquals(u.searchParams.get('scope'), 'trip_reminder');
   assertEquals(await verifyScopedStop('trip_reminder', u.searchParams.get('e'), u.searchParams.get('s'), SECRET), 'ana@example.com');
-  assert(mail.text.includes('Parar os lembretes de viagem por e-mail'), 'the footer link label');
+  assert(mail.text.includes('Prefiro não receber os lembretes por e-mail'), 'the footer link label');
   assert(mail.text.includes('Lisboa · 12 de janeiro de 2027'), 'the detail line');
-  assert(mail.text.includes('Você recebe este e-mail porque pediu o lembrete da sua viagem no Tuggi.'));
+  assert(mail.text.includes('Você recebe este e-mail porque marcou a data da sua viagem no Tuggi.'));
 });
 
 Deno.test('the general unsubscribe signature does not open the trip link, nor a tampered one', async () => {
@@ -284,46 +344,66 @@ Deno.test('security-reviewer #1230 condition 3: no address, number or secret in 
 // THE COPY
 // ===============================================================================================
 
-const LANGS = ['pt', 'en', 'es', 'fr', 'it', 'de'];
-
-Deno.test('BR-COMUNICACAO-019 item 11 and copy §9.a: every reminder push, six languages, inside 40 and 110, no claim of a story at the destination', () => {
+Deno.test('BR-COMUNICACAO-019 item 11 and copy §2: every reminder push, six languages, inside 40 and 110 at the worst case, no claim of a story at the destination', () => {
+  // The worst case of the copy's count (§2): 12 h 30 min, valid until 28 February. The day ask's
+  // provisional body is measured with 28 September, the longest month in de.
+  const worst = { minutes: 750, expires_at: '2027-02-28T13:00:00Z' };
+  const worstSeptember = { minutes: 750, expires_at: '2027-09-28T13:00:00Z' };
   const cases: TripFacts[] = [
     { ...BEFORE, balance_minutes: null },
+    { ...BEFORE, trip_hours: worst, balance_minutes: null },
     { ...BEFORE, trip_hours: null, balance_minutes: null },
-    { ...BEFORE, piece: 'trip_reminder_day', trip_hours: null, balance_minutes: 90 },
+    { ...BEFORE, piece: 'trip_reminder_day', trip_hours: null, balance_minutes: 750 },
     { ...BEFORE, piece: 'trip_reminder_day', trip_hours: null, balance_minutes: 0 },
-    { ...BEFORE, piece: 'trip_reminder_day', date_precision: 'month', trip_hours: null, balance_minutes: 90 },
     { ...BEFORE, trip_hours: null, date_precision: 'month', balance_minutes: null },
     { ...BEFORE, destination: { city: 'São José dos Campos do Norte', country_code: 'BR' }, trip_hours: null, balance_minutes: null },
+    MONTH_ASK_FACTS,
+    { ...MONTH_ASK_FACTS, trip_date: '2027-09-01', trip_hours: worstSeptember },
+    { ...MONTH_ASK_FACTS, trip_date: '2027-09-01', destination: { city: 'São José dos Campos do Norte', country_code: 'BR' } },
   ];
   for (const facts of cases) {
     for (const lang of LANGS) {
-      const push = tripReminderPush(facts, lang, NOW);
+      const push = tripReminderPush(facts, lang);
       assert(push, `${facts.piece}/${lang}`);
       assert(push.title.length <= PUSH_TITLE_MAX, `${lang} title ${push.title}`);
       assert(push.body.length <= PUSH_BODY_MAX, `${lang} body ${push.body.length}: ${push.body}`);
-      assert(!/[?!]|\{\{/.test(push.title + push.body), `${lang}: ${push.title} ${push.body}`);
+      assert(!/\{\{/.test(push.title + push.body), `${lang}: ${push.title} ${push.body}`);
+      // Only the day ask asks (copy §2): one question, in its body, never a "!".
+      const asks = facts.piece === 'trip_month_ask';
+      assert(!/!/.test(push.title + push.body) && !/\?/.test(push.title), `${lang}: ${push.title} ${push.body}`);
+      assertEquals(/\?/.test(push.body), asks, `${lang} ${facts.piece}: ${push.body}`);
       assert(!/ao chegar|when you get there|al llegar|sur place|quando arrivi|vor ort/i.test(push.body), `${lang} claims a story at the destination`);
     }
   }
-  assertEquals(tripReminderPush({ ...BEFORE, trip_hours: null, balance_minutes: null }, 'de', NOW)?.title, 'Lisboa in 7 Tagen');
+  assertEquals(tripReminderPush({ ...BEFORE, trip_hours: null, balance_minutes: null }, 'de')?.title, 'Lisboa wartet auf dich');
 });
 
 Deno.test('BR-COMUNICACAO-023 item 6: the first reminder says until when the trip hours are valid', () => {
   for (const lang of LANGS) {
-    const push = tripReminderPush({ ...BEFORE, balance_minutes: null }, lang, NOW);
+    const push = tripReminderPush({ ...BEFORE, balance_minutes: null }, lang);
     assert(push && /6|mar/i.test(push.body), `${lang}: ${push?.body}`);
   }
-  const mail = tripReminderEmail({ ...BEFORE, balance_minutes: null }, 'en', NOW);
-  assertEquals(mail?.paragraphs[1], 'Your trip is in 7 days, and you got 1 h of guide time for it, already in your Tuggi balance and valid until March 6.');
+  const mail = tripReminderEmail({ ...BEFORE, balance_minutes: null }, 'en');
+  assertEquals(mail?.subject, 'You got 1 h of guide time for your trip');
+  assertEquals(mail?.paragraphs.slice(1), [
+    'Your trip is almost here, and you got 1 h of guide time for it, already in your Tuggi balance and valid until March 6.',
+    TRIP_EMAIL_COPY.m2_call.en,
+  ]);
+  // No count of days anywhere: it spoke of the trip, not of Tuggi, and was false for a month (023 item 6).
+  for (const lang of ['pt', 'en', 'es', 'fr', 'it'] as const) {
+    for (const facts of [{ ...BEFORE, balance_minutes: null }, { ...BEFORE, trip_hours: null, date_precision: 'month' as const, balance_minutes: null }]) {
+      const m = tripReminderEmail(facts, lang);
+      assert(m && !/\b7\b|\{\{/.test(m.subject + m.paragraphs.join(' ')), `${lang}: ${m?.subject}`);
+    }
+  }
 });
 
 Deno.test('a destination that is not a name is dropped, never the message', () => {
   assertEquals(safeCity('Lisboa'), 'Lisboa');
   assertEquals(safeCity("L'Aquila"), "L'Aquila");
   for (const bad of ['[click](https://x.test)', 'win $$$ now', '<b>x</b>', 'a'.repeat(41), '']) assertEquals(safeCity(bad), null);
-  const push = tripReminderPush({ ...BEFORE, destination: { city: '[click](https://x.test)', country_code: 'PT' }, balance_minutes: null }, 'pt', NOW);
-  assertEquals(push?.title, 'Sua viagem está chegando');
+  const push = tripReminderPush({ ...BEFORE, destination: { city: '[click](https://x.test)', country_code: 'PT' }, balance_minutes: null }, 'pt');
+  assertEquals(push?.title, 'Falta pouco para a sua viagem');
 });
 
 // ===============================================================================================
@@ -348,7 +428,7 @@ Deno.test('trip-reminder /stop: a signed link stops the reminder e-mails of that
   const link = await buildScopedStopUrl('trip_reminder', 'Ana@Example.com', 'http://edge.test', SECRET, 'fr');
   const res = await reminderHandler(new Request(link, { method: 'GET' }));
   assertEquals(res.status, 200);
-  assertEquals(await res.text(), "C'est fait, tu ne recevras plus de rappels de voyage par e-mail.");
+  assertEquals(await res.text(), "C'est fait, on n'envoie plus de rappels de voyage à cette adresse. Bon voyage.");
   assertEquals(stops, [{ p_email: 'ana@example.com' }]);
   const post = await reminderHandler(new Request(link, { method: 'POST', body: 'List-Unsubscribe=One-Click' }));
   assertEquals(post.status, 200);

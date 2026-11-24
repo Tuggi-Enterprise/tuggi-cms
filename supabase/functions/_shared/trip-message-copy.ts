@@ -1,38 +1,33 @@
 /**
- * The words of the trip messages (#1231): the reminder N days before and on the day
- * (BR-COMUNICACAO-023) by push, e-mail, SMS and WhatsApp, and the confirmation of the number
- * (BR-COMUNICACAO-024 item 5) by SMS and WhatsApp.
+ * The words of the trip messages (#1231, #1244): the reminder N days before and on the day, and the
+ * day ask of a month-only trip (BR-COMUNICACAO-023 items 2 and 2.1), by push, e-mail, SMS and
+ * WhatsApp, and the confirmation of the number (BR-COMUNICACAO-024 item 5) by SMS and WhatsApp.
  *
- * Sources:
- * - push: `docs/design/copy/voz-do-push-2026-11.md` §3.2 to §3.5, variant A (pt, en, fr), which
- *   fixes three holes of `proxima-viagem-1229-2026-11.md` §9.a (M2 without the validity, M3 and M5
- *   claiming a story at the destination, the day without the month-only version). es, it and de
- *   were written over the pt with the words of §9.a and the glossary of `push-2026-11.md`, and
- *   reviewed by the `copy` on 2026-11-23. The validity line never agrees with the hours (es "con
- *   validez hasta el", it "da usare entro il", de "gültig bis zum"), as the SMS of §9.d.
- * - e-mail: §9.b (five languages; a German reader gets English, BR-COMUNICACAO-020 item 6).
- * - SMS: §9.d. WhatsApp: the parameters of the models of §9.c; the text is Meta's, by model name.
- * - The month-only body of the e-mail day reminder (023 item 6: with a month only, the day reminder
- *   does not say "today") is the `copy`'s, 2026-11-23. Its subject is the push month title (#1238).
- * - M2 (#1236, 2026-11-23): nothing in the app speaks of trip hours before the credit, so this reminder
- *   is where the person learns of them. It says what was gained and until when, never "held" or
- *   "released", and never a recurrence such as "every trip" (BR-MONETIZACAO-091, ceiling).
+ * Source: `docs/design/copy/lembrete-concierge-1244-2026-11.md` (push §2, e-mail §3, SMS §4.2,
+ * WhatsApp parameters §4.1 and §4.3), which replaces where it conflicts `proxima-viagem-1229-2026-11.md`
+ * §9 and `voz-do-push-2026-11.md` §3. SMS M1 to M5 and the stop replies are still the §9 ones.
+ * The voice is the concierge of 023 item 6.1: the subject is Tuggi on the trip, not the trip.
  *
- * What the copy may say (023, ceiling): the date, the destination when given, and in the first
- * reminder the trip hours and until when they are valid. No welcome hours, no tip about the
- * destination, no offer. Nothing a person typed goes into a message model (security-reviewer, #1230,
- * condition 2): the destination is the geocoder's city name, never free text, and it goes only into
- * the push and the e-mail, never into SMS or WhatsApp.
+ * What the copy may say (023, ceiling): the date, the destination when given, and in the first send
+ * the trip hours and until when they are valid (BR-MONETIZACAO-091 item 9). Hours are named only
+ * where the message carries `trip_hours` or the balance. Nothing a person typed goes into a message
+ * model (security-reviewer, #1230, condition 2): the destination is the geocoder's city name, never
+ * free text, and it goes only into the push and the e-mail, never into SMS or WhatsApp.
  *
  * Pure: no remote import and no `Deno` global.
  */
 import { normalizeCopyLang, type RankingCopyLang } from './ranking-comm-i18n.ts';
 import { DEFAULT_TIME_ZONE, formatDuration, normalizeTouristLang, type TouristEmailLang } from './tourist-email.ts';
 
-export type TripPiece = 'trip_reminder_before' | 'trip_reminder_day';
+/** `drive.claim_due_trip_reminders.piece`; `trip_month_ask` is the day ask of 023 item 2.1 (#1244). */
+export type TripPiece = 'trip_reminder_before' | 'trip_reminder_day' | 'trip_month_ask';
 
-/** Which of the five messages of §9: M1 confirmation, M2 hours released, M3 upcoming, M4 day with balance, M5 day. */
-export type CopyPiece = 'M1' | 'M2' | 'M3' | 'M4' | 'M5';
+/**
+ * Which message: M1 confirmation, M2 hours released, M3 upcoming, M4 day with balance, M5 day, and
+ * the day ask (`month_ask`, and `month_ask_nodate` for a number not yet confirmed, BR-COMUNICACAO-024
+ * item 14.a, which only the SMS has: on WhatsApp that number gets the M3 model, copy §4.1).
+ */
+export type CopyPiece = 'M1' | 'M2' | 'M3' | 'M4' | 'M5' | 'month_ask' | 'month_ask_nodate';
 
 /** What a reminder carries, from `drive.claim_due_trip_reminders`, plus the balance on the day. */
 export interface TripFacts {
@@ -45,9 +40,15 @@ export interface TripFacts {
   balance_minutes: number | null;
 }
 
-/** BR-COMUNICACAO-023 item 6 and §9: the message the facts call for. */
+/** The payload carries hours credited to this trip: it is the first send of the trip (023 item 6). */
+function hasTripHours(facts: TripFacts): boolean {
+  return !!facts.trip_hours && facts.trip_hours.minutes > 0;
+}
+
+/** BR-COMUNICACAO-023 items 2.1 and 6: the message the facts call for. */
 export function copyPieceOf(facts: TripFacts): CopyPiece {
-  if (facts.piece === 'trip_reminder_before') return facts.trip_hours && facts.trip_hours.minutes > 0 ? 'M2' : 'M3';
+  if (facts.piece === 'trip_month_ask') return 'month_ask';
+  if (facts.piece === 'trip_reminder_before') return hasTripHours(facts) ? 'M2' : 'M3';
   return (facts.balance_minutes ?? 0) > 0 ? 'M4' : 'M5';
 }
 
@@ -111,6 +112,16 @@ export function tripDateLine(tripDate: string, precision: 'day' | 'month', lang:
   return cachedFormat(DATE_LOCALE[lang], options, 'UTC').format(d);
 }
 
+/**
+ * `{{month}}`, copy "Como ler": the month of the trip date, spelled out, no year, as `Intl` gives it
+ * (lower case in pt, es, fr and it, capitalised in en and de).
+ */
+export function tripMonth(tripDate: string, lang: RankingCopyLang): string | null {
+  const d = new Date(`${tripDate}T12:00:00Z`);
+  if (Number.isNaN(d.getTime())) return null;
+  return cachedFormat(DATE_LOCALE[lang], { month: 'long' }, 'UTC').format(d);
+}
+
 /** §9.d: the SMS date is numeric, `21/01` (`01/21` in English, `21.01.` in German). */
 export function numericDate(iso: string, lang: RankingCopyLang): string | null {
   const d = new Date(iso);
@@ -138,107 +149,112 @@ function fill(template: string, vars: Record<string, string>): string | null {
   return out.includes('{{') ? null : out;
 }
 
+/** The hours of this trip and until when, written out; `null` when absent or not writable. */
+function grantedHours(facts: TripFacts, lang: RankingCopyLang): { trip_hours: string; valid_until: string } | null {
+  if (!facts.trip_hours) return null;
+  const hours = formatDuration(facts.trip_hours.minutes);
+  const valid = longDateNoYear(facts.trip_hours.expires_at, lang);
+  return hours && valid ? { trip_hours: hours, valid_until: valid } : null;
+}
+
 // ------------------------------------------------------------------------------------------ push
 
 type Six = Record<RankingCopyLang, string>;
 
-/** Push copy, variant A of voz-do-push §3. Title up to 40, body up to 110. */
+/** Push copy, §2. Title up to 40, body up to 110. */
 export const TRIP_PUSH_COPY = {
   m2_title_destination: {
-    pt: '{{destination}} está chegando',
-    en: '{{destination}} is coming up',
-    es: '{{destination}} se acerca',
-    fr: '{{destination}} approche',
-    it: '{{destination}} si avvicina',
-    de: '{{destination}} rückt näher',
+    pt: '{{destination}} te espera',
+    en: '{{destination}} awaits',
+    es: '{{destination}} te espera',
+    fr: "{{destination}} t'attend",
+    it: '{{destination}} ti aspetta',
+    de: '{{destination}} wartet auf dich',
   },
   m2_title: {
-    pt: 'Sua viagem está chegando',
-    en: 'Your trip is coming up',
-    es: 'Tu viaje se acerca',
-    fr: 'Ton voyage approche',
-    it: 'Il tuo viaggio si avvicina',
-    de: 'Deine Reise rückt näher',
+    pt: 'Falta pouco para a sua viagem',
+    en: 'Your trip is almost here',
+    es: 'Ya falta poco para tu viaje',
+    fr: "C'est bientôt le départ",
+    it: 'Manca poco alla partenza',
+    de: 'Bald geht die Reise los',
   },
   m2_body: {
-    pt: 'Você ganhou {{trip_hours}} de guia para a viagem, já no seu saldo. Vale até {{date}}.',
-    en: 'You got {{trip_hours}} of guide time for the trip, already in your balance. Valid until {{date}}.',
-    es: 'Ganaste {{trip_hours}} de guía para el viaje, ya en tu saldo, con validez hasta el {{date}}.',
-    fr: "Tu as gagné {{trip_hours}} de guide pour le voyage, déjà dans ton solde, à utiliser jusqu'au {{date}}.",
-    it: 'Hai ricevuto {{trip_hours}} di guida per il viaggio, già nel tuo saldo. Da usare entro il {{date}}.',
-    de: 'Du hast {{trip_hours}} Guide für die Reise bekommen, schon in deinem Guthaben. Gültig bis zum {{date}}.',
-  },
-  m3_title_destination: {
-    pt: '{{destination}} daqui a {{days}}',
-    en: '{{destination}} in {{days}}',
-    es: '{{destination}} en {{days}}',
-    fr: '{{destination}} dans {{days}}',
-    it: '{{destination}} tra {{days}}',
-    de: '{{destination}} in {{days}}',
-  },
-  m3_title: {
-    pt: 'Sua viagem é daqui a {{days}}',
-    en: 'Your trip is in {{days}}',
-    es: 'Tu viaje es dentro de {{days}}',
-    fr: "Ton voyage, c'est dans {{days}}",
-    it: 'Il tuo viaggio è tra {{days}}',
-    de: 'Deine Reise ist in {{days}}',
+    pt: 'Você ganhou {{trip_hours}} de guia para usar até {{date}}. Com ele ligado, nenhuma história passa batido.',
+    en: 'You got {{trip_hours}} of guide time, valid until {{date}}. Turn it on along the way and no story slips by.',
+    es: 'Ganaste {{trip_hours}} de guía para usar hasta el {{date}}. Actívala y no se te escapa ninguna historia.',
+    fr: "Tu as gagné {{trip_hours}} de guide à utiliser jusqu'au {{date}}. Active-le et aucune histoire ne t'échappe.",
+    it: 'Hai ricevuto {{trip_hours}} di guida, da usare entro il {{date}}. Attivala e nessuna storia ti sfugge.',
+    de: 'Du hast {{trip_hours}} Guide bekommen, gültig bis zum {{date}}. Damit entgeht dir unterwegs keine Geschichte.',
   },
   m3_body: {
-    pt: 'Deixe o Tuggi no celular. Onde houver história, um toque no lugar do mapa e você ouve, sem precisar de horas.',
-    en: "Keep Tuggi on your phone. Wherever there's a story, tap the place on the map to listen, no hours needed.",
-    es: 'Deja Tuggi en el móvil. Donde haya una historia, toca el lugar en el mapa y escucha, sin necesidad de horas.',
-    fr: 'Garde Tuggi sur ton téléphone. Là où il y a une histoire, touche le lieu sur la carte, même sans heures.',
-    it: "Tieni Tuggi sul telefono. Dove c'è una storia, tocca il luogo sulla mappa e ascolta, senza bisogno di ore.",
-    de: 'Lass Tuggi auf dem Handy. Wo es eine Geschichte gibt: auf der Karte antippen und zuhören, auch ohne Guthaben.',
+    pt: 'Leve o Tuggi e nenhum lugar com história passa batido: ele vai contando enquanto você dirige ou caminha.',
+    en: 'Take Tuggi along and no place with a story slips by. It tells you the story as you drive or walk past.',
+    es: 'Lleva Tuggi y ningún lugar con historia se te escapa: te la va contando mientras conduces o caminas.',
+    fr: "Emporte Tuggi et aucun lieu qui a une histoire ne t'échappe. Il te la raconte en route, à pied ou en voiture.",
+    it: 'Porta Tuggi e nessun luogo con una storia ti sfugge: te la racconta mentre guidi o cammini.',
+    de: 'Nimm Tuggi mit, dann entgeht dir kein Ort mit Geschichte. Tuggi erzählt sie dir beim Fahren oder Gehen.',
   },
   m4_title: {
-    pt: 'Boa viagem · {{balance}} de guia',
-    en: 'Have a great trip · {{balance}} of guide',
-    es: 'Buen viaje · {{balance}} de guía',
-    fr: 'Bon voyage · {{balance}} de guide',
-    it: 'Buon viaggio · {{balance}} di guida',
-    de: 'Gute Reise · {{balance}} Guide',
+    pt: 'Boa viagem, o Tuggi vai junto',
+    en: "Have a great trip, Tuggi's coming too",
+    es: 'Buen viaje, Tuggi te acompaña',
+    fr: "Bon voyage, Tuggi t'accompagne",
+    it: 'Buon viaggio, Tuggi viene con te',
+    de: 'Gute Reise, Tuggi kommt mit',
   },
   m4_body: {
-    pt: 'Ligue o guia e ouça a história dos lugares por onde passar.',
-    en: 'Turn on the guide and hear the stories of the places you pass.',
-    es: 'Activa la guía y escucha la historia de los lugares por donde pases.',
-    fr: "Active le guide et écoute l'histoire des lieux où tu passes.",
-    it: 'Attiva la guida e ascolta la storia dei luoghi dove passi.',
-    de: 'Schalte den Guide ein und hör die Geschichten der Orte, an denen du vorbeikommst.',
-  },
-  month_title: {
-    pt: 'Sua viagem é este mês',
-    en: 'Your trip is this month',
-    es: 'Tu viaje es este mes',
-    fr: "Ton voyage, c'est ce mois-ci",
-    it: 'Il tuo viaggio è questo mese',
-    de: 'Deine Reise ist diesen Monat',
-  },
-  m4_month_body: {
-    pt: 'Você tem {{balance}} de guia. No dia, ligue o guia e ouça a história dos lugares por onde passar.',
-    en: 'You have {{balance}} of guide time. On the day, turn on the guide and hear the stories of the places you pass.',
-    es: 'Tienes {{balance}} de guía. El día del viaje, activa la guía y escucha la historia de los lugares del camino.',
-    fr: "Tu as {{balance}} de guide. Le jour J, active le guide et écoute l'histoire des lieux où tu passes.",
-    it: 'Hai {{balance}} di guida. Il giorno del viaggio, attiva la guida e ascolta la storia dei luoghi dove passi.',
-    de: 'Du hast {{balance}} Guide. Schalte ihn am Reisetag ein und hör die Geschichten der Orte unterwegs.',
-  },
-  m5_title: {
-    pt: 'Boa viagem',
-    en: 'Have a great trip',
-    es: 'Buen viaje',
-    fr: 'Bon voyage',
-    it: 'Buon viaggio',
-    de: 'Gute Reise',
+    pt: 'Você tem {{balance}} de guia. Ligue o guia e ouça a história dos lugares por onde passar, até dirigindo.',
+    en: 'You have {{balance}} of guide time. Turn it on and hear the stories along the way, even while driving.',
+    es: 'Tienes {{balance}} de guía. Actívala y escucha la historia de los lugares por donde pases, incluso al volante.',
+    fr: "Tu as {{balance}} de guide. Active-le et écoute l'histoire des lieux où tu passes, même au volant.",
+    it: 'Hai {{balance}} di guida. Attivala e ascolta la storia dei luoghi dove passi, anche mentre guidi.',
+    de: 'Du hast {{balance}} Guide. Schalt ihn ein und hör die Geschichten der Orte unterwegs, auch beim Fahren.',
   },
   m5_body: {
-    pt: 'No mapa, toque num lugar com história e ouça, sem precisar de horas.',
-    en: 'On the map, tap a place with a story and listen, no hours needed.',
-    es: 'En el mapa, toca un lugar con historia y escucha, sin necesidad de horas.',
-    fr: 'Sur la carte, touche un lieu qui a une histoire et écoute-la, même sans heures.',
-    it: 'Sulla mappa, tocca un luogo con una storia e ascolta, senza bisogno di ore.',
-    de: 'Tipp auf der Karte einen Ort mit Geschichte an und hör zu, auch ohne Guthaben.',
+    pt: 'Hoje, não deixe a história do caminho passar batido. O Tuggi te conta enquanto você segue, de carro ou a pé.',
+    en: "Don't let the stories along the way slip by today. Tuggi tells them as you go, by car or on foot.",
+    es: 'Que hoy no se te escape la historia del camino. Tuggi te la cuenta mientras avanzas, a pie o al volante.',
+    fr: 'Ne laisse pas filer les histoires de la route. Tuggi te les raconte en chemin, en voiture ou à pied.',
+    it: 'Oggi non perderti le storie lungo la strada. Tuggi te le racconta mentre vai, in auto o a piedi.',
+    de: 'Lass dir heute die Geschichten am Weg nicht entgehen. Tuggi erzählt sie dir, im Auto oder zu Fuß.',
+  },
+  month_ask_title_destination: {
+    pt: 'Chegou {{month}}, e {{destination}} te espera',
+    en: "It's {{month}}, and {{destination}} awaits",
+    es: 'Llegó {{month}}, {{destination}} te espera',
+    fr: "Voilà {{month}}, et {{destination}} t'attend",
+    it: 'Ecco {{month}}, e {{destination}} ti aspetta',
+    de: '{{month}} ist da, {{destination}} wartet',
+  },
+  month_ask_title: {
+    pt: 'Chegou {{month}}, o mês da sua viagem',
+    en: "It's {{month}}, the month of your trip",
+    es: 'Llegó {{month}}, el mes de tu viaje',
+    fr: 'Voilà {{month}}, le mois de ton voyage',
+    it: 'Ecco {{month}}, il mese del tuo viaggio',
+    de: '{{month}} ist da, dein Reisemonat',
+  },
+  month_ask_body: {
+    pt: 'Já sabe o dia? Marque no Tuggi, e a gente te lembra na hora certa de ouvir as histórias do caminho.',
+    en: "Know the day yet? Add it in Tuggi and we'll remind you right on time to hear the stories on the way.",
+    es: '¿Ya sabes el día? Márcalo en Tuggi y te avisamos a tiempo para escuchar las historias del camino.',
+    fr: 'Tu connais le jour ? Note-le dans Tuggi et on te prévient à temps pour écouter les histoires de la route.',
+    it: 'Sai già il giorno? Segnalo su Tuggi e ti avvisiamo al momento giusto per ascoltare le storie del viaggio.',
+    de: 'Weißt du schon den Tag? Trag ihn in Tuggi ein, dann erinnern wir dich rechtzeitig an die Geschichten am Weg.',
+  },
+  /**
+   * PROVISIONAL, pending the `copy` (#1244): the day ask that is also the first send of the trip
+   * (023 2.1.f). The doc has no string for it, and `month_ask_body` with the hours line of `m2_body`
+   * does not fit in 110, so this joins the two by their own words, measured with the worst case.
+   */
+  month_ask_hours_body: {
+    pt: 'Você ganhou {{trip_hours}} de guia para usar até {{date}}. Já sabe o dia? Marque no Tuggi.',
+    en: 'You got {{trip_hours}} of guide time, valid until {{date}}. Know the day yet? Add it in Tuggi.',
+    es: 'Ganaste {{trip_hours}} de guía para usar hasta el {{date}}. ¿Ya sabes el día? Márcalo en Tuggi.',
+    fr: "Tu as gagné {{trip_hours}} de guide à utiliser jusqu'au {{date}}. Tu connais le jour ? Note-le dans Tuggi.",
+    it: 'Hai ricevuto {{trip_hours}} di guida, da usare entro il {{date}}. Sai già il giorno? Segnalo su Tuggi.',
+    de: 'Du hast {{trip_hours}} Guide bekommen, gültig bis zum {{date}}. Kennst du den Tag? Trag ihn in Tuggi ein.',
   },
 } satisfies Record<string, Six>;
 
@@ -246,121 +262,165 @@ export const PUSH_TITLE_MAX = 40;
 export const PUSH_BODY_MAX = 110;
 
 /** The push of one reminder, or `null` when a fact it needs is missing. */
-export function tripReminderPush(facts: TripFacts, language: unknown, now: Date): { title: string; body: string } | null {
+export function tripReminderPush(facts: TripFacts, language: unknown): { title: string; body: string } | null {
   const lang = normalizeCopyLang(typeof language === 'string' ? language : null);
   const c = TRIP_PUSH_COPY;
-  const month = facts.date_precision === 'month';
-  const vars: Record<string, string> = { days: formatDays(daysUntilDate(facts.trip_date, now), lang) };
+  const vars: Record<string, string> = {};
   const city = safeCity(facts.destination?.city);
   if (city) vars.destination = city;
+  const month = tripMonth(facts.trip_date, lang);
+  if (month) vars.month = month;
   const titleWith = (withDestination: string, without: string): string | null => {
     const t = city ? fill(withDestination, vars) : null;
     return t && t.length <= PUSH_TITLE_MAX ? t : fill(without, vars);
   };
+  const hours = grantedHours(facts, lang);
+  const hoursVars = hours ? { trip_hours: hours.trip_hours, date: hours.valid_until } : null;
   const piece = copyPieceOf(facts);
-  if (piece === 'M2') {
-    const hours = formatDuration(facts.trip_hours?.minutes);
-    const date = facts.trip_hours ? longDateNoYear(facts.trip_hours.expires_at, lang) : null;
-    if (!hours || !date) return null;
-    const body = fill(c.m2_body[lang], { ...vars, trip_hours: hours, date });
-    const title = titleWith(c.m2_title_destination[lang], c.m2_title[lang]);
-    return title && body ? { title, body } : null;
-  }
-  if (piece === 'M3') {
-    // A month-only trip is not "in 7 days": the title without the count.
-    const title = month ? fill(c.m2_title[lang], vars) : titleWith(c.m3_title_destination[lang], c.m3_title[lang]);
-    return title ? { title, body: c.m3_body[lang] } : null;
-  }
-  if (piece === 'M4') {
+  let title: string | null;
+  let body: string | null;
+  if (piece === 'month_ask') {
+    // 023 2.1.f: being the first send of the trip, it also says the hours it got.
+    if (hasTripHours(facts) && !hoursVars) return null;
+    title = titleWith(c.month_ask_title_destination[lang], c.month_ask_title[lang]);
+    body = hoursVars ? fill(c.month_ask_hours_body[lang], hoursVars) : c.month_ask_body[lang];
+  } else if (piece === 'M2' || piece === 'M3') {
+    // One title for both, with no count: a month-only trip is not "in 3 days" (023 item 6).
+    title = titleWith(c.m2_title_destination[lang], c.m2_title[lang]);
+    if (piece === 'M3') body = c.m3_body[lang];
+    else if (!hoursVars) return null;
+    else body = fill(c.m2_body[lang], hoursVars);
+  } else {
+    title = c.m4_title[lang];
     const balance = formatDuration(facts.balance_minutes);
-    if (!balance) return null;
-    const title = month ? c.month_title[lang] : fill(c.m4_title[lang], { balance });
-    const body = month ? fill(c.m4_month_body[lang], { balance }) : c.m4_body[lang];
-    return title && body ? { title, body } : null;
+    if (piece === 'M4' && !balance) return null;
+    body = piece === 'M4' && balance ? fill(c.m4_body[lang], { balance }) : c.m5_body[lang];
   }
-  return { title: month ? c.month_title[lang] : c.m5_title[lang], body: c.m5_body[lang] };
+  return title && body ? { title, body } : null;
 }
 
 // ---------------------------------------------------------------------------------------- e-mail
 
 type Five = Record<TouristEmailLang, string>;
 
-/** §9.b. Greeting without a name, the fact, a detail line, one button, and a footer of its own. */
+/** §3. Greeting without a name, the paragraphs, a detail line, one button, and a footer of its own. */
 export const TRIP_EMAIL_COPY = {
-  greeting: { pt: 'Olá,', en: 'Hi,', es: 'Hola,', fr: 'Bonjour,', it: 'Ciao,' },
+  greeting: {
+    pt: 'Olá,',
+    en: 'Hi,',
+    es: 'Hola,',
+    fr: 'Bonjour,',
+    it: 'Ciao,',
+  },
   m2_subject: {
-    pt: 'Você ganhou horas de guia para a viagem',
-    en: 'You got guide hours for your trip',
-    es: 'Ganaste horas de guía para tu viaje',
-    fr: 'Tu as gagné des heures de guide pour ton voyage',
-    it: 'Hai ricevuto ore di guida per il tuo viaggio',
+    pt: 'Você ganhou {{trip_hours}} de guia para a viagem',
+    en: 'You got {{trip_hours}} of guide time for your trip',
+    es: 'Ganaste {{trip_hours}} de guía para tu viaje',
+    fr: 'Tu as gagné {{trip_hours}} de guide pour ton voyage',
+    it: 'Hai ricevuto {{trip_hours}} di guida per il viaggio',
   },
   m2_body: {
-    pt: 'Sua viagem é daqui a {{days}}, e você ganhou {{trip_hours}} de guia para ela, já no seu saldo do Tuggi e com validade até {{valid_until}}.',
-    en: 'Your trip is in {{days}}, and you got {{trip_hours}} of guide time for it, already in your Tuggi balance and valid until {{valid_until}}.',
-    es: 'Tu viaje es dentro de {{days}}, y ganaste {{trip_hours}} de guía para él, ya en tu saldo de Tuggi y con validez hasta el {{valid_until}}.',
-    fr: "Ton voyage, c'est dans {{days}}. Tu as gagné {{trip_hours}} de guide pour ce voyage, déjà dans ton solde Tuggi, à utiliser jusqu'au {{valid_until}}.",
-    it: 'Il tuo viaggio è tra {{days}}. Per questo viaggio hai ricevuto {{trip_hours}} di guida, già nel tuo saldo Tuggi e da usare entro il {{valid_until}}.',
+    pt: 'Sua viagem está chegando, e você ganhou {{trip_hours}} de guia para ela, já no seu saldo do Tuggi e com validade até {{valid_until}}.',
+    en: 'Your trip is almost here, and you got {{trip_hours}} of guide time for it, already in your Tuggi balance and valid until {{valid_until}}.',
+    es: 'Tu viaje se acerca, y ganaste {{trip_hours}} de guía para él, ya en tu saldo de Tuggi y con validez hasta el {{valid_until}}.',
+    fr: "Ton voyage approche, et tu as gagné {{trip_hours}} de guide pour l'occasion, déjà dans ton solde Tuggi, à utiliser jusqu'au {{valid_until}}.",
+    it: 'Il viaggio si avvicina e hai ricevuto {{trip_hours}} di guida, già nel tuo saldo Tuggi, da usare entro il {{valid_until}}.',
+  },
+  m2_call: {
+    pt: 'No caminho, ligue o guia e o Tuggi conta em áudio a história dos lugares por onde você passa, até enquanto dirige. Sem o Tuggi, essas histórias ficam sem ninguém contar.',
+    en: 'Along the way, turn on the guide and Tuggi tells you the story of the places you pass, out loud, even while you drive. Without Tuggi, those stories go untold.',
+    es: 'En el camino, activa la guía y Tuggi te cuenta en audio la historia de los lugares por donde pasas, incluso mientras conduces. Sin Tuggi, esas historias pasan de largo.',
+    fr: "En route, active le guide et Tuggi te raconte en audio l'histoire des lieux où tu passes, même au volant. Sans Tuggi, ces histoires passent inaperçues.",
+    it: 'Lungo la strada, attiva la guida e Tuggi ti racconta in audio la storia dei luoghi dove passi, anche mentre guidi. Senza Tuggi, quelle storie passano inosservate.',
   },
   m3_subject: {
-    pt: 'Sua viagem é daqui a {{days}}',
-    en: 'Your trip is in {{days}}',
-    es: 'Tu viaje es dentro de {{days}}',
-    fr: "Ton voyage, c'est dans {{days}}",
-    it: 'Il tuo viaggio è tra {{days}}',
+    pt: 'Falta pouco para a viagem. Leve o Tuggi junto',
+    en: 'Your trip is almost here. Take Tuggi along',
+    es: 'Falta poco para tu viaje. Lleva Tuggi contigo',
+    fr: "C'est bientôt le départ. Emporte Tuggi",
+    it: 'Manca poco alla partenza. Porta Tuggi con te',
   },
   m3_body: {
-    pt: 'Este é o lembrete que você pediu no Tuggi.',
-    en: 'This is the reminder you asked for in Tuggi.',
-    es: 'Este es el recordatorio que pediste en Tuggi.',
-    fr: 'Voici le rappel que tu as demandé dans Tuggi.',
-    it: 'Ecco il promemoria che hai chiesto su Tuggi.',
+    pt: 'Onde houver história no caminho, o Tuggi te conta em áudio enquanto você passa pelo lugar, dirigindo ou andando. Sem o Tuggi, essas histórias ficam sem ninguém contar.',
+    en: "Wherever there's a story along the way, Tuggi tells it to you out loud as you pass by, driving or walking. Without Tuggi, those stories go untold.",
+    es: 'Donde haya una historia en el camino, Tuggi te la cuenta en audio mientras pasas por el lugar, conduciendo o caminando. Sin Tuggi, esas historias pasan de largo.',
+    fr: 'Là où la route a une histoire, Tuggi te la raconte en audio au moment où tu passes, en voiture ou à pied. Sans Tuggi, ces histoires passent inaperçues.',
+    it: 'Dove la strada ha una storia, Tuggi te la racconta in audio mentre passi, in auto o a piedi. Senza Tuggi, quelle storie passano inosservate.',
   },
-  day_subject: { pt: 'Boa viagem', en: 'Have a great trip', es: 'Buen viaje', fr: 'Bon voyage', it: 'Buon viaggio' },
-  day_body: {
-    pt: 'Hoje é o dia da viagem que você marcou no Tuggi.',
-    en: "Today's the day of the trip you added in Tuggi.",
-    es: 'Hoy es el día del viaje que marcaste en Tuggi.',
-    fr: "C'est aujourd'hui, le voyage que tu as noté dans Tuggi.",
-    it: 'Oggi è il giorno del viaggio che hai segnato su Tuggi.',
+  day_subject: {
+    pt: 'Boa viagem, o Tuggi vai junto',
+    en: "Have a great trip, Tuggi's coming too",
+    es: 'Buen viaje, Tuggi te acompaña',
+    fr: "Bon voyage, Tuggi t'accompagne",
+    it: 'Buon viaggio, Tuggi viene con te',
   },
-  day_month_body: {
-    pt: 'A viagem que você marcou no Tuggi é este mês.',
-    en: 'The trip you added in Tuggi is this month.',
-    es: 'El viaje que marcaste en Tuggi es este mes.',
-    fr: "Le voyage que tu as noté dans Tuggi, c'est ce mois-ci.",
-    it: 'Il viaggio che hai segnato su Tuggi è questo mese.',
+  day_balance_body: {
+    pt: 'Hoje é dia de viagem, e você tem {{balance}} de guia no Tuggi. No caminho, ligue o guia e ouça a história dos lugares por onde você passa, até enquanto dirige.',
+    en: "Today's the day, and you have {{balance}} of guide time in Tuggi. Along the way, turn on the guide and hear the story of the places you pass, even while you drive.",
+    es: 'Hoy es día de viaje y tienes {{balance}} de guía en Tuggi. En el camino, activa la guía y escucha la historia de los lugares por donde pasas, incluso mientras conduces.',
+    fr: "C'est le jour du départ, et tu as {{balance}} de guide dans Tuggi. En route, active le guide et écoute l'histoire des lieux où tu passes, même au volant.",
+    it: 'Oggi si parte, e hai {{balance}} di guida su Tuggi. Lungo la strada, attiva la guida e ascolta la storia dei luoghi dove passi, anche mentre guidi.',
   },
-  balance: {
-    pt: 'Você tem {{balance}} na carteira.',
-    en: 'You have {{balance}} in your wallet.',
-    es: 'Tienes {{balance}} en tu cartera.',
-    fr: 'Tu as {{balance}} dans ton portefeuille.',
-    it: 'Hai {{balance}} nel tuo portafoglio.',
+  day_free_body: {
+    pt: 'Hoje é dia de viagem, e a história do caminho não precisa passar batido. Onde houver uma, o Tuggi te conta em áudio enquanto você passa, dirigindo ou andando.',
+    en: "Today's the day, and the stories along the way don't have to slip by. Wherever there's one, Tuggi tells it to you out loud as you pass, driving or walking.",
+    es: 'Hoy es día de viaje, y la historia del camino no tiene por qué pasar de largo. Donde haya una, Tuggi te la cuenta en audio mientras pasas, conduciendo o caminando.',
+    fr: "C'est le jour du départ, et les histoires de la route n'ont pas à passer inaperçues. Là où il y en a une, Tuggi te la raconte en audio quand tu passes, en voiture ou à pied.",
+    it: "Oggi si parte, e le storie lungo la strada non devono passare inosservate. Dove ce n'è una, Tuggi te la racconta in audio mentre passi, in auto o a piedi.",
   },
-  button: { pt: 'Abrir o Tuggi', en: 'Open Tuggi', es: 'Abrir Tuggi', fr: 'Ouvrir Tuggi', it: 'Apri Tuggi' },
+  month_ask_body: {
+    pt: 'Sua viagem é em {{month}}, e o Tuggi quer ir junto. Já sabe o dia? Marque no app, e a gente te lembra na hora certa.',
+    en: "Your trip is in {{month}}, and Tuggi wants to come along. Know the day yet? Add it in the app and we'll remind you right on time.",
+    es: 'Tu viaje es en {{month}} y Tuggi quiere acompañarte. ¿Ya sabes el día? Márcalo en la app y te avisamos a tiempo.',
+    fr: "Ton voyage, c'est en {{month}}, et Tuggi compte bien t'accompagner. Tu connais le jour ? Note-le dans l'app, et on te prévient au bon moment.",
+    it: "Il tuo viaggio è in {{month}} e Tuggi vuole venire con te. Sai già il giorno? Segnalo nell'app e ti avvisiamo al momento giusto.",
+  },
+  month_ask_call: {
+    pt: 'No caminho, o Tuggi conta em áudio a história dos lugares por onde você passa. Seria uma pena essas histórias ficarem sem ninguém contar.',
+    en: 'Along the way, Tuggi tells you the story of the places you pass, out loud. It would be a shame to let those stories go untold.',
+    es: 'En el camino, Tuggi te cuenta en audio la historia de los lugares por donde pasas. Sería una pena que esas historias pasaran de largo.',
+    fr: "En route, Tuggi te raconte en audio l'histoire des lieux où tu passes. Ce serait dommage de laisser ces histoires passer inaperçues.",
+    it: 'Lungo la strada, Tuggi ti racconta in audio la storia dei luoghi dove passi. Sarebbe un peccato lasciar passare inosservate quelle storie.',
+  },
+  button: {
+    pt: 'Abrir o Tuggi',
+    en: 'Open Tuggi',
+    es: 'Abrir Tuggi',
+    fr: 'Ouvrir Tuggi',
+    it: 'Apri Tuggi',
+  },
+  month_ask_button: {
+    pt: 'Marcar o dia',
+    en: 'Add the day',
+    es: 'Marcar el día',
+    fr: 'Indiquer le jour',
+    it: 'Segna il giorno',
+  },
   footer: {
-    pt: 'Você recebe este e-mail porque pediu o lembrete da sua viagem no Tuggi.',
-    en: "You're getting this email because you asked for a trip reminder in Tuggi.",
-    es: 'Recibes este correo porque pediste el recordatorio de tu viaje en Tuggi.',
-    fr: 'Tu reçois cet e-mail parce que tu as demandé le rappel de ton voyage dans Tuggi.',
-    it: 'Ricevi questa e-mail perché hai chiesto il promemoria del viaggio su Tuggi.',
+    pt: 'Você recebe este e-mail porque marcou a data da sua viagem no Tuggi.',
+    en: "You're getting this email because you added your trip date in Tuggi.",
+    es: 'Recibes este correo porque marcaste la fecha de tu viaje en Tuggi.',
+    fr: 'Tu reçois cet e-mail parce que tu as noté la date de ton voyage dans Tuggi.',
+    it: 'Ricevi questa e-mail perché hai segnato la data del tuo viaggio su Tuggi.',
   },
   stop_link: {
-    pt: 'Parar os lembretes de viagem por e-mail',
-    en: 'Stop trip reminders by email',
-    es: 'Dejar de recibir recordatorios de viaje por correo',
-    fr: 'Ne plus recevoir les rappels de voyage par e-mail',
-    it: 'Non ricevere più promemoria di viaggio via e-mail',
+    pt: 'Prefiro não receber os lembretes por e-mail',
+    en: "I'd rather not get these reminders by email",
+    es: 'Prefiero no recibir estos recordatorios por correo',
+    fr: 'Je préfère ne plus recevoir ces rappels par e-mail',
+    it: 'Preferisco non ricevere questi promemoria via e-mail',
   },
   stop_done: {
-    pt: 'Pronto, você não recebe mais lembretes de viagem por e-mail.',
-    en: "Done. You won't get trip reminders by email anymore.",
-    es: 'Listo, ya no recibirás recordatorios de viaje por correo.',
-    fr: "C'est fait, tu ne recevras plus de rappels de voyage par e-mail.",
-    it: 'Fatto, non riceverai più promemoria di viaggio via e-mail.',
+    pt: 'Pronto, não mandamos mais lembretes de viagem para este e-mail. Boa viagem.',
+    en: "Done. We won't send trip reminders to this email anymore. Have a great trip.",
+    es: 'Listo, ya no enviamos recordatorios de viaje a este correo. Buen viaje.',
+    fr: "C'est fait, on n'envoie plus de rappels de voyage à cette adresse. Bon voyage.",
+    it: 'Fatto, non mandiamo più promemoria di viaggio a questa e-mail. Buon viaggio.',
   },
 } satisfies Record<string, Five>;
+
+/** §3: the day ask's subject keeps the destination while the push title fits in this. */
+export const EMAIL_SUBJECT_MAX = 50;
 
 export interface TripEmail {
   lang: TouristEmailLang;
@@ -373,34 +433,39 @@ export interface TripEmail {
   stopLabel: string;
 }
 
-export function tripReminderEmail(facts: TripFacts, language: unknown, now: Date): TripEmail | null {
+export function tripReminderEmail(facts: TripFacts, language: unknown): TripEmail | null {
   const lang = normalizeTouristLang(language);
   const c = TRIP_EMAIL_COPY;
-  const days = formatDays(daysUntilDate(facts.trip_date, now), lang);
   const dateLine = tripDateLine(facts.trip_date, facts.date_precision, lang);
   if (!dateLine) return null;
   const city = safeCity(facts.destination?.city);
+  const hours = grantedHours(facts, lang);
+  // M2, and the day ask that is the first send (023 2.1.f): the hours, then the call to turn the guide on.
+  const hoursParagraphs = hours ? [fill(c.m2_body[lang], hours), c.m2_call[lang]] : null;
   const piece = copyPieceOf(facts);
   let subject: string | null;
-  const body: (string | null)[] = [];
-  if (piece === 'M2') {
-    const hours = formatDuration(facts.trip_hours?.minutes);
-    const valid = facts.trip_hours ? longDateNoYear(facts.trip_hours.expires_at, lang) : null;
-    if (!hours || !valid) return null;
-    subject = c.m2_subject[lang];
-    body.push(fill(c.m2_body[lang], { days, trip_hours: hours, valid_until: valid }));
+  let body: (string | null)[];
+  let button = c.button[lang];
+  if (piece === 'month_ask') {
+    const month = tripMonth(facts.trip_date, lang);
+    if (!month || (hasTripHours(facts) && !hoursParagraphs)) return null;
+    const p = TRIP_PUSH_COPY;
+    const withCity = city ? fill(p.month_ask_title_destination[lang], { month, destination: city }) : null;
+    subject = withCity && withCity.length <= EMAIL_SUBJECT_MAX ? withCity : fill(p.month_ask_title[lang], { month });
+    body = [fill(c.month_ask_body[lang], { month }), ...(hoursParagraphs ?? [c.month_ask_call[lang]])];
+    button = c.month_ask_button[lang];
+  } else if (piece === 'M2') {
+    if (!hours || !hoursParagraphs) return null;
+    subject = fill(c.m2_subject[lang], { trip_hours: hours.trip_hours });
+    body = hoursParagraphs;
   } else if (piece === 'M3') {
-    // A month-only trip is not "in 7 days": the subject without the count.
-    subject = facts.date_precision === 'month' ? TRIP_PUSH_COPY.m2_title[lang] : fill(c.m3_subject[lang], { days });
-    body.push(c.m3_body[lang]);
+    subject = c.m3_subject[lang];
+    body = [c.m3_body[lang]];
   } else {
-    // A month-only trip is reminded on day 1, which is not the day of the trip: no "Have a great trip"
-    // in the subject, the push month title instead (#1238).
-    const month = facts.date_precision === 'month';
-    subject = month ? TRIP_PUSH_COPY.month_title[lang] : c.day_subject[lang];
-    body.push(month ? c.day_month_body[lang] : c.day_body[lang]);
+    subject = c.day_subject[lang];
     const balance = formatDuration(facts.balance_minutes);
-    if (piece === 'M4' && balance) body.push(fill(c.balance[lang], { balance }));
+    if (piece === 'M4' && !balance) return null;
+    body = [piece === 'M4' && balance ? fill(c.day_balance_body[lang], { balance }) : c.day_free_body[lang]];
   }
   if (!subject || body.some((p) => p === null)) return null;
   return {
@@ -408,7 +473,7 @@ export function tripReminderEmail(facts: TripFacts, language: unknown, now: Date
     subject,
     paragraphs: [c.greeting[lang], ...(body as string[])],
     detail: city ? `${city} · ${dateLine}` : dateLine,
-    button: c.button[lang],
+    button,
     footer: c.footer[lang],
     stopLabel: c.stop_link[lang],
   };
@@ -416,7 +481,7 @@ export function tripReminderEmail(facts: TripFacts, language: unknown, now: Date
 
 // ------------------------------------------------------------------------------------------- SMS
 
-/** §9.d. GSM-7, straight quotes, no U+00A0 in fr. Every message opens with "Tuggi:" and ends with the way out. */
+/** §9.d and §4.2. GSM-7, straight quotes, no U+00A0 in fr. Every message opens with "Tuggi:" and ends with the way out. */
 export const TRIP_SMS_COPY = {
   M1: {
     pt: 'Tuggi: pronto, vamos te lembrar da sua viagem por aqui. Para sair, responda STOP.',
@@ -457,6 +522,22 @@ export const TRIP_SMS_COPY = {
     fr: "Tuggi : bon voyage. C'est aujourd'hui, ton voyage. Pour te désinscrire, réponds STOP.",
     it: 'Tuggi: buon viaggio. Oggi parti. Per non ricevere più messaggi, rispondi STOP.',
     de: 'Tuggi: Gute Reise. Heute geht deine Reise los. Abmelden: STOP antworten.',
+  },
+  month_ask: {
+    pt: 'Tuggi: sua viagem é em {{month}} e ainda falta o dia. Marque no app para receber o lembrete na data certa. Para sair, responda STOP.',
+    en: 'Tuggi: your trip is in {{month}} and the day is still missing. Add it in the app to get your reminder on time. Reply STOP to cancel.',
+    es: 'Tuggi: tu viaje es en {{month}}. Marca la fecha exacta en la app para recibir el recordatorio a tiempo. Para salir, responde STOP.',
+    fr: "Tuggi : ton voyage, c'est en {{month}}. Indique le jour dans l'app pour un rappel au bon moment. Pour te désinscrire, réponds STOP.",
+    it: "Tuggi: il tuo viaggio è in {{month}}. Segna il giorno nell'app per ricevere il promemoria al momento giusto. Per non ricevere più messaggi, rispondi STOP.",
+    de: 'Tuggi: Deine Reise ist im {{month}}. Trag den Tag in der App ein, damit die Erinnerung rechtzeitig kommt. Abmelden: STOP antworten.',
+  },
+  month_ask_nodate: {
+    pt: 'Tuggi: falta o dia da sua viagem. Marque no app para receber o lembrete na data certa. Para sair, responda STOP.',
+    en: 'Tuggi: your trip still needs a day. Add it in the app to get your reminder on time. Reply STOP to cancel.',
+    es: 'Tuggi: marca la fecha exacta de tu viaje en la app para recibir el recordatorio a tiempo. Para salir, responde STOP.',
+    fr: "Tuggi : il manque le jour de ton voyage. Indique-le dans l'app pour recevoir le rappel au bon moment. Pour te désinscrire, réponds STOP.",
+    it: "Tuggi: manca il giorno del tuo viaggio. Segnalo nell'app per ricevere il promemoria al momento giusto. Per non ricevere più messaggi, rispondi STOP.",
+    de: 'Tuggi: Für deine Reise fehlt noch der Tag. Trag ihn in der App ein, damit die Erinnerung rechtzeitig kommt. Abmelden: STOP antworten.',
   },
   stop_reply: {
     pt: 'Tuggi: lembretes desligados. Para voltar, cadastre o celular de novo no app.',
@@ -517,6 +598,8 @@ export interface PhoneVars {
   valid_until: string;
   valid_until_numeric: string;
   balance: string;
+  /** The month of the trip date, for the day ask. */
+  month: string;
 }
 
 export function phoneVars(facts: TripFacts | null, language: unknown, now: Date): { lang: RankingCopyLang; vars: Partial<PhoneVars> } {
@@ -531,6 +614,8 @@ export function phoneVars(facts: TripFacts | null, language: unknown, now: Date)
   }
   const balance = formatDuration(facts.balance_minutes);
   if (balance) vars.balance = balance;
+  const month = tripMonth(facts.trip_date, lang);
+  if (month) vars.month = month;
   return { lang, vars };
 }
 
@@ -542,9 +627,12 @@ export function smsText(piece: CopyPiece, lang: RankingCopyLang, vars: Partial<P
   });
 }
 
-/** §9.c: the body parameters of each WhatsApp model, in order. `null` when one is missing. */
+/**
+ * §4.3 and §4.1 "Parâmetros na ordem": the body parameters of each WhatsApp model. M2 has no days
+ * and M3 none at all (#1244): the count spoke of the trip, not of Tuggi. `null` when one is missing.
+ */
 export function whatsappParameters(piece: CopyPiece, vars: Partial<PhoneVars>): string[] | null {
   const list: (string | undefined)[] =
-    piece === 'M2' ? [vars.days, vars.trip_hours, vars.valid_until] : piece === 'M3' ? [vars.days] : piece === 'M4' ? [vars.balance] : [];
+    piece === 'M2' ? [vars.trip_hours, vars.valid_until] : piece === 'M4' ? [vars.balance] : piece === 'month_ask' ? [vars.month] : [];
   return list.every((v) => typeof v === 'string' && v !== '') ? (list as string[]) : null;
 }
