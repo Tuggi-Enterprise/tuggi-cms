@@ -1,4 +1,4 @@
-// _shared/places-payout.ts — the 10 % payout of the Com história place (#903, BR-B2B-044 item 6,
+// _shared/places-payout.ts — the 10 % payout of the Experiência place accepted up to the v10 (#903, BR-B2B-044 item 6,
 // term 5.4). Contract: `docs/contracts/places-pagamento.md` §3.5 (workspace).
 //
 // Who calls what:

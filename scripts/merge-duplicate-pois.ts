@@ -14,7 +14,9 @@
  *      not to prune. Use --dedupe-tps <meters> to also collapse ones that sit on top of each
  *      other (386 -> 225 at 30 m, -> 162 at 60 m on the Muralla, where the average trigger
  *      radius is 29 m).
- *   4. Backs the losers up to JSON and deletes them through dedup_delete_pois.
+ *   4. Moves the tourists' saves to the survivor (core.repoint_saved_items, #958): the FK of
+ *      drive.saved_items cascades, and deleting first drops every save of the losers in silence.
+ *   5. Backs the losers up to JSON and deletes them through dedup_delete_pois.
  *
  * KNOWN LIMIT -- the union of scattered segments is a MultiPolygon, and the front end does not
  * render MultiPolygon today (proved on the Sagrada Familia: stored boundary, right area,
@@ -31,6 +33,7 @@
  */
 import { createClient } from '@supabase/supabase-js'
 import { writeFileSync, mkdirSync } from 'fs'
+import { repointSavedItemsBeforeDelete } from '../lib/pois/repoint-saved-items'
 
 const db = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -187,7 +190,13 @@ async function main() {
     console.log(`${nDel} trigger points removed by the ${DEDUPE_TPS} m collapse`)
   }
 
-  // 3. drop the losers
+  // 3. move the saves to the survivor (#958), then drop the losers. A refusal throws here, before
+  //    anything is deleted.
+  const repoint = await repointSavedItemsBeforeDelete(db, ids, survivor.id)
+  console.log('moved' in repoint
+    ? `${repoint.moved} saved item(s) moved to the survivor`
+    : 'saved items: core.repoint_saved_items absent (migration 20261019120000 not applied), nothing to move')
+
   const rpc = await db.rpc('dedup_delete_pois', { p_ids: ids })
   if (rpc.error) {
     const del = await db.from('attractions').delete().in('id', ids)

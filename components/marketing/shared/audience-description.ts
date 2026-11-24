@@ -12,6 +12,7 @@
  */
 
 import type { AudienceFilters } from '@/lib/services/marketing/audience-types';
+import { PUSH_LANGUAGES } from '@/lib/services/notification-service';
 
 /**
  * The active filters as sentences. An EMPTY list means the whole base, and the caller is what
@@ -33,7 +34,7 @@ export function describeFilters(
     lines.push(`${label('tier.label')}: ${tierNames[filters.subscription_tier_id] ?? filters.subscription_tier_id}`);
   }
   if (filters.language) {
-    const known = ['pt', 'en', 'es', 'it', 'fr'].includes(filters.language);
+    const known = (PUSH_LANGUAGES as readonly string[]).includes(filters.language);
     lines.push(`${label('language.label')}: ${known ? label(`language.${filters.language}`) : filters.language}`);
   }
   if (filters.onboarding_completed) {

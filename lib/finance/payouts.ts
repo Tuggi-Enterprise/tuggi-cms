@@ -1,5 +1,5 @@
 /**
- * The 10 % payout of the Com história place — the month's statement (#903).
+ * The 10 % payout of the Experiência place accepted up to the v10 — the month's statement (#903, #1053).
  *
  * Rules: BR-B2B-044 item 6 (10 % on the paid plan, zero on the free one; a purchase counts when it
  * happened in a paid period or in the free month, by its date, not by the plan on the day of the
@@ -32,7 +32,27 @@ export interface PaidWindow {
   to: string
 }
 
-/** A client with a Com história contract: the acceptance the payout is paid under, and its windows. */
+/**
+ * #1053, BR-B2B-044 item 6: the row of `partner.place_acceptance_terms_model(p_acceptance_id)`
+ * (contract places-pagamento §3.9). `true` only for an Experiência acceptance of a term up to the
+ * `locais-2026-10-v10`; the v11 on, the free plan and the link acceptance have no commission. Zero
+ * rows (no such acceptance) or any other shape is no commission: nobody is paid by a guess.
+ */
+export function hasCommissionInTerms(data: unknown): boolean {
+  const row = Array.isArray(data) ? data[0] : data
+  return !!row && typeof row === 'object' && (row as Record<string, unknown>).has_commission === true
+}
+
+/**
+ * #1053: the acceptances a payout can be paid under, in the input order. An acceptance without
+ * commission gives no client, no window and no statement line, so a v11 acceptance of a client who
+ * had a v10 one never takes its place; the v10 one keeps paying for purchases in its own windows.
+ */
+export function acceptancesWithCommission<T extends { id?: unknown }>(acceptances: readonly T[], commission: ReadonlyMap<string, boolean>): T[] {
+  return acceptances.filter((a) => commission.get(String(a.id)) === true)
+}
+
+/** A client with an Experiência contract with commission: the acceptance the payout is paid under, and its windows. */
 export interface PayoutClient {
   clientId: string
   acceptanceId: string

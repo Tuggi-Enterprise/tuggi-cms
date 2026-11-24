@@ -38,8 +38,17 @@ import {
 } from '@/lib/services/partner-place-provisioning'
 import { PLAN_CHOICES, type PlanChoice } from '@/lib/partner-form/fields'
 import { createPromotedClient, findClientByTaxId } from '@/lib/services/partner-proposal-admin-service'
+import { hasCommissionInTerms } from '@/lib/finance/payouts'
 import { ClientService } from '@/lib/services/client-service'
 import ptMessages from '@/messages/pt.json'
+import {
+  clientTypeOfKind,
+  hasNoPlace,
+  noPlaceApprovalBlock,
+  partnerKindOf,
+  type PartnerKind,
+} from '@/lib/partnerships/partner-kind'
+import { copyFacadeToProfilePhoto, guideRpcErrorOf } from '@/lib/services/guide-profile-service'
 
 function partner() {
   return getSupabaseService().schema('partner')
@@ -65,6 +74,8 @@ import {
 
 export type PortalDecision =
   | { action: 'approve' }
+  /** #936: publishes an approved guide's profile — the retry of the approval's second half. */
+  | { action: 'publish_guide' }
   | { action: 'request_changes'; note: string }
   | { action: 'reject'; note: string; reason: PortalRefusalReason }
 
@@ -73,6 +84,7 @@ export function parsePortalDecision(body: unknown): PortalDecision | { error: st
   if (!body || typeof body !== 'object' || Array.isArray(body)) return { error: 'invalid_body' }
   const record = body as Record<string, unknown>
   if (record.action === 'approve') return { action: 'approve' }
+  if (record.action === 'publish_guide') return { action: 'publish_guide' }
 
   const note = typeof record.note === 'string' ? record.note.trim() : ''
   if (record.action === 'request_changes' || record.action === 'reject') {
@@ -90,7 +102,22 @@ export function parsePortalDecision(body: unknown): PortalDecision | { error: st
 }
 
 export type PortalActOutcome =
-  | { ok: true; status: string; attractionId?: string; clientId?: string }
+  | {
+      ok: true
+      status: string
+      attractionId?: string
+      clientId?: string
+      /**
+       * #936: the guide was approved and the profile did not reach the app. The approval stands;
+       * the screen says so and offers "Publicar o perfil" (`publish_guide`).
+       */
+      guidePublishError?: string
+      /**
+       * #1184: the guide was approved and `partner.apply_default_commission` did not write its
+       * rate. The approval stands; the screen tells the curator the rate is not recorded.
+       */
+      commissionError?: string
+    }
   | {
       ok: false
       httpStatus: number
@@ -188,6 +215,9 @@ interface SubmissionForApproval {
   status: string
   answers: PartnerAnswers | null
   attraction_id: string | null
+  client_id: string | null
+  /** The login of the proposal; for the guide it becomes the record's owner (#1185, BR-B2B-069 item 2.a). */
+  account_id: string | null
 }
 
 const CATEGORY_LABELS = ptMessages.PartnerForm.categories as Record<string, string>
@@ -240,7 +270,7 @@ export async function approvePortalSubmission(
 ): Promise<PortalActOutcome> {
   const { data, error } = await partner()
     .from('place_submissions')
-    .select('id, status, answers, attraction_id')
+    .select('id, status, answers, attraction_id, client_id, account_id')
     .eq('id', submissionId)
     .maybeSingle()
   if (error) {
@@ -252,6 +282,20 @@ export async function approvePortalSubmission(
   if (submission.status !== 'in_review') return { ok: false, httpStatus: 409, error: 'status_conflict' }
 
   const answers = submission.answers ?? {}
+  const kind = partnerKindOf(answers)
+  if (hasNoPlace(kind)) {
+    // BR-B2B-064 item 5: without the consent to show the contact, the guide does not approve —
+    // refused here, before the claim and before any write, whatever the screen offered.
+    const blocked = noPlaceApprovalBlock(answers)
+    if (blocked) return { ok: false, httpStatus: 422, error: blocked }
+    const claimed = await claimApproval(submission.id, now)
+    if (claimed === 'error') return { ok: false, httpStatus: 503, error: 'claim_failed' }
+    if (claimed === 'busy') return { ok: false, httpStatus: 409, error: 'approval_in_progress' }
+    const done = await approveWithoutPlace(submission, answers, kind, operator, actorUserId, approverCmsUserId)
+    if (!done.ok) await releaseApproval(submission.id)
+    return done
+  }
+
   const prefill = buildPlacePrefill(answers)
   if (!prefill) return { ok: false, httpStatus: 422, error: 'nothing_to_prefill' }
 
@@ -290,7 +334,7 @@ async function approveClaimed(
   const acceptance = await acceptanceOf(submission.id)
   if (!acceptance) return { ok: false, httpStatus: 503, error: 'lookup_failed', attractionId }
 
-  const client = await resolveApprovalClient(attractionId, answers, acceptance.email, operator)
+  const client = await resolveApprovalClient(submission.id, attractionId, answers, acceptance, operator)
   if (!client.ok) return { ok: false, httpStatus: 503, error: client.error, attractionId }
 
   const place = await applyPlacePrefill(attractionId, prefill, client.clientId, operator)
@@ -320,16 +364,179 @@ async function approveClaimed(
 }
 
 /**
+ * THE PARTNER WITHOUT A PLACE (#936, BR-B2B-064, BR-B2B-065; contract §8.6). No POI is created and
+ * `cms_create_place` never runs. Order, each step safe to run again:
+ *   client (the one `client_id` already names — a retry —, else by CNPJ when there is one, else
+ *   created as `tour_guide` / `driver`) → `client_id` → client approved → transition `approved`
+ *   → for the guide only: photo copy → `core.cms_publish_guide_profile` → transition `live`.
+ *
+ * THE APPROVAL COMES BEFORE THE PUBLICATION, against the order of contract §8.6, on purpose: the
+ * spec (#936 §3) wants "Aprovado, mas o perfil não foi para o app" when the publication fails, and
+ * that sentence is only true if the approval already happened. `cms_publish_guide_profile` accepts
+ * `approved`, so nothing in the database prefers the other order.
+ */
+async function approveWithoutPlace(
+  submission: SubmissionForApproval,
+  answers: PartnerAnswers,
+  kind: PartnerKind,
+  operator: SupabaseClient,
+  actorUserId: string,
+  approverCmsUserId: string
+): Promise<PortalActOutcome> {
+  let clientId = submission.client_id
+  if (!clientId) {
+    const acceptance = await acceptanceOf(submission.id)
+    if (!acceptance) return { ok: false, httpStatus: 503, error: 'lookup_failed' }
+    const existing = answers.tax_id ? await findClientByTaxId(answers.tax_id) : null
+    // The CNPJ is public: a guide who types the CNPJ of a client of another type must not get that
+    // client linked and approved here (security review of #936). Refused before any write — the
+    // database would refuse the transition anyway (TGP10), but only after the approval.
+    if (existing && existing.client_type !== clientTypeOfKind(kind)) {
+      return { ok: false, httpStatus: 409, error: 'tax_id_other_client_type' }
+    }
+    if (existing) {
+      clientId = existing.id as string
+    } else {
+      if (!acceptance.email) return { ok: false, httpStatus: 503, error: 'lookup_failed' }
+      const plan = buildPromotionPlan({ ...answers, representative_email: acceptance.email }, null, {
+        categoryLabel: CATEGORY_LABELS[answers.category ?? ''] ?? null,
+      })
+      const write = resolvePromotionWrite(plan, { approved: [] })
+      const reserved = await reservedSlugOf(submission.id)
+      if (!reserved.ok) return { ok: false, httpStatus: 503, error: 'lookup_failed' }
+      const created = await createPromotedClient(write.updates, answers, {
+        clientType: clientTypeOfKind(kind),
+        slug: reserved.slug,
+      })
+      if (!created.ok) return { ok: false, httpStatus: 503, error: 'client_write_failed' }
+      clientId = created.clientId
+    }
+    const { error: linkError } = await partner()
+      .from('place_submissions')
+      .update({ client_id: clientId })
+      .eq('id', submission.id)
+    if (linkError) {
+      console.error('[portal-validation] client_id not written', linkError.code)
+      return { ok: false, httpStatus: 503, error: 'link_failed' }
+    }
+  }
+
+  const approval = await approveRelationship(clientId, approverCmsUserId)
+  if (!approval.ok) return { ok: false, httpStatus: 503, error: approval.error }
+
+  // BR-B2B-064 item 2, BR-MONETIZACAO-039 item 6.c (#1184): the guide's rate and mark, by the one
+  // writer, now that the client is approved (the function refuses any other status). The
+  // transfer keeps its zero and never calls it (the function refuses it too, TGP22 client_type).
+  const commission = kind === 'guide' ? await applyDefaultCommission(clientId) : null
+
+  const outcome = await transition(submission.id, 'approved', actorUserId, null)
+  if (!outcome.ok) return outcome
+  if (kind !== 'guide') return { ...outcome, clientId }
+
+  const commissionError = commission ? { commissionError: commission } : {}
+  const published = await publishGuide(submission.id, clientId, submission.account_id, answers, operator, actorUserId)
+  return published.ok
+    ? { ok: true, status: published.status, clientId, ...commissionError }
+    : { ...outcome, clientId, guidePublishError: published.error, ...commissionError }
+}
+
+/**
+ * `partner.apply_default_commission` (#1184, service_role, idempotent): writes the default rate of a
+ * guide without one and its `commission_starts_at`. Returns `null` on success, else a short error
+ * code for the screen. A failure NEVER undoes the approval: the client is approved, and what is
+ * missing is the rate, which the screen says is not recorded. The log carries only the SQLSTATE
+ * and the DETAIL (`client_type`, `status`), never a name or a document.
+ */
+async function applyDefaultCommission(clientId: string): Promise<string | null> {
+  const { error } = await partner().rpc('apply_default_commission', { p_client_id: clientId })
+  if (!error) return null
+  const detail = (error as { details?: string | null }).details ?? null
+  console.error('[portal-validation] default commission not written', error.code, detail)
+  if (error.code === 'P0002') return 'commission_client_not_found'
+  if (error.code === 'TGP22') return detail ? `commission_invalid_${detail}` : 'commission_invalid'
+  return 'commission_write_failed'
+}
+
+/**
+ * The guide's publication: photo → profile → `live`. The photo is the proposal's facade copied as
+ * the ACCOUNT's photo when the account has none (#1185, contract §8.6 item 3); the function makes the
+ * login the owner and fills only the empty fields of the account. Shared by the approval and by
+ * `publishApprovedGuide` (the "Publicar o perfil" retry), so the two cannot publish differently.
+ * `live` is "Publicado" in the portal (contract §8.6); a failed `live` after a published profile
+ * is logged and answered as published, because the app already lists the guide.
+ */
+async function publishGuide(
+  submissionId: string,
+  clientId: string,
+  accountId: string | null,
+  answers: PartnerAnswers,
+  operator: SupabaseClient,
+  actorUserId: string,
+  alreadyLive = false
+): Promise<{ ok: true; status: string } | { ok: false; httpStatus: number; error: string }> {
+  const copied = await copyFacadeToProfilePhoto(submissionId, clientId, accountId, answers.profile_photo)
+  if (!copied.ok) return { ok: false, httpStatus: copied.error === 'photo_copy_failed' ? 503 : 422, error: copied.error }
+
+  const { error } = await operator.schema('core').rpc('cms_publish_guide_profile', { p_submission_id: submissionId })
+  if (error) {
+    console.error('[portal-validation] guide publish failed', error.code)
+    return { ok: false, ...guideRpcErrorOf(error.code, (error as { details?: string }).details) }
+  }
+  if (alreadyLive) return { ok: true, status: 'live' }
+  const live = await transition(submissionId, 'live', actorUserId, null)
+  if (!live.ok) console.error('[portal-validation] guide live transition failed', live.error)
+  return { ok: true, status: live.ok ? live.status : 'approved' }
+}
+
+/** "Publicar o perfil" (#936 §3): an approved guide whose profile is not in the app yet. */
+export async function publishApprovedGuide(
+  submissionId: string,
+  operator: SupabaseClient,
+  actorUserId: string
+): Promise<PortalActOutcome> {
+  const { data, error } = await partner()
+    .from('place_submissions')
+    .select('id, status, answers, attraction_id, client_id, account_id')
+    .eq('id', submissionId)
+    .maybeSingle()
+  if (error) {
+    console.error('[portal-validation] submission read failed', error.code)
+    return { ok: false, httpStatus: 503, error: 'lookup_failed' }
+  }
+  const submission = data as SubmissionForApproval | null
+  if (!submission) return { ok: false, httpStatus: 404, error: 'not_found' }
+  const answers = submission.answers ?? {}
+  if (partnerKindOf(answers) !== 'guide') return { ok: false, httpStatus: 422, error: 'not_a_guide' }
+  if (!['approved', 'live'].includes(submission.status) || !submission.client_id) {
+    return { ok: false, httpStatus: 409, error: 'status_conflict' }
+  }
+  const blocked = noPlaceApprovalBlock(answers)
+  if (blocked) return { ok: false, httpStatus: 422, error: blocked }
+  const published = await publishGuide(
+    submission.id,
+    submission.client_id,
+    submission.account_id,
+    answers,
+    operator,
+    actorUserId,
+    submission.status === 'live'
+  )
+  return published.ok ? { ok: true, status: published.status, clientId: submission.client_id } : published
+}
+
+/**
  * The client of this submission: the one its POI is already linked to (a retry), else the one
- * with the same CNPJ, else a new one from `PROMOTION_MAP`. Read with the operator's session —
+ * with the same CNPJ, else a new one from `PROMOTION_MAP` with the kit's slug (`reservedSlugOf`). Read with the operator's session —
  * the POI is unapproved and only `CMS admins can read attractions` sees it.
  */
 async function resolveApprovalClient(
+  submissionId: string,
   attractionId: string,
   answers: PartnerAnswers,
-  acceptanceEmail: string | null,
+  acceptance: { id: string | null; email: string | null },
   operator: SupabaseClient
 ): Promise<{ ok: true; clientId: string } | { ok: false; error: string }> {
+  const acceptanceEmail = acceptance.email
   const { data, error } = await operator
     .schema('core')
     .from('attractions')
@@ -354,8 +561,33 @@ async function resolveApprovalClient(
     categoryLabel: CATEGORY_LABELS[answers.category ?? ''] ?? null,
   })
   const write = resolvePromotionWrite(plan, { approved: [] })
-  const created = await createPromotedClient(write.updates, answers)
+  const reserved = await reservedSlugOf(submissionId)
+  if (!reserved.ok) return { ok: false, error: 'lookup_failed' }
+  // #1053, BR-B2B-044 item 6: the commission the new client is born with follows the accepted term.
+  const commission = await acceptanceHasCommission(acceptance.id)
+  if (commission === null) return { ok: false, error: 'lookup_failed' }
+  const created = await createPromotedClient(write.updates, answers, { slug: reserved.slug, commission })
   return created.ok ? { ok: true, clientId: created.clientId } : { ok: false, error: 'client_write_failed' }
+}
+
+/**
+ * The kit's slug, reserved when the submission left draft (`partner.place_slugs`, #815). Only a NEW
+ * client inherits it: an existing client keeps its slug (BR-B2B-037 item 4, a printed slug never
+ * changes). The database lets this one insert through `client_slug_space_guard` because the
+ * submission is `in_review` with `approval_claimed_at` set, which the claim above guarantees.
+ * A failed read fails the approval (retry-safe) instead of creating a client with a second QR.
+ */
+async function reservedSlugOf(submissionId: string): Promise<{ ok: true; slug: string | null } | { ok: false }> {
+  const { data, error } = await partner()
+    .from('place_slugs')
+    .select('slug')
+    .eq('submission_id', submissionId)
+    .maybeSingle()
+  if (error) {
+    console.error('[portal-validation] place slug read failed', error.code)
+    return { ok: false }
+  }
+  return { ok: true, slug: (data as { slug?: string } | null)?.slug ?? null }
 }
 
 /**
@@ -392,21 +624,36 @@ async function approveRelationship(
  * it accepted and paid — the acceptance IS the instrument (BR-B2B-047, item 1). `null` when the
  * read failed or there is no acceptance; a tier the form no longer offers reads `null`.
  */
+/**
+ * #1053: does the accepted term carry commission (`partner.place_acceptance_terms_model`, contract
+ * places-pagamento §3.9)? Up to the `locais-2026-10-v10`, yes; from the v11 on, no. `null` = the read
+ * failed, and the approval fails with it (retry-safe) instead of guessing a percentage.
+ */
+async function acceptanceHasCommission(acceptanceId: string | null): Promise<boolean | null> {
+  if (!acceptanceId) return null
+  const { data, error } = await partner().rpc('place_acceptance_terms_model', { p_acceptance_id: acceptanceId })
+  if (error) {
+    console.error('[portal-validation] terms model read failed', error.code)
+    return null
+  }
+  return hasCommissionInTerms(data)
+}
+
 async function acceptanceOf(
   submissionId: string
-): Promise<{ email: string | null; planChoice: PlanChoice | null } | null> {
+): Promise<{ id: string | null; email: string | null; planChoice: PlanChoice | null } | null> {
   const { data, error } = await partner()
     .from('place_acceptances')
-    .select('email, plan_choice')
+    .select('id, email, plan_choice')
     .eq('submission_id', submissionId)
     .maybeSingle()
   if (error || !data) {
     console.error('[portal-validation] acceptance read failed', error?.code ?? 'no_row')
     return null
   }
-  const row = data as { email: string | null; plan_choice: string | null }
+  const row = data as { id?: string | null; email: string | null; plan_choice: string | null }
   const planChoice = PLAN_CHOICES.find((choice) => choice === row.plan_choice) ?? null
-  return { email: row.email || null, planChoice }
+  return { id: row.id ?? null, email: row.email || null, planChoice }
 }
 
 /**
@@ -453,7 +700,8 @@ export async function portalRegistrationOfPlace(
 export interface ClientPortalSubmission {
   id: string
   status: string
-  attraction_id: string
+  /** `null` for a partner without a place, linked by `client_id` (#936). */
+  attraction_id: string | null
   submitted_at: string | null
 }
 
@@ -463,6 +711,8 @@ export interface ClientPortalSubmission {
  * `isLegacyMirror`). `null` when either read failed — the callers decide what failing means for them.
  */
 export async function portalSubmissionsOfClient(clientId: string): Promise<ClientPortalSubmission[] | null> {
+  // The id goes into a PostgREST `or` filter below: anything but a UUID never gets there.
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(clientId)) return []
   const { data: places, error: placesError } = await getSupabaseService()
     .schema('core')
     .from('attractions')
@@ -473,20 +723,19 @@ export async function portalSubmissionsOfClient(clientId: string): Promise<Clien
     console.error('[portal-validation] client places lookup failed', placesError.code)
     return null
   }
-  if (!places || places.length === 0) return []
+  const placeIds = ((places ?? []) as { id: string }[]).map((place) => place.id)
 
+  // #936: a partner without a place reaches its client through `client_id`, not through a POI.
+  const filter = placeIds.length > 0 ? `attraction_id.in.(${placeIds.join(',')}),client_id.eq.${clientId}` : `client_id.eq.${clientId}`
   const { data, error } = await partner()
     .from('place_submissions')
     .select(`id, status, attraction_id, submitted_at, ${PORTAL_REGISTRATION_COLUMNS}`)
-    .in(
-      'attraction_id',
-      (places as { id: string }[]).map((place) => place.id)
-    )
+    .or(filter)
     .order('submitted_at', { ascending: false })
     .limit(50)
   if (error) {
-    // Before migration 20261004120000 the table does not exist: that also refuses, so the CMS
-    // that carries this ships after the migration (release order, CLAUDE.md §2).
+    // Before migration 20261004120000 the table does not exist, and before 20261016120000 the
+    // column `client_id` does not: both refuse, so the CMS that carries this ships after them.
     console.error('[portal-validation] portal origin lookup failed', error.code)
     return null
   }

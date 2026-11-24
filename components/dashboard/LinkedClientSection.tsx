@@ -2,7 +2,7 @@
 
 /**
  * "Linked Client" — sets `drive.profiles.client_id` for an app user so the app surfaces that
- * client's partner QR (`https://tuggi.app/d/<slug>`) in the Passaporte.
+ * client's partner QR in the Passaporte (the app builds it from the slug).
  *
  * The current link comes from `core.dashboard_user_detail`; writes go through
  * `PATCH /api/admin/users/[userId]/client` (admin only), which calls
@@ -180,7 +180,7 @@ export const LinkedClientSection = ({
               >
                 <span className="min-w-0">
                   <span className="block text-sm font-medium text-gray-900 dark:text-white truncate">{c.name}</span>
-                  {c.slug && <span className="block text-[11px] text-gray-400 truncate">/d/{c.slug}</span>}
+                  {c.slug && <span className="block text-[11px] text-gray-400 truncate">/@{c.slug}</span>}
                 </span>
                 {c.client_type && (
                   <span className="px-2 py-0.5 rounded-lg text-[10px] font-bold uppercase tracking-widest bg-gray-100 dark:bg-gray-800 text-gray-500 flex-shrink-0">

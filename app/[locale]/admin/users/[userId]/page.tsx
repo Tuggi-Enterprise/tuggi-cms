@@ -1,11 +1,12 @@
-'use client'
+import { redirect } from 'next/navigation'
+import { appUserHref } from '@/lib/users/app-user-href'
 
-import AdminUserPassportPage from '@/app/admin/users/[userId]/page'
-
-export default function LocalizedAdminUserPassportPage({ 
-  params 
-}: { 
-  params: Promise<{ locale: string; userId: string }> 
+/** The localized twin of `app/admin/users/[userId]/page.tsx`: a redirect to the drawer (#976). */
+export default async function LocalizedAdminUserPassportPage({
+  params,
+}: {
+  params: Promise<{ locale: string; userId: string }>
 }) {
-  return <AdminUserPassportPage params={params} />
+  const { locale, userId } = await params
+  redirect(appUserHref(userId, 'passport', { locale }))
 }

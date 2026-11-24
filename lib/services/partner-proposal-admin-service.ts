@@ -26,6 +26,7 @@
  * `promoteProposal`; the reasoning is on that function.
  */
 
+import { hasNoPlace, partnerKindOf } from '@/lib/partnerships/partner-kind'
 import { getSupabaseService } from '@/lib/core/supabase-client'
 import { operatorLabel } from '@/lib/services/operator-label'
 import type { PartnerAnswers } from '@/lib/partner-form/schema'
@@ -155,7 +156,7 @@ export interface ProposalDetail {
 
 /** The columns the promotion panel compares against. An allowlist, like the write. */
 const CLIENT_COMPARE_COLUMNS =
-  'id, name, email, phone, company_name, address, city, state, country, postal_code, industry, website, social_handle, tax_id, tax_id_type, legal_representative_name, legal_representative_role, status, created_at'
+  'id, name, email, phone, company_name, address, city, state, country, postal_code, industry, website, social_handle, tax_id, tax_id_type, client_type, legal_representative_name, legal_representative_role, status, created_at'
 
 export async function loadProposalDetail(submissionId: string): Promise<ProposalDetail | null> {
   const { data: submission, error } = await service()
@@ -528,10 +529,22 @@ export type ClientWriteOutcome =
  * number that has one, and it was already disagreeing — 9 of 28 clients carry `0.200` that
  * nobody chose, all of them promoted from a proposal.
  */
-function commercialTermsOfChoice(answers: PartnerAnswers): Record<string, unknown> {
-  return answers.plan_choice === 'map_only'
-    ? { commission_rate: 0, monthly_fee_cents: null }
-    : { commission_rate: DEFAULT_COMMISSION_RATE }
+function commercialTermsOfChoice(answers: PartnerAnswers, commission: boolean): Record<string, unknown> {
+  const kind = partnerKindOf(answers)
+  // BR-B2B-064 item 2 and BR-MONETIZACAO-039 items 6 and 6.c (#1184): every guide gets the default
+  // rate of the partner without a place, by its document, and the number lives in ONE place, in
+  // the database (`partner.apply_default_commission`, called by the approval once the client is
+  // approved). So the CMS writes the guide's rate as NULL, said out loud: null is "no rate yet",
+  // what that function fills, and a zero here would be a decision nobody took (039, 1st edge
+  // case). Before the `map_only` test, because a guide's submission sent `map_only` before #933.
+  if (kind === 'guide') return { commission_rate: null, monthly_fee_cents: null }
+  // BR-B2B-065 item 3: the transfer without a base has no plan and a commission of zero, WRITTEN as
+  // zero, the same terms as the free tier, whatever `plan_choice` the portal sent.
+  if (answers.plan_choice === 'map_only' || hasNoPlace(kind)) return { commission_rate: 0, monthly_fee_cents: null }
+  // #1053, BR-B2B-044 item 6 and BR-MONETIZACAO-039 item 2: the paid plan accepted on the
+  // `locais-2026-10-v11` on has no commission, WRITTEN as zero, never left absent.
+  if (!commission) return { commission_rate: 0 }
+  return { commission_rate: DEFAULT_COMMISSION_RATE }
 }
 
 async function writeClient(command: PromotionCommand): Promise<ClientWriteOutcome> {
@@ -557,7 +570,27 @@ async function writeClient(command: PromotionCommand): Promise<ClientWriteOutcom
  */
 export async function createPromotedClient(
   updates: Partial<Record<PromotableColumn, string>>,
-  answers: PartnerAnswers
+  answers: PartnerAnswers,
+  {
+    clientType = PROMOTED_CLIENT_TYPE,
+    slug = null,
+    commission = true,
+  }: {
+    /** The portal's partner without a place is born `tour_guide` or `driver` (`clientTypeOfKind`). */
+    clientType?: ClientType
+    /**
+     * The kit's slug reserved at submit (`partner.place_slugs`, #815): the portal's client inherits
+     * it, so the kit QR and the app QR are the same (BR-B2B-037 items 3 and 4). Null = the
+     * database derives one (`partner.ensure_client_slug`).
+     */
+    slug?: string | null
+    /**
+     * #1053: `has_commission` of the acceptance (`partner.place_acceptance_terms_model`). The
+     * portal's approval passes it; the public proposal form has no acceptance and keeps the
+     * starting percentage.
+     */
+    commission?: boolean
+  } = {}
 ): Promise<ClientWriteOutcome> {
   const { data, error } = await service()
     .from(CLIENTS)
@@ -566,8 +599,9 @@ export async function createPromotedClient(
     // the partnership is another decision on the client's own page (BR-B2B-010, item 1).
     .insert({
       ...updates,
-      client_type: PROMOTED_CLIENT_TYPE,
-      ...commercialTermsOfChoice(answers),
+      client_type: clientType,
+      ...(slug ? { slug } : {}),
+      ...commercialTermsOfChoice(answers, commission),
     })
     .select('id')
     .single()

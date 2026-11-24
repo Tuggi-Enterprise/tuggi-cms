@@ -1,0 +1,13 @@
+{
+  "dimensionHeaders": [{ "name": "date" }, { "name": "sessionDefaultChannelGroup" }, { "name": "customEvent:store" }],
+  "metricHeaders": [{ "name": "eventCount", "type": "TYPE_INTEGER" }],
+  "rows": [
+    { "dimensionValues": [{ "value": "20261029" }, { "value": "Direct" }, { "value": "app_store" }], "metricValues": [{ "value": "2" }] },
+    { "dimensionValues": [{ "value": "20261029" }, { "value": "Direct" }, { "value": "play_store" }], "metricValues": [{ "value": "1" }] },
+    { "dimensionValues": [{ "value": "20261030" }, { "value": "Organic Search" }, { "value": "app_store" }], "metricValues": [{ "value": "1" }] },
+    { "dimensionValues": [{ "value": "20261030" }, { "value": "Email" }, { "value": "(not set)" }], "metricValues": [{ "value": "4" }] }
+  ],
+  "rowCount": 4,
+  "metadata": { "currencyCode": "BRL", "timeZone": "America/Sao_Paulo" },
+  "kind": "analyticsData#runReport"
+}

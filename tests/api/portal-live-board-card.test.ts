@@ -63,6 +63,8 @@ function portalLive(overrides: Partial<ClientDirectoryRow> = {}): ClientDirector
     portalAcceptance: { planChoice: 'map_and_description', billingPeriod: 3, totalCents: 37500 },
     liveAt: '2026-10-07T15:00:00.000Z',
     gateMissing: [],
+    hasHeldPhoto: false,
+    hasHeldStory: false,
     ...overrides,
   }
 }

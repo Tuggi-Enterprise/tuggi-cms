@@ -31,6 +31,10 @@ export interface RenderEmailOptions {
   unsubscribeUrl: string;
   locale?: string;
   utmCampaign?: string; // adiciona utm_* aos links (atribuição de conversão)
+  // #957: the tourist e-mail says WHY the reader gets it (one footer per class,
+  // BR-COMUNICACAO-020) and the service class names its own link. Without them, the newsletter footer.
+  footerNote?: string;
+  unsubscribeLabel?: string;
 }
 
 // Cores da marca (ver tailwind.config tuggi.*)
@@ -52,6 +56,8 @@ const FOOTER_LABELS: Record<string, { unsubscribe: string; rights: string }> = {
   en: { unsubscribe: 'Unsubscribe', rights: 'Tuggi · All rights reserved' },
   es: { unsubscribe: 'Cancelar suscripción', rights: 'Tuggi · Todos los derechos reservados' },
   it: { unsubscribe: 'Annulla iscrizione', rights: 'Tuggi · Tutti i diritti riservati' },
+  // #957: without `fr` the French footer fell back to Portuguese.
+  fr: { unsubscribe: 'Se désinscrire', rights: 'Tuggi · Tous droits réservés' },
 };
 
 function escapeHtml(value: string): string {
@@ -181,7 +187,11 @@ export function renderText(content: NewsletterContent, opts: RenderEmailOptions)
     if (content.cta_label && content.cta_url) lines.push(`${content.cta_label}: ${appendUtm(content.cta_url, opts.utmCampaign)}`, '');
   }
 
-  lines.push('—', `Tuggi · cancelar inscrição: ${opts.unsubscribeUrl}`);
+  const locale = (opts.locale || 'pt').slice(0, 2).toLowerCase();
+  const footer = FOOTER_LABELS[locale] || FOOTER_LABELS.pt;
+  lines.push('—');
+  if (opts.footerNote) lines.push(opts.footerNote);
+  lines.push(`Tuggi · ${opts.unsubscribeLabel || footer.unsubscribe}: ${opts.unsubscribeUrl}`);
   return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
@@ -262,12 +272,15 @@ export function renderEmail(content: NewsletterContent, opts: RenderEmailOptions
           <!-- Footer -->
           <tr>
             <td style="padding:24px;border-top:1px solid ${COLORS.border};">
+              ${opts.footerNote ? `<p style="margin:0 0 8px 0;font-size:12px;line-height:1.5;color:${COLORS.muted};text-align:center;">
+                ${escapeHtml(opts.footerNote)}
+              </p>` : ''}
               <p style="margin:0 0 8px 0;font-size:12px;line-height:1.5;color:${COLORS.muted};text-align:center;">
                 ${escapeHtml(footer.rights)}
               </p>
               <p style="margin:0;font-size:12px;line-height:1.5;color:${COLORS.muted};text-align:center;">
                 <a href="${safeUrl(opts.unsubscribeUrl)}" target="_blank" style="color:${COLORS.muted};text-decoration:underline;">
-                  ${escapeHtml(footer.unsubscribe)}
+                  ${escapeHtml(opts.unsubscribeLabel || footer.unsubscribe)}
                 </a>
               </p>
             </td>

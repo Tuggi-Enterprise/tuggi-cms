@@ -87,6 +87,8 @@ interface ClientBoardProps {
    */
   hrefFor: (row: ClientDirectoryRow) => string
   viewSwitch?: React.ReactNode
+  /** #1139: the queue of app partner requests, drawn above the alert band. The host owns it. */
+  requests?: React.ReactNode
 }
 
 export function ClientBoard({
@@ -101,6 +103,7 @@ export function ClientBoard({
   onAct,
   hrefFor,
   viewSwitch,
+  requests,
 }: ClientBoardProps) {
   const t = useTranslations('Clients.board')
   const c = useTranslations('Clients.directory')
@@ -237,6 +240,7 @@ export function ClientBoard({
       }
       // #906: the board's `Publicado` has one sentence for any failure, refusal included.
       if (act === 'publish_portal_place') return t('blocked.publish_failed')
+      if (act === 'publish_guide_profile') return t('blocked.publish_guide_failed')
       if (outcome.kind === 'failed') return t('blocked.unknown')
 
       // The one sentence that names a fact from the answer instead of only the code. The stamp
@@ -433,6 +437,8 @@ export function ClientBoard({
               {c('truncated')}
             </p>
           )}
+
+          {requests}
 
           {/* ── The band that outranks the board ─────────────────────────────────────────── */}
           {board.alert.length > 0 && (

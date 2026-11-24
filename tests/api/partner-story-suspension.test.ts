@@ -1,9 +1,10 @@
 /**
- * #889 — the paid description follows the payment (BR-B2B-019).
+ * #889, #1055 — the paid content follows the payment (BR-B2B-019, BR-B2B-060, BR-B2B-044).
  *
- * `reconcilePartnerStories` is import-free: it runs for real, every effect is a fake and every case
- * asserts what was WRITTEN (and in which order), never which helper was called. Nothing here touches
- * a database, a bucket or an Edge Function.
+ * `reconcilePartnerStories` is import-free: it runs for real against a fake database that answers
+ * the three RPCs the way `db-tuggiApp` migration `20261029120100` documents them (the database
+ * decides; the module only calls, removes the voiced files and rebuilds the read model). Nothing
+ * here touches a database, a bucket or an Edge Function.
  *
  * Run with: npm run test:api
  */
@@ -13,258 +14,192 @@ import assert from 'node:assert/strict'
 
 import {
   reconcilePartnerStories,
-  nameOnlyRow,
-  storyRow,
-  PARTNER_STORY_SCRIPT_KIND,
-  PARTNER_NAME_ONLY_KIND,
-  type BaseRow,
-  type StoryPlace,
+  type PaidContentPlace,
+  type RestoreResult,
+  type SuspendOutcome,
   type SuspensionDeps,
 } from '../../supabase/functions/_shared/places-story-suspension'
 
-const NOW = new Date('2026-10-06T12:00:00.000Z')
-const A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
-const S1 = '11111111-1111-4111-8111-111111111111'
-const S2 = '22222222-2222-4222-8222-222222222222'
-const STORY = 'Meu avô Aurélio abriu a cantina em 1962.'
+const PORTAL = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+const LEGACY = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+const EXCEPTION = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+const BROKEN = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
+
+// A place as the database sees it: whether the paid right is on, the exception, and what is shown.
+type Place = { paid: boolean; exception: boolean; shown: 'story' | 'name'; archived: boolean; fail?: string }
 
 type World = {
-  places: StoryPlace[]
-  paid: Record<string, boolean | Error>
-  name: string
-  hasException: boolean
-  kind: string | null
-  removeError: Error | null
+  places: Record<string, Place>
   log: string[]
   alerts: { what: string; fields: Record<string, unknown> }[]
-  writes: { id: string; from: string; row: BaseRow }[]
+  filesError: Error | null
+  alertError: Error | null
 }
 
-function world(over: Partial<World> = {}): World {
-  return {
-    places: [{ submissionId: S1, attractionId: A, story: STORY }],
-    paid: { [S1]: false },
-    name: 'Bar do Zé',
-    hasException: false,
-    kind: PARTNER_STORY_SCRIPT_KIND,
-    removeError: null,
-    log: [],
-    alerts: [],
-    writes: [],
-    ...over,
-  }
+function world(places: Record<string, Place>, over: Partial<World> = {}): World {
+  return { places, log: [], alerts: [], filesError: null, alertError: null, ...over }
 }
 
+// The fake follows the documented contract of the SQL functions, so a second run is a no-op.
 function deps(w: World): SuspensionDeps {
   return {
-    storyPlaces: async () => w.places,
-    entitled: async (id) => {
-      const v = w.paid[id]
-      if (v instanceof Error) throw v
-      return v === true
+    places: async (): Promise<PaidContentPlace[]> =>
+      Object.entries(w.places).map(([id, p]) => ({ attractionId: id, state: p.paid ? 'paid' : 'ended', archived: p.archived })),
+    suspend: async (id): Promise<SuspendOutcome> => {
+      w.log.push(`suspend ${id}`)
+      const p = w.places[id]
+      if (p.fail) throw new Error(`suspend ${p.fail}`)
+      if (p.exception) return 'exception'
+      if (p.paid) return 'not_ended'
+      if (p.archived) return 'already_suspended'
+      p.archived = true
+      p.shown = 'name'
+      return 'suspended'
     },
-    placeFacts: async () => ({ name: w.name, hasException: w.hasException }),
-    baseKind: async () => w.kind,
-    removeVoicedCopies: async (id) => {
-      w.log.push('remove')
-      if (w.removeError) throw w.removeError
-      void id
+    restore: async (id): Promise<RestoreResult> => {
+      w.log.push(`restore ${id}`)
+      const p = w.places[id]
+      if (p.fail) throw new Error(`restore ${p.fail}`)
+      if (p.exception) return { outcome: 'exception', textRestored: false, imagesRestored: 0 }
+      if (!p.paid) return { outcome: 'not_paid', textRestored: false, imagesRestored: 0 }
+      if (!p.archived) return { outcome: 'nothing_archived', textRestored: false, imagesRestored: 0 }
+      p.archived = false
+      p.shown = 'story'
+      return { outcome: 'restored', textRestored: true, imagesRestored: 2 }
     },
-    // Conditional UPDATE, as in the runtime: only moves the row when its kind is `fromKind`.
-    writeBase: async (id, from, row) => {
-      w.log.push('write')
-      if (w.kind !== from) return false
-      w.writes.push({ id, from, row })
-      w.kind = row.generation_meta.kind
-      return true
+    removeVoicedFiles: async (id) => {
+      w.log.push(`files ${id}`)
+      if (w.filesError) throw w.filesError
     },
-    rebuildReadModel: async () => {
-      w.log.push('rebuild')
+    rebuildReadModel: async (id) => {
+      w.log.push(`rebuild ${id}`)
     },
     alert: async (what, fields) => {
+      if (w.alertError) throw w.alertError
       w.alerts.push({ what, fields })
     },
-    now: () => NOW,
   }
 }
 
-test('BR-B2B-019 items 1 and 3 · unpaid with a story base: voiced copies go first, then the base becomes the name', async () => {
-  const w = world()
+const zero = { suspended: 0, restored: 0, exception: 0, waiting: 0, failed: 0 }
+
+test('BR-B2B-019 items 1, 3, 7 · a portal place whose plan ended: suspended, then files, then read model', async () => {
+  const w = world({ [PORTAL]: { paid: false, exception: false, shown: 'story', archived: false } })
   const s = await reconcilePartnerStories(deps(w))
-  assert.deepEqual(s, { suspended: 1, restored: 0, exception: 0, failed: 0 })
-  assert.deepEqual(w.log, ['remove', 'write', 'rebuild'], 'copies removed BEFORE the base write')
-  assert.equal(w.writes.length, 1)
-  assert.equal(w.writes[0].from, 'partner_story_script')
-  assert.deepEqual(w.writes[0].row, nameOnlyRow('Bar do Zé', NOW))
-  assert.equal(w.writes[0].row.description, 'Bar do Zé')
-  assert.equal(w.writes[0].row.audio_url, null)
-  assert.deepEqual(w.writes[0].row.generation_meta, { kind: 'partner_name_only' })
+  assert.deepEqual(s, { ...zero, suspended: 1 })
+  assert.deepEqual(w.log, [`suspend ${PORTAL}`, `files ${PORTAL}`, `rebuild ${PORTAL}`])
+  assert.equal(w.places[PORTAL].shown, 'name')
 })
 
-test('BR-B2B-019 item 6 · paid again with a name-only base: the story comes back from the same input', async () => {
-  const w = world({ paid: { [S1]: true }, kind: PARTNER_NAME_ONLY_KIND })
+test('BR-B2B-060 / BR-B2B-044 · a pre-portal place whose paid month ended goes the same way', async () => {
+  const w = world({ [LEGACY]: { paid: false, exception: false, shown: 'story', archived: false } })
   const s = await reconcilePartnerStories(deps(w))
-  assert.deepEqual(s, { suspended: 0, restored: 1, exception: 0, failed: 0 })
-  assert.deepEqual(w.writes[0].row, storyRow(STORY, NOW))
-  assert.equal(w.writes[0].from, 'partner_name_only')
-  assert.deepEqual(w.writes[0].row.generation_meta, { kind: 'partner_story_script' })
+  assert.deepEqual(s, { ...zero, suspended: 1 })
+  assert.deepEqual(w.log, [`suspend ${LEGACY}`, `files ${LEGACY}`, `rebuild ${LEGACY}`])
 })
 
-for (const [label, story] of [['no story', null], ['blank story', '  \n\t ']] as const) {
-  test(`BR-B2B-019 item 6 · paid again but ${label}: nothing written, outcome none`, async () => {
-    const w = world({ paid: { [S1]: true }, kind: PARTNER_NAME_ONLY_KIND, places: [{ submissionId: S1, attractionId: A, story }] })
-    const s = await reconcilePartnerStories(deps(w))
-    assert.deepEqual(s, { suspended: 0, restored: 0, exception: 0, failed: 0 })
-    assert.deepEqual(w.log, [])
-    assert.equal(w.writes.length, 0)
-  })
-}
-
-test('BR-B2B-019 · restore trims the story', async () => {
-  const w = world({ paid: { [S1]: true }, kind: PARTNER_NAME_ONLY_KIND, places: [{ submissionId: S1, attractionId: A, story: `  ${STORY}\n` }] })
-  await reconcilePartnerStories(deps(w))
-  assert.equal(w.writes[0].row.description, STORY)
-})
-
-test("BR-B2B-019 operator's exception · wins in both directions: no write, counted as exception", async () => {
-  for (const [paid, kind] of [[false, PARTNER_STORY_SCRIPT_KIND], [true, PARTNER_NAME_ONLY_KIND]] as const) {
-    const w = world({ paid: { [S1]: paid }, kind, hasException: true })
-    const s = await reconcilePartnerStories(deps(w))
-    assert.deepEqual(s, { suspended: 0, restored: 0, exception: 1, failed: 0 })
-    assert.deepEqual(w.log, [], `paid=${paid}`)
-  }
-})
-
-test('BR-B2B-019 · catalogue, operator or absent base is never touched, paid or not', async () => {
-  for (const kind of ['catalog', 'operator_edit', '[PROCESSING]', 'something_else', null]) {
-    for (const paid of [false, true]) {
-      const w = world({ paid: { [S1]: paid }, kind })
-      const s = await reconcilePartnerStories(deps(w))
-      assert.deepEqual(s, { suspended: 0, restored: 0, exception: 0, failed: 0 }, `kind=${kind} paid=${paid}`)
-      assert.deepEqual(w.log, [], `kind=${kind} paid=${paid}`)
-    }
-  }
-})
-
-test('BR-B2B-019 item 4 · two submissions on one place, one paid: the place is paid, nothing is demoted', async () => {
-  const w = world({
-    places: [
-      { submissionId: S1, attractionId: A, story: STORY },
-      { submissionId: S2, attractionId: A, story: STORY },
-    ],
-    paid: { [S1]: false, [S2]: true },
-  })
+test('BR-B2B-060 · a place still inside the period already paid is not suspended', async () => {
+  const w = world({ [LEGACY]: { paid: true, exception: false, shown: 'story', archived: false } })
   const s = await reconcilePartnerStories(deps(w))
-  assert.deepEqual(s, { suspended: 0, restored: 0, exception: 0, failed: 0 })
-  assert.deepEqual(w.log, [])
-  assert.equal(w.kind, PARTNER_STORY_SCRIPT_KIND)
+  assert.deepEqual(s, zero)
+  assert.deepEqual(w.log, [`restore ${LEGACY}`], 'only the no-op restore, no files, no rebuild')
 })
 
-test('BR-B2B-019 · two submissions on one place, none paid: demoted once', async () => {
-  const w = world({
-    places: [
-      { submissionId: S1, attractionId: A, story: STORY },
-      { submissionId: S2, attractionId: A, story: STORY },
-    ],
-    paid: { [S1]: false, [S2]: false },
-  })
+test('BR-B2B-019 item 6 · paying again brings story and photos back, then removes the name files', async () => {
+  const w = world({ [PORTAL]: { paid: true, exception: false, shown: 'name', archived: true } })
   const s = await reconcilePartnerStories(deps(w))
-  assert.equal(s.suspended, 1)
-  assert.equal(w.writes.length, 1)
+  assert.deepEqual(s, { ...zero, restored: 1 })
+  assert.deepEqual(w.log, [`restore ${PORTAL}`, `files ${PORTAL}`, `rebuild ${PORTAL}`])
+  assert.equal(w.places[PORTAL].shown, 'story')
 })
 
-test('BR-B2B-019 · removeVoicedCopies throws: base NOT written, alert raised, the next place still runs', async () => {
-  const B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
-  const S3 = '33333333-3333-4333-8333-333333333333'
-  const w = world({
-    places: [
-      { submissionId: S1, attractionId: A, story: STORY },
-      { submissionId: S3, attractionId: B, story: STORY },
-    ],
-    paid: { [S1]: false, [S3]: false },
-  })
+test('BR-B2B-019 item 6 · restored without the text (a text written in between wins): its files stay', async () => {
+  const w = world({ [PORTAL]: { paid: true, exception: false, shown: 'name', archived: true } })
   const d = deps(w)
-  const realRemove = d.removeVoicedCopies
-  d.removeVoicedCopies = async (id) => {
-    if (id === A) {
-      w.log.push('remove-A-throws')
-      throw new Error('storage down')
-    }
-    return realRemove(id)
+  d.restore = async (id) => {
+    w.log.push(`restore ${id}`)
+    return { outcome: 'restored', textRestored: false, imagesRestored: 2 }
   }
   const s = await reconcilePartnerStories(d)
-  assert.deepEqual(s, { suspended: 1, restored: 0, exception: 0, failed: 1 })
-  assert.equal(w.writes.length, 1)
-  assert.equal(w.writes[0].id, B, 'only the healthy place was written')
+  assert.deepEqual(s, { ...zero, restored: 1 })
+  assert.deepEqual(w.log, [`restore ${PORTAL}`, `rebuild ${PORTAL}`])
+})
+
+test('BR-B2B-019 · the operator exception wins: counted, nothing removed, nothing rebuilt', async () => {
+  const w = world({
+    [EXCEPTION]: { paid: false, exception: true, shown: 'story', archived: false },
+    [PORTAL]: { paid: true, exception: true, shown: 'story', archived: false },
+  })
+  const s = await reconcilePartnerStories(deps(w))
+  assert.deepEqual(s, { ...zero, exception: 2 })
+  assert.equal(w.log.some((l) => l.startsWith('files') || l.startsWith('rebuild')), false)
+  assert.equal(w.places[EXCEPTION].shown, 'story')
+})
+
+test('BR-B2B-019 · idempotent: the second run changes nothing and makes no call for an archived ended place', async () => {
+  const w = world({
+    [PORTAL]: { paid: false, exception: false, shown: 'story', archived: false },
+    [LEGACY]: { paid: true, exception: false, shown: 'name', archived: true },
+  })
+  await reconcilePartnerStories(deps(w))
+  w.log = []
+  const second = await reconcilePartnerStories(deps(w))
+  assert.deepEqual(second, zero)
+  assert.deepEqual(w.log, [`restore ${LEGACY}`], 'the suspended place is skipped; the paid one is a no-op')
+})
+
+test('BR-B2B-019 · one place failing (23503 from a trigger point) alerts and the others still run', async () => {
+  const w = world({
+    [BROKEN]: { paid: false, exception: false, shown: 'story', archived: false, fail: '23503' },
+    [PORTAL]: { paid: false, exception: false, shown: 'story', archived: false },
+    [LEGACY]: { paid: true, exception: false, shown: 'name', archived: true },
+  })
+  const s = await reconcilePartnerStories(deps(w))
+  assert.deepEqual(s, { ...zero, suspended: 1, restored: 1, failed: 1 })
   assert.equal(w.alerts.length, 1)
   assert.equal(w.alerts[0].what, 'story_suspension_failed')
-  assert.equal(w.alerts[0].fields.attraction_id, A)
+  assert.equal(w.alerts[0].fields.attraction_id, BROKEN)
+  assert.match(String(w.alerts[0].fields.error), /23503/)
 })
 
-test('BR-B2B-019 · entitlement read error is `failed`, never "not paid": a paying place keeps its story', async () => {
-  const w = world({ paid: { [S1]: new Error('entitled 42501') } })
+test('BR-B2B-019 · a failed alert does not stop the loop either', async () => {
+  const w = world(
+    {
+      [BROKEN]: { paid: false, exception: false, shown: 'story', archived: false, fail: '23503' },
+      [PORTAL]: { paid: false, exception: false, shown: 'story', archived: false },
+    },
+    { alertError: new Error('mail down') }
+  )
   const s = await reconcilePartnerStories(deps(w))
-  assert.deepEqual(s, { suspended: 0, restored: 0, exception: 0, failed: 1 })
-  assert.equal(w.writes.length, 0)
-  assert.equal(w.log.includes('remove'), false, 'no copy was removed on a read error')
-  assert.equal(w.kind, PARTNER_STORY_SCRIPT_KIND)
-  assert.equal(w.alerts[0].what, 'story_suspension_failed')
+  assert.deepEqual(s, { ...zero, suspended: 1, failed: 1 })
 })
 
-test('BR-B2B-019 · empty or blank place name: not demoted (the row would carry no text)', async () => {
-  for (const name of ['', '   ']) {
-    const w = world({ name })
-    const s = await reconcilePartnerStories(deps(w))
-    assert.deepEqual(s, { suspended: 0, restored: 0, exception: 0, failed: 0 }, JSON.stringify(name))
-    assert.deepEqual(w.log, [])
-  }
+test('BR-B2B-019 item 7 · files that fail to go are alerted; the suspension still counts and the read model rebuilds', async () => {
+  const w = world({ [PORTAL]: { paid: false, exception: false, shown: 'story', archived: false } }, { filesError: new Error('audio remove failed') })
+  const s = await reconcilePartnerStories(deps(w))
+  assert.deepEqual(s, { ...zero, suspended: 1 })
+  assert.deepEqual(w.alerts.map((a) => a.what), ['story_suspension_files_failed'])
+  assert.equal(w.log[w.log.length - 1], `rebuild ${PORTAL}`)
 })
 
-test('BR-B2B-019 · ids that are not uuid are ignored, never reach a dependency', async () => {
+test('BR-B2B-019 · processing waits for the next run; no_name alerts', async () => {
   const w = world({
-    places: [
-      { submissionId: S1, attractionId: 'not-a-uuid', story: STORY },
-      { submissionId: 'nope', attractionId: A, story: STORY },
-      { submissionId: S1, attractionId: `${A}'; drop`, story: STORY },
-    ],
+    [PORTAL]: { paid: false, exception: false, shown: 'story', archived: false },
+    [LEGACY]: { paid: false, exception: false, shown: 'story', archived: false },
   })
-  let entitledCalls = 0
   const d = deps(w)
-  const e = d.entitled
-  d.entitled = async (id) => {
-    entitledCalls++
-    return e(id)
-  }
+  d.suspend = async (id) => (id === PORTAL ? 'processing' : 'no_name')
   const s = await reconcilePartnerStories(d)
-  assert.deepEqual(s, { suspended: 0, restored: 0, exception: 0, failed: 0 })
-  assert.equal(entitledCalls, 0)
-  assert.deepEqual(w.log, [])
+  assert.deepEqual(s, { ...zero, waiting: 1, failed: 1 })
+  assert.deepEqual(w.alerts.map((a) => [a.what, a.fields.attraction_id]), [['story_suspension_no_name', LEGACY]])
+  assert.equal(w.log.length, 0, 'no files, no rebuild')
 })
 
-test('BR-B2B-019 · second run does nothing (idempotent), in both directions', async () => {
-  const down = world()
-  await reconcilePartnerStories(deps(down))
-  const logAfter1 = [...down.log]
-  const s2 = await reconcilePartnerStories(deps(down))
-  assert.deepEqual(s2, { suspended: 0, restored: 0, exception: 0, failed: 0 })
-  assert.deepEqual(down.log, logAfter1, 'no effect on the 2nd run')
-
-  const up = world({ paid: { [S1]: true }, kind: PARTNER_NAME_ONLY_KIND })
-  await reconcilePartnerStories(deps(up))
-  const up1 = [...up.log]
-  const s3 = await reconcilePartnerStories(deps(up))
-  assert.deepEqual(s3, { suspended: 0, restored: 0, exception: 0, failed: 0 })
-  assert.deepEqual(up.log, up1)
-})
-
-test('BR-B2B-019 · race: the conditional write finds another kind (false): outcome none, no read-model rebuild', async () => {
-  const w = world()
+test('BR-B2B-019 · a row that is not a uuid is skipped before any call', async () => {
+  const w = world({})
   const d = deps(w)
-  d.writeBase = async () => {
-    w.log.push('write')
-    return false
-  }
+  d.places = async () => [{ attractionId: '../x', state: 'ended', archived: false }]
   const s = await reconcilePartnerStories(d)
-  assert.deepEqual(s, { suspended: 0, restored: 0, exception: 0, failed: 0 })
-  assert.equal(w.log.includes('rebuild'), false)
+  assert.deepEqual(s, zero)
+  assert.equal(w.log.length, 0)
 })

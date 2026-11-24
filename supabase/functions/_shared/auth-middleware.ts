@@ -39,6 +39,13 @@ export interface AuthResult {
   userId?: string;
   email?: string;
   role?: string;
+  /**
+   * BR-USUARIO-037 item 1.a: a guest is a real `auth.users` row created by Anonymous Sign-Ins.
+   * Read from the user record that `getUser(token)` returns after verifying the token, which is
+   * the same fact the `is_anonymous` JWT claim carries, kept current when the guest links an
+   * e-mail. Absent on the machine-key path.
+   */
+  isAnonymous?: boolean;
   error?: string;
   statusCode?: number;
 }
@@ -153,33 +160,39 @@ export async function validateAuthHeader(
       };
     }
 
-    // 5. Optionally check cms_users table for role
+    const isAnonymous = user.is_anonymous === true;
+
+    // 5. Optionally check cms_users table for role. A guest has no e-mail, so there is no
+    // operator row to find and the lookup is skipped.
     let userRole: string | undefined;
 
-    try {
-      const { data: cmsUser, error: roleError } = await supabase
-        .schema("core")
-        .from("cms_users")
-        .select("role")
-        .eq("email", user.email)
-        .eq("is_active", true)
-        .maybeSingle();
+    if (!isAnonymous) {
+      try {
+        const { data: cmsUser, error: roleError } = await supabase
+          .schema("core")
+          .from("cms_users")
+          .select("role")
+          .eq("email", user.email)
+          .eq("is_active", true)
+          .maybeSingle();
 
-      if (!roleError && cmsUser) {
-        userRole = cmsUser.role;
+        if (!roleError && cmsUser) {
+          userRole = cmsUser.role;
+        }
+      } catch (err) {
+        console.warn("⚠️ Could not fetch user role from cms_users:", err);
+        // Continue without role - role is optional
       }
-    } catch (err) {
-      console.warn("⚠️ Could not fetch user role from cms_users:", err);
-      // Continue without role - role is optional
     }
 
-    console.log(`✅ Token validated for user: ${user.email} (ID: ${user.id})`);
+    console.log(`✅ Token validated (ID: ${user.id}, anonymous: ${isAnonymous})`);
 
     return {
       valid: true,
       userId: user.id,
       email: user.email,
       role: userRole,
+      isAnonymous,
     };
   } catch (error) {
     console.error("❌ Auth validation error:", error);
@@ -360,36 +373,6 @@ export async function logAuthEvent(
 // =====================================
 // HELPER FUNCTIONS
 // =====================================
-
-/**
- * Decode JWT payload without verification (for extracting user ID)
- * This is safe because we verify the token with Supabase auth
- */
-function decodeJWT(token: string): any {
-  try {
-    const parts = token.split(".");
-    if (parts.length !== 3) {
-      return {};
-    }
-
-    let base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
-    while (base64.length % 4) {
-      base64 += "=";
-    }
-
-    const binString = atob(base64);
-    const m = new Uint8Array(binString.length);
-    for (let i = 0; i < binString.length; i++) {
-      m[i] = binString.charCodeAt(i);
-    }
-    const decodedStr = new TextDecoder().decode(m);
-
-    return JSON.parse(decodedStr);
-  } catch (error) {
-    console.warn("⚠️ Could not decode JWT:", error);
-    return {};
-  }
-}
 
 /**
  * Check if user has specific role

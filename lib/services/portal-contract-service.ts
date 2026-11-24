@@ -57,13 +57,18 @@ const sameText = (a: string, b: string): boolean => {
 }
 
 /**
- * The portal user's JWT, when the request comes from the portal's Worker. `null` = refuse: no
- * secret configured (an unset secret never reads as "no secret needed"), wrong secret, or no bearer.
+ * The request comes from the portal's Worker: it carries `PLACES_CMS_SECRET`. `false` with no
+ * secret configured (an unset secret never reads as "no secret needed") or a wrong one.
  */
-export function placesCaller(headers: Headers): { jwt: string } | null {
+export function isPlacesWorker(headers: Headers): boolean {
   const expected = (process.env.PLACES_CMS_SECRET ?? '').trim()
   const given = (headers.get(PLACES_SECRET_HEADER) ?? '').trim()
-  if (!expected || !given || !sameText(given, expected)) return null
+  return Boolean(expected && given && sameText(given, expected))
+}
+
+/** The portal user's JWT, when the request comes from the portal's Worker. `null` = refuse, or no bearer. */
+export function placesCaller(headers: Headers): { jwt: string } | null {
+  if (!isPlacesWorker(headers)) return null
   const bearer = /^Bearer\s+(\S+)$/i.exec(headers.get('authorization') ?? '')
   return bearer ? { jwt: bearer[1] } : null
 }

@@ -62,6 +62,8 @@ export const CLIENT_TYPES = [
   'creator',
   'driver',
   'venue',
+  // BR-B2B-064 item 1 (#933): the tour guide, a partner without a place.
+  'tour_guide',
 ] as const
 
 export type ClientType = (typeof CLIENT_TYPES)[number]
@@ -197,9 +199,23 @@ export interface Client {
   // Afiliados (20260717_06_client_hierarchy): coordenador gerencia empresas-filhas.
   is_coordinator?: boolean
   parent_client_id?: string | null
+  /** #1054, read only (`GET /api/admin/clients/[id]`): the pre-portal plan of each place of the client. */
+  legacy_plans?: ClientLegacyPlan[]
 }
 
-export type TaxIdType = 'cnpj' | 'nipc' | 'nif' | 'vat' | 'ein' | 'other'
+/**
+ * The pre-portal plan of one place (`partner.place_submissions` with `legacy_client_id`): when the
+ * fee ended (null = still running) and the day its story leaves (`partner.place_legacy_paid_until`,
+ * null when it could not be read). The Locais tab hides "Cancelar plano" once `fee_ended_at` is set.
+ */
+export interface ClientLegacyPlan {
+  attraction_id: string
+  fee_ended_at: string | null
+  story_until: string | null
+}
+
+/** `cpf`: creator, influencer and driver of the app request (#1137, contract `parceiro-sem-local.md` §4.4). */
+export type TaxIdType = 'cpf' | 'cnpj' | 'nipc' | 'nif' | 'vat' | 'ein' | 'other'
 
 /**
  * Link between a Client and a CMS User

@@ -23,12 +23,12 @@ const messages = (locale: string) => JSON.parse(read(`messages/${locale}.json`))
 const at = (tree: Record<string, unknown>, path: string): unknown =>
   path.split('.').reduce<unknown>((node, key) => (node as Record<string, unknown> | undefined)?.[key], tree)
 
-test('#911 §8 item 1: seven tabs in the spec order, Pessoas is `team`, and `?tab=appusers` opens it', () => {
+test('#911 §8 item 1: the tabs in the spec order (#1257 adds Marca last), Pessoas is `team`, and `?tab=appusers` opens it', () => {
   const modal = read('components/admin/clients/ClientEditorModal.tsx')
   const tabs = modal.slice(modal.indexOf('const TABS'), modal.indexOf('export function ClientEditorModal'))
   assert.deepEqual(
     Array.from(tabs.matchAll(/\{ id: '(\w+)', labelKey: '(\w+)'/g), (m) => `${m[1]}:${m[2]}`),
-    ['partnership:partnership', 'profile:profile', 'fiscal:fiscal', 'contract:contract', 'team:people', 'places:places', 'coupons:coupons']
+    ['partnership:partnership', 'profile:profile', 'fiscal:fiscal', 'contract:contract', 'team:people', 'places:places', 'coupons:coupons', 'brand:brand']
   )
   assert.doesNotMatch(modal, /'appusers'/, 'no appusers tab left in the record')
   const page = read('components/admin/AdminClientsPageContent.tsx')
@@ -39,8 +39,9 @@ const SPEC_TABLE: Record<string, string> = {
   'Clients.editor.tabs.people': 'Pessoas',
   'Clients.editor.tabs.afterSave': 'Disponível depois de salvar',
   'Clients.profile.qr.title': 'Link público e QR',
-  'Clients.profile.qr.subtitle': 'Para imprimir em banner, voucher e cartão.',
-  'Clients.profile.fields.slug': 'Slug (endereço /d/…)',
+  // #1147: the CMS no longer issues the QR for printing; the card is lookup only and points to the Portal.
+  'Clients.profile.qr.subtitle': 'Serve para conferir uma peça impressa. O QR e o kit para imprimir saem no Portal Locais.',
+  'Clients.profile.fields.slug': 'Slug (endereço /@…)',
   'Clients.profile.sections.attribution': 'Aparência no app',
   'Clients.profile.sections.attributionEmpty': 'Aparência no app: avatar, @ e bio (vazio)',
   'Clients.profile.material.help': 'O primeiro pedido vem da proposta. Reposição se registra aqui.',

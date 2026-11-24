@@ -19,6 +19,7 @@ import { Images, ListChecks } from 'lucide-react'
 import { ClientRecordProviders, type ClientRecordMessages } from '@/components/admin/clients/ClientRecordProviders'
 import { ClientDirectory } from '@/components/admin/clients/ClientDirectory'
 import { ClientBoard } from '@/components/admin/clients/ClientBoard'
+import { PartnerRequestsBand } from '@/components/admin/clients/board/PartnerRequests'
 import { useClientDirectory } from '@/lib/hooks/use-client-directory'
 import { useBoardActs } from '@/lib/hooks/use-board-acts'
 import { ViewSwitch, isBoardView, VIEW_PARAM } from '@/components/admin/clients/ViewSwitch'
@@ -309,6 +310,7 @@ function AdminClientsContent({ recordMessages }: ContentProps) {
             onAct={(row, act) => acts.run(row, act)}
             hrefFor={hrefFor}
             viewSwitch={viewSwitch}
+            requests={<PartnerRequestsBand onDecided={directory.reload} />}
           />
         ) : (
           <ClientDirectory

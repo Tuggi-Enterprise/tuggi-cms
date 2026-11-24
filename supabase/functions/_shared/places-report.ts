@@ -1,34 +1,28 @@
 // _shared/places-report.ts
 //
-// The pure half of `places-report` (#907): the monthly report of a place that is live, for the
-// Portal Locais. Rule BR-B2B-059. Contract: `docs/contracts/places-cms.md` (workspace).
+// The pure half of `places-report`: the published cycle reports of a place, for the reports tab of
+// the Portal Locais (#994). Rule BR-B2B-059. Contract: `docs/contracts/places-cms.md` (workspace).
+// Since #993 it reads `partner.report_cycle_list` (cycles of 21 to 20, frozen); the calendar month
+// of #907 is gone.
 //
 // Import-free, so the CMS tests run it under Node. The gate and the RPC come in as arguments;
 // `places-report/index.ts` only wires `isPlacesSecret` and the admin client into them.
 //
-// The numbers, the floors (100 and 10) and the month list are the database's
-// (`partner.place_monthly_report`). This function validates the request, maps the errors and
-// passes the JSON on as it came.
+// The cycles, their order and the payload are the database's. This function validates the request,
+// keeps the four fields of each cycle and maps the errors.
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const MONTH = /^(\d{4})-(0[1-9]|1[0-2])$/;
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
-export interface ReportRequest {
-  submissionId: string;
-  /** First day of the month, `YYYY-MM-01`; null asks the database for the current month. */
-  month: string | null;
-}
-
-/** `{submission_id: uuid, month?: "YYYY-MM" | null}`, nothing looser. */
-export function parseReportRequest(body: unknown): ReportRequest | null {
+/**
+ * `{submission_id: uuid}`. A `month` from the portal of #907 is ignored: there is no month to pick
+ * any more, the list carries every published cycle.
+ */
+export function parseReportRequest(body: unknown): { submissionId: string } | null {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
-  const { submission_id, month } = body as Record<string, unknown>;
+  const { submission_id } = body as Record<string, unknown>;
   if (typeof submission_id !== 'string' || !UUID.test(submission_id)) return null;
-  if (month === undefined || month === null) {
-    return { submissionId: submission_id.toLowerCase(), month: null };
-  }
-  if (typeof month !== 'string' || !MONTH.test(month)) return null;
-  return { submissionId: submission_id.toLowerCase(), month: `${month}-01` };
+  return { submissionId: submission_id.toLowerCase() };
 }
 
 export interface RpcError {
@@ -36,38 +30,31 @@ export interface RpcError {
   message?: string | null;
 }
 
-export type ReportError = 'not_live' | 'month_not_available' | 'unavailable';
-
-/** `not_live` (P0001) is 409, a month outside the list (22023) is 404, anything else 502. */
-export function reportErrorFor(error: RpcError): { status: number; error: ReportError } {
-  if (error.code === 'P0001' && error.message === 'not_live') return { status: 409, error: 'not_live' };
-  if (error.code === '22023') return { status: 404, error: 'month_not_available' };
-  return { status: 502, error: 'unavailable' };
-}
-
-const METRICS = ['passersby_300m', 'story_played'] as const;
+export type ReportCycle = { cycle_end: string; period_from: string; plan: string; payload: Record<string, unknown> };
 
 /**
- * The database's JSON as it came, with one guard (BR-B2B-059 item 5): a metric without
- * `has_data: true` never carries a count, whatever the row says.
+ * The database's list as it came, most recent first, with only `cycle_end`, `period_from`, `plan`
+ * and `payload` of each cycle (nothing of the run, such as `email_sent_at`, reaches the portal).
+ * An item without a date or a payload object is dropped. Null when the answer is not a list.
  */
-export function shapeReportResponse(report: Record<string, unknown>): Record<string, unknown> {
-  const out: Record<string, unknown> = { ...report };
-  for (const key of METRICS) {
-    const metric = report[key];
-    if (metric && typeof metric === 'object' && (metric as Record<string, unknown>).has_data !== true) {
-      out[key] = { ...(metric as Record<string, unknown>), has_data: false, count: null };
-    }
+export function shapeCycles(data: unknown): ReportCycle[] | null {
+  const list = data === null ? [] : Array.isArray(data) ? data : null;
+  if (!list) return null;
+  const out: ReportCycle[] = [];
+  for (const c of list) {
+    if (!c || typeof c !== 'object') continue;
+    const { cycle_end, period_from, plan, payload } = c as Record<string, unknown>;
+    if (typeof cycle_end !== 'string' || !DATE.test(cycle_end)) continue;
+    if (typeof period_from !== 'string' || !DATE.test(period_from)) continue;
+    if (typeof plan !== 'string' || !payload || typeof payload !== 'object' || Array.isArray(payload)) continue;
+    out.push({ cycle_end, period_from, plan, payload: payload as Record<string, unknown> });
   }
   return out;
 }
 
 export interface ReportDeps {
   isAuthorized: (req: Request) => boolean;
-  monthlyReport: (
-    submissionId: string,
-    month: string | null,
-  ) => Promise<{ data: unknown; error: RpcError | null }>;
+  cycleList: (submissionId: string) => Promise<{ data: unknown; error: RpcError | null }>;
 }
 
 const json = (status: number, body: unknown) =>
@@ -91,22 +78,22 @@ export async function handlePlacesReport(req: Request, deps: ReportDeps): Promis
 
   let result: { data: unknown; error: RpcError | null };
   try {
-    result = await deps.monthlyReport(request.submissionId, request.month);
+    result = await deps.cycleList(request.submissionId);
   } catch {
-    console.error('[places-report] place_monthly_report threw');
+    console.error('[places-report] report_cycle_list threw');
     return json(502, { error: 'unavailable' });
   }
 
   const { data, error } = result;
   if (error) {
-    const mapped = reportErrorFor(error);
     // The code only: the message of a PostgREST error can echo the arguments.
-    if (mapped.status === 502) console.error('[places-report] place_monthly_report failed', error.code ?? 'no_code');
-    return json(mapped.status, { error: mapped.error });
-  }
-  if (!data || typeof data !== 'object' || Array.isArray(data)) {
-    console.error('[places-report] place_monthly_report returned no object');
+    console.error('[places-report] report_cycle_list failed', error.code ?? 'no_code');
     return json(502, { error: 'unavailable' });
   }
-  return json(200, shapeReportResponse(data as Record<string, unknown>));
+  const cycles = shapeCycles(data);
+  if (!cycles) {
+    console.error('[places-report] report_cycle_list returned no list');
+    return json(502, { error: 'unavailable' });
+  }
+  return json(200, { cycles });
 }

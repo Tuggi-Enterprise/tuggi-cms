@@ -1,0 +1,1973 @@
+[
+ {
+  "name": "Que faire à Paris (Ville de Paris)",
+  "adapter": "opendatasoft",
+  "base_url": "https://opendata.paris.fr",
+  "city": "Paris",
+  "state": "Île-de-France",
+  "country": "France",
+  "timezone": "Europe/Paris",
+  "credit": "Informações: Ville de Paris (paris.fr)",
+  "config": {
+   "version": 1,
+   "language": "fr-fr",
+   "fetch": {
+    "endpoint": "https://opendata.paris.fr/api/explore/v2.1",
+    "dataset": "que-faire-a-paris-",
+    "where": "date_end >= now() and date_start is not null",
+    "order_by": "date_start",
+    "page_size": 100
+   },
+   "fields": {
+    "external_id": "id",
+    "name": "title",
+    "description": [
+     "description",
+     "lead_text"
+    ],
+    "starts_at": "date_start",
+    "ends_at": "date_end",
+    "lat": "lat_lon.lat",
+    "lon": "lat_lon.lon",
+    "address": {
+     "join": [
+      "address_name",
+      "address_street",
+      "address_zipcode",
+      "address_city"
+     ],
+     "sep": ", "
+    },
+    "image": "cover_url",
+    "image_credit": "cover_credit",
+    "url": "url",
+    "is_free": {
+     "path": "price_type",
+     "free_values": [
+      "gratuit",
+      "gratuit sous condition"
+     ]
+    },
+    "category": "qfap_tags"
+   },
+   "category": {
+    "rules": [
+     [
+      "festival",
+      "festival"
+     ],
+     [
+      "concert",
+      "music"
+     ],
+     [
+      "musique",
+      "music"
+     ],
+     [
+      "theatre",
+      "theatre"
+     ],
+     [
+      "danse",
+      "theatre"
+     ],
+     [
+      "spectacle",
+      "theatre"
+     ],
+     [
+      "expo",
+      "exhibition"
+     ],
+     [
+      "art contemporain",
+      "exhibition"
+     ],
+     [
+      "enfant",
+      "kids"
+     ],
+     [
+      "sport",
+      "sports"
+     ],
+     [
+      "conference",
+      "conference"
+     ],
+     [
+      "salon",
+      "fair"
+     ],
+     [
+      "marche",
+      "fair"
+     ]
+    ],
+    "default": "other"
+   }
+  }
+ },
+ {
+  "name": "OpenAgenda: Lyon",
+  "adapter": "opendatasoft",
+  "base_url": "https://public.opendatasoft.com",
+  "city": "Lyon",
+  "state": "Auvergne-Rhône-Alpes",
+  "country": "France",
+  "timezone": "Europe/Paris",
+  "credit": "Informações: OpenAgenda (openagenda.com)",
+  "config": {
+   "version": 1,
+   "language": "fr-fr",
+   "fetch": {
+    "endpoint": "https://public.opendatasoft.com/api/explore/v2.1",
+    "dataset": "evenements-publics-openagenda",
+    "where": "location_city = 'Lyon' and lastdate_end >= now()",
+    "order_by": "firstdate_begin",
+    "page_size": 100
+   },
+   "fields": {
+    "external_id": "uid",
+    "name": "title_fr",
+    "description": [
+     "longdescription_fr",
+     "description_fr"
+    ],
+    "starts_at": "firstdate_begin",
+    "ends_at": "lastdate_end",
+    "lat": "location_coordinates.lat",
+    "lon": "location_coordinates.lon",
+    "address": {
+     "join": [
+      "location_name",
+      "location_address"
+     ],
+     "sep": ", "
+    },
+    "image": "image",
+    "image_credit": "imagecredits",
+    "url": "canonicalurl",
+    "category": "keywords_fr"
+   },
+   "category": {
+    "rules": [
+     [
+      "festival",
+      "festival"
+     ],
+     [
+      "concert",
+      "music"
+     ],
+     [
+      "musique",
+      "music"
+     ],
+     [
+      "piano",
+      "music"
+     ],
+     [
+      "jazz",
+      "music"
+     ],
+     [
+      "chorale",
+      "music"
+     ],
+     [
+      "theatre",
+      "theatre"
+     ],
+     [
+      "spectacle",
+      "theatre"
+     ],
+     [
+      "danse",
+      "theatre"
+     ],
+     [
+      "cirque",
+      "theatre"
+     ],
+     [
+      "expo",
+      "exhibition"
+     ],
+     [
+      "enfant",
+      "kids"
+     ],
+     [
+      "famille",
+      "kids"
+     ],
+     [
+      "jeune public",
+      "kids"
+     ],
+     [
+      "sport",
+      "sports"
+     ],
+     [
+      "randonnee",
+      "sports"
+     ],
+     [
+      "conference",
+      "conference"
+     ],
+     [
+      "rencontre",
+      "conference"
+     ],
+     [
+      "debat",
+      "conference"
+     ],
+     [
+      "salon",
+      "fair"
+     ],
+     [
+      "marche",
+      "fair"
+     ],
+     [
+      "foire",
+      "fair"
+     ],
+     [
+      "brocante",
+      "fair"
+     ]
+    ],
+    "default": "other"
+   }
+  }
+ },
+ {
+  "name": "OpenAgenda: Marseille",
+  "adapter": "opendatasoft",
+  "base_url": "https://public.opendatasoft.com",
+  "city": "Marseille",
+  "state": "Provence-Alpes-Côte d'Azur",
+  "country": "France",
+  "timezone": "Europe/Paris",
+  "credit": "Informações: OpenAgenda (openagenda.com)",
+  "config": {
+   "version": 1,
+   "language": "fr-fr",
+   "fetch": {
+    "endpoint": "https://public.opendatasoft.com/api/explore/v2.1",
+    "dataset": "evenements-publics-openagenda",
+    "where": "location_city = 'Marseille' and lastdate_end >= now()",
+    "order_by": "firstdate_begin",
+    "page_size": 100
+   },
+   "fields": {
+    "external_id": "uid",
+    "name": "title_fr",
+    "description": [
+     "longdescription_fr",
+     "description_fr"
+    ],
+    "starts_at": "firstdate_begin",
+    "ends_at": "lastdate_end",
+    "lat": "location_coordinates.lat",
+    "lon": "location_coordinates.lon",
+    "address": {
+     "join": [
+      "location_name",
+      "location_address"
+     ],
+     "sep": ", "
+    },
+    "image": "image",
+    "image_credit": "imagecredits",
+    "url": "canonicalurl",
+    "category": "keywords_fr"
+   },
+   "category": {
+    "rules": [
+     [
+      "festival",
+      "festival"
+     ],
+     [
+      "concert",
+      "music"
+     ],
+     [
+      "musique",
+      "music"
+     ],
+     [
+      "piano",
+      "music"
+     ],
+     [
+      "jazz",
+      "music"
+     ],
+     [
+      "chorale",
+      "music"
+     ],
+     [
+      "theatre",
+      "theatre"
+     ],
+     [
+      "spectacle",
+      "theatre"
+     ],
+     [
+      "danse",
+      "theatre"
+     ],
+     [
+      "cirque",
+      "theatre"
+     ],
+     [
+      "expo",
+      "exhibition"
+     ],
+     [
+      "enfant",
+      "kids"
+     ],
+     [
+      "famille",
+      "kids"
+     ],
+     [
+      "jeune public",
+      "kids"
+     ],
+     [
+      "sport",
+      "sports"
+     ],
+     [
+      "randonnee",
+      "sports"
+     ],
+     [
+      "conference",
+      "conference"
+     ],
+     [
+      "rencontre",
+      "conference"
+     ],
+     [
+      "debat",
+      "conference"
+     ],
+     [
+      "salon",
+      "fair"
+     ],
+     [
+      "marche",
+      "fair"
+     ],
+     [
+      "foire",
+      "fair"
+     ],
+     [
+      "brocante",
+      "fair"
+     ]
+    ],
+    "default": "other"
+   }
+  }
+ },
+ {
+  "name": "OpenAgenda: Bordeaux",
+  "adapter": "opendatasoft",
+  "base_url": "https://public.opendatasoft.com",
+  "city": "Bordeaux",
+  "state": "Nouvelle-Aquitaine",
+  "country": "France",
+  "timezone": "Europe/Paris",
+  "credit": "Informações: OpenAgenda (openagenda.com)",
+  "config": {
+   "version": 1,
+   "language": "fr-fr",
+   "fetch": {
+    "endpoint": "https://public.opendatasoft.com/api/explore/v2.1",
+    "dataset": "evenements-publics-openagenda",
+    "where": "location_city = 'Bordeaux' and lastdate_end >= now()",
+    "order_by": "firstdate_begin",
+    "page_size": 100
+   },
+   "fields": {
+    "external_id": "uid",
+    "name": "title_fr",
+    "description": [
+     "longdescription_fr",
+     "description_fr"
+    ],
+    "starts_at": "firstdate_begin",
+    "ends_at": "lastdate_end",
+    "lat": "location_coordinates.lat",
+    "lon": "location_coordinates.lon",
+    "address": {
+     "join": [
+      "location_name",
+      "location_address"
+     ],
+     "sep": ", "
+    },
+    "image": "image",
+    "image_credit": "imagecredits",
+    "url": "canonicalurl",
+    "category": "keywords_fr"
+   },
+   "category": {
+    "rules": [
+     [
+      "festival",
+      "festival"
+     ],
+     [
+      "concert",
+      "music"
+     ],
+     [
+      "musique",
+      "music"
+     ],
+     [
+      "piano",
+      "music"
+     ],
+     [
+      "jazz",
+      "music"
+     ],
+     [
+      "chorale",
+      "music"
+     ],
+     [
+      "theatre",
+      "theatre"
+     ],
+     [
+      "spectacle",
+      "theatre"
+     ],
+     [
+      "danse",
+      "theatre"
+     ],
+     [
+      "cirque",
+      "theatre"
+     ],
+     [
+      "expo",
+      "exhibition"
+     ],
+     [
+      "enfant",
+      "kids"
+     ],
+     [
+      "famille",
+      "kids"
+     ],
+     [
+      "jeune public",
+      "kids"
+     ],
+     [
+      "sport",
+      "sports"
+     ],
+     [
+      "randonnee",
+      "sports"
+     ],
+     [
+      "conference",
+      "conference"
+     ],
+     [
+      "rencontre",
+      "conference"
+     ],
+     [
+      "debat",
+      "conference"
+     ],
+     [
+      "salon",
+      "fair"
+     ],
+     [
+      "marche",
+      "fair"
+     ],
+     [
+      "foire",
+      "fair"
+     ],
+     [
+      "brocante",
+      "fair"
+     ]
+    ],
+    "default": "other"
+   }
+  }
+ },
+ {
+  "name": "OpenAgenda: Nice",
+  "adapter": "opendatasoft",
+  "base_url": "https://public.opendatasoft.com",
+  "city": "Nice",
+  "state": "Provence-Alpes-Côte d'Azur",
+  "country": "France",
+  "timezone": "Europe/Paris",
+  "credit": "Informações: OpenAgenda (openagenda.com)",
+  "config": {
+   "version": 1,
+   "language": "fr-fr",
+   "fetch": {
+    "endpoint": "https://public.opendatasoft.com/api/explore/v2.1",
+    "dataset": "evenements-publics-openagenda",
+    "where": "location_city = 'Nice' and lastdate_end >= now()",
+    "order_by": "firstdate_begin",
+    "page_size": 100
+   },
+   "fields": {
+    "external_id": "uid",
+    "name": "title_fr",
+    "description": [
+     "longdescription_fr",
+     "description_fr"
+    ],
+    "starts_at": "firstdate_begin",
+    "ends_at": "lastdate_end",
+    "lat": "location_coordinates.lat",
+    "lon": "location_coordinates.lon",
+    "address": {
+     "join": [
+      "location_name",
+      "location_address"
+     ],
+     "sep": ", "
+    },
+    "image": "image",
+    "image_credit": "imagecredits",
+    "url": "canonicalurl",
+    "category": "keywords_fr"
+   },
+   "category": {
+    "rules": [
+     [
+      "festival",
+      "festival"
+     ],
+     [
+      "concert",
+      "music"
+     ],
+     [
+      "musique",
+      "music"
+     ],
+     [
+      "piano",
+      "music"
+     ],
+     [
+      "jazz",
+      "music"
+     ],
+     [
+      "chorale",
+      "music"
+     ],
+     [
+      "theatre",
+      "theatre"
+     ],
+     [
+      "spectacle",
+      "theatre"
+     ],
+     [
+      "danse",
+      "theatre"
+     ],
+     [
+      "cirque",
+      "theatre"
+     ],
+     [
+      "expo",
+      "exhibition"
+     ],
+     [
+      "enfant",
+      "kids"
+     ],
+     [
+      "famille",
+      "kids"
+     ],
+     [
+      "jeune public",
+      "kids"
+     ],
+     [
+      "sport",
+      "sports"
+     ],
+     [
+      "randonnee",
+      "sports"
+     ],
+     [
+      "conference",
+      "conference"
+     ],
+     [
+      "rencontre",
+      "conference"
+     ],
+     [
+      "debat",
+      "conference"
+     ],
+     [
+      "salon",
+      "fair"
+     ],
+     [
+      "marche",
+      "fair"
+     ],
+     [
+      "foire",
+      "fair"
+     ],
+     [
+      "brocante",
+      "fair"
+     ]
+    ],
+    "default": "other"
+   }
+  }
+ },
+ {
+  "name": "Agenda cultura Bologna (Comune di Bologna)",
+  "adapter": "opendatasoft",
+  "base_url": "https://opendata.comune.bologna.it",
+  "city": "Bologna",
+  "state": "Emilia-Romagna",
+  "country": "Italy",
+  "timezone": "Europe/Rome",
+  "credit": "Informações: Comune di Bologna (culturabologna.it)",
+  "config": {
+   "version": 1,
+   "language": "it-it",
+   "fetch": {
+    "endpoint": "https://opendata.comune.bologna.it/api/explore/v2.1",
+    "dataset": "eventi-bologna-agenda-cultura",
+    "where": "end >= now() or start >= now()",
+    "order_by": "start",
+    "page_size": 100
+   },
+   "fields": {
+    "external_id": "id",
+    "name": "title",
+    "description": "description",
+    "starts_at": "start",
+    "ends_at": "end",
+    "lat": "coordinate.lat",
+    "lon": "coordinate.lon",
+    "address": "address",
+    "url": "url",
+    "category": "categories_1"
+   },
+   "category": {
+    "rules": [
+     [
+      "festival",
+      "festival"
+     ],
+     [
+      "musica",
+      "music"
+     ],
+     [
+      "spettacoli",
+      "theatre"
+     ],
+     [
+      "teatro",
+      "theatre"
+     ],
+     [
+      "mostre",
+      "exhibition"
+     ],
+     [
+      "incontri",
+      "conference"
+     ],
+     [
+      "bambini",
+      "kids"
+     ],
+     [
+      "sport",
+      "sports"
+     ],
+     [
+      "fiera",
+      "fair"
+     ],
+     [
+      "mercat",
+      "fair"
+     ]
+    ],
+    "default": "other"
+   }
+  }
+ },
+ {
+  "name": "Visit Gent (Stad Gent)",
+  "adapter": "opendatasoft",
+  "base_url": "https://data.stad.gent",
+  "city": "Gent",
+  "state": "Flanders",
+  "country": "Belgium",
+  "timezone": "Europe/Brussels",
+  "credit": "Informações: Visit Gent (visit.gent.be)",
+  "config": {
+   "version": 1,
+   "language": "nl-nl",
+   "fetch": {
+    "endpoint": "https://data.stad.gent/api/explore/v2.1",
+    "dataset": "toeristische-evenementen-visit-gent",
+    "where": "date_end >= now()",
+    "order_by": "date_start",
+    "page_size": 100
+   },
+   "fields": {
+    "external_id": "url",
+    "name": "name_nl",
+    "description": "description_nl",
+    "starts_at": "date_start",
+    "ends_at": "date_end",
+    "lat": "geo.lat",
+    "lon": "geo.lon",
+    "address": {
+     "join": [
+      "ctcname_nl",
+      "address",
+      "postal"
+     ],
+     "sep": ", "
+    },
+    "url": "url"
+   },
+   "category": {
+    "rules": [],
+    "default": "other"
+   }
+  }
+ },
+ {
+  "name": "Agenda diària (Ajuntament de Barcelona)",
+  "adapter": "ckan",
+  "base_url": "https://opendata-ajuntament.barcelona.cat",
+  "city": "Barcelona",
+  "state": "Catalunya",
+  "country": "Spain",
+  "timezone": "Europe/Madrid",
+  "credit": "Informações: Ajuntament de Barcelona (barcelona.cat)",
+  "config": {
+   "version": 1,
+   "language": "ca-es",
+   "fetch": {
+    "mode": "datastore",
+    "endpoint": "https://opendata-ajuntament.barcelona.cat/data/api/action/datastore_search",
+    "resource_id": "877ccf66-9106-4ae2-be51-95a9f6469e4c",
+    "sort": "modified desc",
+    "page_size": 100
+   },
+   "fields": {
+    "external_id": "register_id",
+    "name": "name",
+    "starts_at": "start_date",
+    "ends_at": "end_date",
+    "lat": "geo_epgs_4326_lat",
+    "lon": "geo_epgs_4326_lon",
+    "address": {
+     "join": [
+      "institution_name",
+      "addresses_road_name",
+      "addresses_start_street_number",
+      "addresses_zip_code"
+     ],
+     "sep": ", "
+    },
+    "url": {
+     "template": "https://guia.barcelona.cat/ca/detall/-/{register_id}"
+    },
+    "category": "secondary_filters_name"
+   },
+   "category": {
+    "rules": [
+     [
+      "festival",
+      "festival"
+     ],
+     [
+      "festa",
+      "festival"
+     ],
+     [
+      "music",
+      "music"
+     ],
+     [
+      "concert",
+      "music"
+     ],
+     [
+      "teatre",
+      "theatre"
+     ],
+     [
+      "dansa",
+      "theatre"
+     ],
+     [
+      "exposic",
+      "exhibition"
+     ],
+     [
+      "infant",
+      "kids"
+     ],
+     [
+      "familia",
+      "kids"
+     ],
+     [
+      "esport",
+      "sports"
+     ],
+     [
+      "conferenc",
+      "conference"
+     ],
+     [
+      "xerrada",
+      "conference"
+     ],
+     [
+      "fira",
+      "fair"
+     ],
+     [
+      "mercat",
+      "fair"
+     ]
+    ],
+    "default": "other"
+   }
+  }
+ },
+ {
+  "name": "Événements publics (Ville de Montréal)",
+  "adapter": "ckan",
+  "base_url": "https://donnees.montreal.ca",
+  "city": "Montréal",
+  "state": "Québec",
+  "country": "Canada",
+  "timezone": "America/Toronto",
+  "credit": "Informações: Ville de Montréal (montreal.ca)",
+  "config": {
+   "version": 1,
+   "language": "fr-fr",
+   "fetch": {
+    "mode": "resource",
+    "format": "geojson",
+    "url": "https://donnees.montreal.ca/dataset/6a4cbf2c-c9b7-413a-86b1-e8f7081e2578/resource/35307457-a00f-4912-9941-8095ead51f6e/download/evenements.geojson"
+   },
+   "filter": [
+    {
+     "field": "type_evenement",
+     "op": "not_in",
+     "value": [
+      "Conseil et comité"
+     ]
+    }
+   ],
+   "fields": {
+    "external_id": "url_fiche",
+    "name": "titre",
+    "description": "description",
+    "starts_at": "date_debut",
+    "ends_at": "date_fin",
+    "lat": "lat",
+    "lon": "long",
+    "address": {
+     "join": [
+      "titre_adresse",
+      "adresse_principale",
+      "code_postal"
+     ],
+     "sep": ", "
+    },
+    "url": "url_fiche",
+    "is_free": {
+     "path": "cout",
+     "free_values": [
+      "gratuit"
+     ]
+    },
+    "category": "type_evenement"
+   },
+   "category": {
+    "rules": [
+     [
+      "festival",
+      "festival"
+     ],
+     [
+      "musique",
+      "music"
+     ],
+     [
+      "theatre",
+      "theatre"
+     ],
+     [
+      "danse",
+      "theatre"
+     ],
+     [
+      "exposition",
+      "exhibition"
+     ],
+     [
+      "heure du conte",
+      "kids"
+     ],
+     [
+      "enfant",
+      "kids"
+     ],
+     [
+      "sport",
+      "sports"
+     ],
+     [
+      "conference",
+      "conference"
+     ],
+     [
+      "salon",
+      "fair"
+     ],
+     [
+      "marche",
+      "fair"
+     ]
+    ],
+    "default": "other"
+   }
+  }
+ },
+ {
+  "name": "Agenda de eventos culturales (Ayuntamiento de Madrid)",
+  "adapter": "file",
+  "base_url": "https://datos.madrid.es",
+  "city": "Madrid",
+  "state": "Madrid",
+  "country": "Spain",
+  "timezone": "Europe/Madrid",
+  "credit": "Informações: Ayuntamiento de Madrid (madrid.es)",
+  "config": {
+   "version": 1,
+   "language": "es-es",
+   "fetch": {
+    "url": "https://datos.madrid.es/egob/catalogo/206974-0-agenda-eventos-culturales-100.json",
+    "format": "json",
+    "records_path": "@graph"
+   },
+   "fields": {
+    "external_id": "id",
+    "name": "title",
+    "description": "description",
+    "starts_at": "dtstart",
+    "ends_at": "dtend",
+    "lat": "location.latitude",
+    "lon": "location.longitude",
+    "address": {
+     "join": [
+      "event-location",
+      "address.area.street-address",
+      "address.area.postal-code"
+     ],
+     "sep": ", "
+    },
+    "url": "link",
+    "is_free": {
+     "path": "free",
+     "free_values": [
+      "1"
+     ]
+    },
+    "category": "@type"
+   },
+   "category": {
+    "rules": [
+     [
+      "festival",
+      "festival"
+     ],
+     [
+      "fiesta",
+      "festival"
+     ],
+     [
+      "musica",
+      "music"
+     ],
+     [
+      "jazz",
+      "music"
+     ],
+     [
+      "flamenco",
+      "music"
+     ],
+     [
+      "rock",
+      "music"
+     ],
+     [
+      "clasica",
+      "music"
+     ],
+     [
+      "teatro",
+      "theatre"
+     ],
+     [
+      "danza",
+      "theatre"
+     ],
+     [
+      "circo",
+      "theatre"
+     ],
+     [
+      "exposicion",
+      "exhibition"
+     ],
+     [
+      "infantil",
+      "kids"
+     ],
+     [
+      "cuentacuentos",
+      "kids"
+     ],
+     [
+      "titeres",
+      "kids"
+     ],
+     [
+      "deporte",
+      "sports"
+     ],
+     [
+      "conferencia",
+      "conference"
+     ],
+     [
+      "coloquio",
+      "conference"
+     ],
+     [
+      "feria",
+      "fair"
+     ],
+     [
+      "mercado",
+      "fair"
+     ]
+    ],
+    "default": "other"
+   }
+  }
+ },
+ {
+  "name": "Événements touristiques (Ministère du Tourisme du Québec)",
+  "adapter": "file",
+  "base_url": "https://www.donneesquebec.ca",
+  "city": "Québec",
+  "state": "Québec",
+  "country": "Canada",
+  "timezone": "America/Toronto",
+  "credit": "Informações: Ministère du Tourisme du Québec (donneesquebec.ca)",
+  "config": {
+   "version": 1,
+   "language": "fr-fr",
+   "fetch": {
+    "url": "https://www.donneesquebec.ca/recherche/dataset/82b06c86-253a-4e77-a050-c022462e90eb/resource/633fea25-6c70-43f6-8db1-547103849080/download/sit-quebec-evenements.csv",
+    "format": "csv",
+    "csv": {
+     "separator": ";",
+     "date_format": "DD/MM/YYYY"
+    }
+   },
+   "filter": [
+    {
+     "field": "Municipalite",
+     "op": "eq",
+     "value": "Québec"
+    }
+   ],
+   "fields": {
+    "external_id": "IdentifiantUnique",
+    "name": "NomEtablissement",
+    "starts_at": "PeriodeOuvertureDateDebut",
+    "ends_at": "PeriodeOuvertureDateFin",
+    "lat": "Latitude",
+    "lon": "Longitude",
+    "address": {
+     "join": [
+      "NumeroVoie",
+      "Municipalite",
+      "CodePostal"
+     ],
+     "sep": ", "
+    },
+    "url": [
+     "SiteInternet",
+     {
+      "template": "https://www.donneesquebec.ca/recherche/dataset/sit-quebec-evenements#{IdentifiantUnique}"
+     }
+    ],
+    "category": [
+     "TypeEtablissement",
+     "Theme"
+    ]
+   },
+   "category": {
+    "rules": [
+     [
+      "festival",
+      "festival"
+     ],
+     [
+      "salon",
+      "fair"
+     ],
+     [
+      "foire",
+      "fair"
+     ],
+     [
+      "marche",
+      "fair"
+     ],
+     [
+      "brocante",
+      "fair"
+     ],
+     [
+      "sportive",
+      "sports"
+     ],
+     [
+      "sport",
+      "sports"
+     ],
+     [
+      "exposition",
+      "exhibition"
+     ],
+     [
+      "musique",
+      "music"
+     ]
+    ],
+    "default": "other"
+   }
+  }
+ },
+ {
+  "name": "visitBerlin",
+  "adapter": "jsonld",
+  "base_url": "https://www.visitberlin.de",
+  "city": "Berlin",
+  "state": "State of Berlin",
+  "country": "Germany",
+  "timezone": "Europe/Berlin",
+  "credit": "Informações: visitBerlin (visitberlin.de)",
+  "config": {
+   "version": 1,
+   "language": "en-us",
+   "fetch": {
+    "discovery": "sitemap",
+    "sitemap_urls": [
+     "https://www.visitberlin.de/events/sitemap.xml"
+    ],
+    "link_pattern": "^https://www\\.visitberlin\\.de/en/event/[^/?#]+$"
+   },
+   "fields": {
+    "external_id": "$page_url",
+    "name": "name",
+    "description": "description",
+    "starts_at": "startDate",
+    "ends_at": "endDate",
+    "lat": [
+     "geo.latitude",
+     "location.geo.latitude"
+    ],
+    "lon": [
+     "geo.longitude",
+     "location.geo.longitude"
+    ],
+    "address": {
+     "join": [
+      "location.name",
+      "location.address.streetAddress",
+      "location.address.postalCode"
+     ],
+     "sep": ", "
+    },
+    "image": [
+     "image.url",
+     "image.0.url",
+     "image.0",
+     "image"
+    ],
+    "url": "$page_url",
+    "category": [
+     "@type",
+     "keywords"
+    ]
+   },
+   "category": {
+    "rules": [
+     [
+      "festival",
+      "festival"
+     ],
+     [
+      "musicevent",
+      "music"
+     ],
+     [
+      "concert",
+      "music"
+     ],
+     [
+      "theaterevent",
+      "theatre"
+     ],
+     [
+      "danceevent",
+      "theatre"
+     ],
+     [
+      "exhibitionevent",
+      "exhibition"
+     ],
+     [
+      "exhibition",
+      "exhibition"
+     ],
+     [
+      "childrensevent",
+      "kids"
+     ],
+     [
+      "sportsevent",
+      "sports"
+     ],
+     [
+      "businessevent",
+      "conference"
+     ],
+     [
+      "educationevent",
+      "conference"
+     ],
+     [
+      "saleevent",
+      "fair"
+     ],
+     [
+      "market",
+      "fair"
+     ]
+    ],
+    "default": "other"
+   }
+  }
+ },
+ {
+  "name": "Wien Erleben (Stadt Wien)",
+  "adapter": "jsonld",
+  "base_url": "https://www.wien.gv.at",
+  "city": "Wien",
+  "state": "Wien",
+  "country": "Austria",
+  "timezone": "Europe/Vienna",
+  "credit": "Informações: Stadt Wien (wien.gv.at)",
+  "config": {
+   "version": 1,
+   "language": "de-de",
+   "fetch": {
+    "discovery": "sitemap",
+    "sitemap_urls": [
+     "https://www.wien.gv.at/sitemaps/events.xml"
+    ],
+    "link_pattern": "^https://www\\.wien\\.gv\\.at/veranstaltungen/[^/?#.]+$"
+   },
+   "fields": {
+    "external_id": "$page_url",
+    "name": "name",
+    "description": "description",
+    "starts_at": "startDate",
+    "ends_at": "endDate",
+    "lat": [
+     "geos.0.latitude",
+     "geo.latitude",
+     "location.geo.latitude"
+    ],
+    "lon": [
+     "geos.0.longitude",
+     "geo.longitude",
+     "location.geo.longitude"
+    ],
+    "address": [
+     {
+      "join": [
+       "location.name",
+       "location.address.streetAddress",
+       "location.address.postalCode"
+      ],
+      "sep": ", "
+     },
+     {
+      "join": [
+       "addresses.0.streetAddress",
+       "addresses.0.postalCode"
+      ],
+      "sep": ", "
+     }
+    ],
+    "image": [
+     "image.url",
+     "image.0.url",
+     "image.0",
+     "image"
+    ],
+    "url": "$page_url",
+    "category": [
+     "@type",
+     "keywords"
+    ]
+   },
+   "category": {
+    "rules": [
+     [
+      "festival",
+      "festival"
+     ],
+     [
+      "musicevent",
+      "music"
+     ],
+     [
+      "konzert",
+      "music"
+     ],
+     [
+      "musik",
+      "music"
+     ],
+     [
+      "theaterevent",
+      "theatre"
+     ],
+     [
+      "theater",
+      "theatre"
+     ],
+     [
+      "tanz",
+      "theatre"
+     ],
+     [
+      "exhibitionevent",
+      "exhibition"
+     ],
+     [
+      "ausstellung",
+      "exhibition"
+     ],
+     [
+      "childrensevent",
+      "kids"
+     ],
+     [
+      "kinder",
+      "kids"
+     ],
+     [
+      "sportsevent",
+      "sports"
+     ],
+     [
+      "sport",
+      "sports"
+     ],
+     [
+      "vortrag",
+      "conference"
+     ],
+     [
+      "educationevent",
+      "conference"
+     ],
+     [
+      "markt",
+      "fair"
+     ],
+     [
+      "saleevent",
+      "fair"
+     ]
+    ],
+    "default": "other"
+   }
+  }
+ },
+ {
+  "name": "I amsterdam (Amsterdam Marketing)",
+  "adapter": "jsonld",
+  "base_url": "https://www.iamsterdam.com",
+  "city": "Amsterdam",
+  "state": "North Holland",
+  "country": "Netherlands",
+  "timezone": "Europe/Amsterdam",
+  "credit": "Informações: Amsterdam Marketing (iamsterdam.com)",
+  "config": {
+   "version": 1,
+   "language": "en-us",
+   "fetch": {
+    "discovery": "sitemap",
+    "sitemap_urls": [
+     "https://www.iamsterdam.com/sitemap/events.xml"
+    ],
+    "link_pattern": "^https://www\\.iamsterdam\\.com/en/whats-on/"
+   },
+   "fields": {
+    "external_id": "$page_url",
+    "name": "name",
+    "description": "description",
+    "starts_at": "startDate",
+    "ends_at": "endDate",
+    "address": {
+     "join": [
+      "location.name",
+      "location.address.streetAddress",
+      "location.address.postalCode"
+     ],
+     "sep": ", "
+    },
+    "image": [
+     "image.url",
+     "image.0.url",
+     "image.0",
+     "image"
+    ],
+    "url": "$page_url",
+    "category": [
+     "keywords",
+     "@type"
+    ]
+   },
+   "category": {
+    "rules": [
+     [
+      "festival",
+      "festival"
+     ],
+     [
+      "music",
+      "music"
+     ],
+     [
+      "concert",
+      "music"
+     ],
+     [
+      "clubbing",
+      "music"
+     ],
+     [
+      "theatre",
+      "theatre"
+     ],
+     [
+      "theater",
+      "theatre"
+     ],
+     [
+      "dance",
+      "theatre"
+     ],
+     [
+      "exhibition",
+      "exhibition"
+     ],
+     [
+      "museum",
+      "exhibition"
+     ],
+     [
+      "kids",
+      "kids"
+     ],
+     [
+      "family",
+      "kids"
+     ],
+     [
+      "sport",
+      "sports"
+     ],
+     [
+      "market",
+      "fair"
+     ],
+     [
+      "fair",
+      "fair"
+     ]
+    ],
+    "default": "other"
+   }
+  }
+ },
+ {
+  "name": "Visit Bruges",
+  "adapter": "jsonld",
+  "base_url": "https://www.visitbruges.be",
+  "city": "Brugge",
+  "state": "Flanders",
+  "country": "Belgium",
+  "timezone": "Europe/Brussels",
+  "credit": "Informações: Visit Bruges (visitbruges.be)",
+  "config": {
+   "version": 1,
+   "language": "en-us",
+   "fetch": {
+    "discovery": "sitemap",
+    "sitemap_urls": [
+     "https://www.visitbruges.be/sitemap.xml"
+    ],
+    "link_pattern": "^https://www\\.visitbruges\\.be/en/whats-on/events-calendar/[^/?#]+$"
+   },
+   "fields": {
+    "external_id": "$page_url",
+    "name": "name",
+    "description": "description",
+    "starts_at": "startDate",
+    "ends_at": "endDate",
+    "address": {
+     "join": [
+      "location.name",
+      "location.address.streetAddress",
+      "location.address.postalCode"
+     ],
+     "sep": ", "
+    },
+    "image": [
+     "image.url",
+     "image.0.url",
+     "image.0",
+     "image"
+    ],
+    "url": "$page_url",
+    "category": [
+     "@type",
+     "keywords"
+    ]
+   },
+   "category": {
+    "rules": [
+     [
+      "festival",
+      "festival"
+     ],
+     [
+      "musicevent",
+      "music"
+     ],
+     [
+      "concert",
+      "music"
+     ],
+     [
+      "theaterevent",
+      "theatre"
+     ],
+     [
+      "danceevent",
+      "theatre"
+     ],
+     [
+      "exhibitionevent",
+      "exhibition"
+     ],
+     [
+      "exhibition",
+      "exhibition"
+     ],
+     [
+      "childrensevent",
+      "kids"
+     ],
+     [
+      "sportsevent",
+      "sports"
+     ],
+     [
+      "saleevent",
+      "fair"
+     ],
+     [
+      "market",
+      "fair"
+     ]
+    ],
+    "default": "other"
+   }
+  }
+ },
+ {
+  "name": "Turismo Torino e Provincia",
+  "adapter": "jsonld",
+  "base_url": "https://www.turismotorino.org",
+  "city": "Torino",
+  "state": "Piedmont",
+  "country": "Italy",
+  "timezone": "Europe/Rome",
+  "credit": "Informações: Turismo Torino e Provincia (turismotorino.org)",
+  "config": {
+   "version": 1,
+   "language": "en-us",
+   "fetch": {
+    "discovery": "sitemap",
+    "sitemap_urls": [
+     "https://turismotorino.org/__sitemap__/eventi.xml"
+    ],
+    "link_pattern": "^https://(www\\.)?turismotorino\\.org/en/visit/events/[^/?#]+$"
+   },
+   "fields": {
+    "external_id": "$page_url",
+    "name": "name",
+    "description": "description",
+    "starts_at": "startDate",
+    "ends_at": "endDate",
+    "lat": [
+     "geo.latitude",
+     "location.geo.latitude"
+    ],
+    "lon": [
+     "geo.longitude",
+     "location.geo.longitude"
+    ],
+    "address": {
+     "join": [
+      "location.name",
+      "location.address.streetAddress",
+      "location.address.postalCode"
+     ],
+     "sep": ", "
+    },
+    "image": [
+     "image.0",
+     "image.url",
+     "image"
+    ],
+    "url": "$page_url",
+    "category": [
+     "@type",
+     "keywords"
+    ]
+   },
+   "category": {
+    "rules": [
+     [
+      "festival",
+      "festival"
+     ],
+     [
+      "musicevent",
+      "music"
+     ],
+     [
+      "concert",
+      "music"
+     ],
+     [
+      "theaterevent",
+      "theatre"
+     ],
+     [
+      "danceevent",
+      "theatre"
+     ],
+     [
+      "exhibitionevent",
+      "exhibition"
+     ],
+     [
+      "exhibition",
+      "exhibition"
+     ],
+     [
+      "childrensevent",
+      "kids"
+     ],
+     [
+      "sportsevent",
+      "sports"
+     ],
+     [
+      "saleevent",
+      "fair"
+     ],
+     [
+      "market",
+      "fair"
+     ]
+    ],
+    "default": "other"
+   }
+  }
+ },
+ {
+  "name": "Salzburg Tourismus",
+  "adapter": "jsonld",
+  "base_url": "https://www.salzburg.info",
+  "city": "Salzburg",
+  "state": "Salzburg",
+  "country": "Austria",
+  "timezone": "Europe/Vienna",
+  "credit": "Informações: Salzburg Tourismus (salzburg.info)",
+  "config": {
+   "version": 1,
+   "language": "en-us",
+   "fetch": {
+    "discovery": "listing",
+    "listing_url": "https://www.salzburg.info/en/events/events-calendar",
+    "link_pattern": "^/en/events/events-calendar/[^/?#]+_event_[0-9]+\\?date=[0-9]{14}$",
+    "page_param": "page",
+    "max_pages": 30,
+    "start_from_query": {
+     "param": "date",
+     "format": "YYYYMMDDhhmmss"
+    }
+   },
+   "fields": {
+    "external_id": "$page_url",
+    "name": "name",
+    "description": "description",
+    "starts_at": "startDate",
+    "ends_at": "endDate",
+    "address": {
+     "join": [
+      "location.name",
+      "location.address.streetAddress",
+      "location.address.postalCode"
+     ],
+     "sep": ", "
+    },
+    "image": [
+     "image.url",
+     "image.0.url",
+     "image.0",
+     "image"
+    ],
+    "url": "$page_url",
+    "category": [
+     "@type",
+     "keywords"
+    ]
+   },
+   "category": {
+    "rules": [
+     [
+      "festival",
+      "festival"
+     ],
+     [
+      "musicevent",
+      "music"
+     ],
+     [
+      "concert",
+      "music"
+     ],
+     [
+      "theaterevent",
+      "theatre"
+     ],
+     [
+      "cabaret",
+      "theatre"
+     ],
+     [
+      "exhibitionevent",
+      "exhibition"
+     ],
+     [
+      "exhibition",
+      "exhibition"
+     ],
+     [
+      "childrensevent",
+      "kids"
+     ],
+     [
+      "sportsevent",
+      "sports"
+     ],
+     [
+      "hike",
+      "sports"
+     ],
+     [
+      "market",
+      "fair"
+     ]
+    ],
+    "default": "other"
+   }
+  }
+ },
+ {
+  "name": "Visit Lisboa (Turismo de Lisboa)",
+  "adapter": "jsonld",
+  "base_url": "https://www.visitlisboa.com",
+  "city": "Lisboa",
+  "state": null,
+  "country": "Portugal",
+  "timezone": "Europe/Lisbon",
+  "credit": "Informações: Turismo de Lisboa (visitlisboa.com)",
+  "config": {
+   "version": 1,
+   "language": "en-us",
+   "fetch": {
+    "discovery": "listing",
+    "listing_url": "https://www.visitlisboa.com/en/events",
+    "link_pattern": "^/en/events/[^/?#]+$",
+    "page_param": "page",
+    "max_pages": 30
+   },
+   "fields": {
+    "external_id": "$page_url",
+    "name": "name",
+    "description": "description",
+    "starts_at": "startDate",
+    "ends_at": "endDate",
+    "address": {
+     "join": [
+      "location.name",
+      "location.address.streetAddress",
+      "location.address.postalCode"
+     ],
+     "sep": ", "
+    },
+    "image": [
+     "image.url",
+     "image.0.url",
+     "image.0",
+     "image"
+    ],
+    "url": "$page_url",
+    "category": [
+     "@type",
+     "keywords"
+    ]
+   },
+   "category": {
+    "rules": [
+     [
+      "festival",
+      "festival"
+     ],
+     [
+      "musicevent",
+      "music"
+     ],
+     [
+      "fado",
+      "music"
+     ],
+     [
+      "concert",
+      "music"
+     ],
+     [
+      "theaterevent",
+      "theatre"
+     ],
+     [
+      "exhibitionevent",
+      "exhibition"
+     ],
+     [
+      "exhibition",
+      "exhibition"
+     ],
+     [
+      "childrensevent",
+      "kids"
+     ],
+     [
+      "sportsevent",
+      "sports"
+     ],
+     [
+      "market",
+      "fair"
+     ]
+    ],
+    "default": "other"
+   }
+  }
+ }
+]

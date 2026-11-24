@@ -136,3 +136,37 @@ test('#790 RouteEditorModal gates /api/routes/generate and the KML save behind m
   const list = readFileSync(resolve(import.meta.dirname, '../../app/[locale]/routes/page.tsx'), 'utf8')
   assert.match(list, /route\.metadata\?\.distance/)
 })
+
+// #939: routes written by scripts (Caparaó trails from OSM, OSRM car routes, straight lines) carry
+// metadata.source values with no known snap state. Opening and saving them in the editor without
+// touching the stops must keep the stored line; only a deliberate stop edit rebuilds it.
+const SCRIPT_SOURCES = (() => {
+  const src = readFileSync(resolve(import.meta.dirname, '../../scripts/create-caparao-rotas.ts'), 'utf8')
+  return [...new Set([...src.matchAll(/source = '([a-z-]+)'|\? '([a-z-]+)'|: '((?:osm|manual)-[a-z-]+)'/g)]
+    .map(m => m[1] ?? m[2] ?? m[3]))]
+})()
+
+test('#939 the Caparaó script writes only sources the editor never regenerates by itself', () => {
+  assert.deepEqual([...SCRIPT_SOURCES].sort(), ['manual-osrm', 'manual-straightline', 'osm-trail', 'osm-trail-partial'])
+  for (const source of SCRIPT_SOURCES) {
+    const stored = { waypoints: STOPS, source }
+    // Editor open: snap toggle starts on for an unknown source; either state keeps the line.
+    assert.equal(mustRegenerate(stored, { waypoints: STOPS, snapToRoads: true }), false, source)
+    assert.equal(mustRegenerate(stored, { waypoints: STOPS, snapToRoads: false }), false, source)
+    assert.equal(mustRegenerate(stored, { waypoints: STOPS.slice(0, 2), snapToRoads: true }), true, source)
+  }
+})
+
+for (const source of ['osm-trail', 'manual-straightline', 'manual-osrm']) {
+  test(`#939 open and save without edits keeps a script route's line and metadata (${source})`, async () => {
+    const osrm = mock.method(OSRMService, 'getRoute', async () => { throw new Error('must not route') })
+    const row = storedRoute(source)
+    const { client, calls } = fakeSupabase(row)
+    // What RouteEditorModal sends on save right after opening: the stored stops, snap on.
+    await RouteService.updateRoute(client, ROUTE_ID, { name: row.name, waypoints: STOPS, snap_to_roads: true }, 'user-1')
+    assert.equal(osrm.mock.callCount(), 0)
+    assert.equal(calls.upsert!.p_geometry_wkt, LINE_WKT)
+    assert.deepEqual(calls.upsert!.p_metadata, row.metadata)
+    osrm.mock.restore()
+  })
+}

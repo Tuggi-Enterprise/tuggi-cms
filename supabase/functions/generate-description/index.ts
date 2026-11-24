@@ -50,9 +50,12 @@ import {
 } from "../_shared/venueComposition.ts";
 
 // --- Types ---
+/**
+ * Who asked for this description. No e-mail on purpose (#1014): the row is readable with the
+ * public key, and an e-mail next to a POI and a timestamp is a trail of where a tourist was.
+ */
 interface GeneratedByInfo {
     user_id: string;
-    email: string;
     source: "app_user" | "cms_admin" | "system";
 }
 
@@ -159,6 +162,105 @@ async function hashDescription(text: string): Promise<string> {
  */
 const PARTNER_WITHOUT_INPUT = "partner_place_requires_partner_input";
 
+/** The row `core.import_event_upsert` writes: the source's text, in the source's language (BR-EVENTO-009 item 3). */
+interface ImportedOriginal {
+    id: string;
+    language: string;
+    gender: "male" | "female";
+    description: string;
+    description_hash: string;
+    facts_pack_json: unknown;
+    audio_url: string | null;
+    name: string | null;
+    verification_status: string | null;
+    updated_at: string | null;
+}
+
+/**
+ * BR-EVENTO-009 item 4: the imported description of this event, in the language the source wrote it, whatever
+ * language and gender were asked. The import writes one row only (one language, gender default): every gender of
+ * that language answers from it, and every other language is a translation of it (#1088).
+ * A read failure throws: falling through to the generation is exactly what would overwrite the copied text.
+ */
+async function readImportedOriginal(poiId: string): Promise<ImportedOriginal | null> {
+    const { data, error } = await supabaseAdmin.schema("core")
+        .from("attraction_descriptions")
+        .select("id, language, gender, description, description_hash, facts_pack_json, audio_url, name, verification_status, updated_at")
+        .eq("attraction_id", poiId)
+        .eq("is_original", true)
+        .eq("generated_by_source", "event_import")
+        .neq("description", "[PROCESSING]")
+        .limit(1);
+    if (error) throw new Error(`imported_original_read_failed: ${error.code ?? "unknown"}`);
+    return (data?.[0] as ImportedOriginal | undefined) ?? null;
+}
+
+/**
+ * #1088: a translation of an imported description is current only while the imported text is the one it was
+ * translated from. The translation records `source_description_hash` in `generation_meta`; a translation without
+ * it (written before #1088) counts as outdated and is translated once more, which records the hash. When the
+ * source changes the text, the import rewrites the original row and its hash moves, so every translation of
+ * the old text stops matching and is redone in place (same row, never deleted: `story_feedback` and the trigger
+ * points hang on it).
+ */
+function isTranslationOfCurrentImport(generationMeta: unknown, imported: ImportedOriginal): boolean {
+    const recorded = (generationMeta as { source_description_hash?: unknown } | null)?.source_description_hash;
+    return typeof recorded === "string" && recorded === imported.description_hash;
+}
+
+/**
+ * Answers a request about an imported description without writing its text. With audio asked and none stored,
+ * the voice is synthesized from the whole text in the row's own gender, and only `audio_url` is written, and only
+ * if the text is still the one that was spoken. The text has no credit line to leave out: since #1082 the credit is
+ * its own field (`source_credit`), and migration 20261103140000 took it off the texts stored before (BR-EVENTO-009,
+ * "não é narração").
+ */
+async function answerFromImportedOriginal(
+    row: ImportedOriginal,
+    poiId: string,
+    language: string,
+    shouldGenerateAudio: boolean,
+    logPrefix: string,
+): Promise<Record<string, unknown>> {
+    const { description_hash: _hash, ...visible } = row;
+    if (!shouldGenerateAudio || row.audio_url) {
+        console.log(`${logPrefix} Imported description (BR-EVENTO-009 item 4): kept as is.`);
+        return { ...visible, status: "hit" };
+    }
+    if (!GOOGLE_TTS_API_KEY) {
+        throw new GenerationFailure(GenerationFailureCode.AUDIO_SYNTHESIS_FAILED, "tts_key_missing");
+    }
+    const spoken = row.description.trim();
+    if (!spoken) throw new GenerationFailure(GenerationFailureCode.AUDIO_SYNTHESIS_FAILED, "nothing_to_speak");
+
+    const audioBuffer = await generateAudioWithTTS(spoken, language, row.gender, GOOGLE_TTS_API_KEY);
+    const storagePath = `master_audio/${poiId}/${poiId}-${language}-${row.gender}.mp3`;
+    const { error: upErr } = await supabaseAdmin.storage.from("travel-app-audios")
+        .upload(storagePath, audioBuffer, { contentType: "audio/mpeg", upsert: true });
+    if (upErr) {
+        console.error(`${logPrefix} ❌ Upload of ${storagePath} failed: ${upErr.message}`);
+        throw new GenerationFailure(GenerationFailureCode.AUDIO_SYNTHESIS_FAILED, "storage_upload_failed");
+    }
+    const audioUrl = supabaseAdmin.storage.from("travel-app-audios").getPublicUrl(storagePath).data.publicUrl;
+
+    // The hash filter keeps a voice from being paired with a text the import changed meanwhile.
+    const { data: written, error: writeError } = await supabaseAdmin.schema("core")
+        .from("attraction_descriptions")
+        .update({ audio_url: audioUrl })
+        .eq("id", row.id)
+        .eq("description_hash", row.description_hash)
+        .select("id");
+    if (writeError || !written?.length) {
+        throw new GenerationFailure(
+            GenerationFailureCode.DESCRIPTION_WRITE_FAILED,
+            writeError?.code ?? "imported_text_changed",
+        );
+    }
+    await rebuildReadModel(supabaseAdmin, poiId);
+    console.log(`${logPrefix} Imported description (BR-EVENTO-009 item 4): voice added, text untouched.`);
+    return { ...visible, audio_url: audioUrl, status: "generated" };
+}
+
 async function processPOIItem(
     poi_id: string,
     language: string,
@@ -261,6 +363,17 @@ async function processPOIItem(
      */
     let rowBeforeLock: Record<string, unknown> | null = null;
 
+    // 0. BR-EVENTO-009 item 4: the text copied from an official source is never rewritten here, in any
+    // gender and with or without `force`. It goes before the lookup below because that one treats the
+    // imported row (updated_at old or null, no facts) as stale, and the lock would overwrite it.
+    const imported = await readImportedOriginal(poi_id);
+    if (imported?.language === language) {
+        const answer = await answerFromImportedOriginal(imported, poi_id, language, shouldGenerateAudio, LOG_PREFIX);
+        mark("imported");
+        logTiming(`imported_${answer.status}`);
+        return answer;
+    }
+
     // 1. Optimistic Locking / Cache Check Loop (Max 15s)
     // We check if content exists. If it's "[PROCESSING]", we wait.
     let attempts = 0;
@@ -303,12 +416,30 @@ async function processPOIItem(
                 // para evento vinculado — venueId é null em todo o resto.
                 const composedWithVenue = !venueId ||
                     isComposedWithVenue(existing.generation_meta, venueId);
-                if (!composedWithVenue) {
+                if (!composedWithVenue && !imported) {
                     console.log(
                         `${LOG_PREFIX} Cache Hit, mas a descrição não foi composta com o anfitrião ${venueId} (BR-EVENTO-002). Regerando uma vez.`,
                     );
                 }
-                if (!force && !isStale && (existing.facts_pack_json?.length > 0) && hasAudio && composedWithVenue) {
+                // #1088: a translation of an imported event has no facts and no venue composition to wait for. Its
+                // freshness is the imported text it came from: the same hash is reused, any other is redone.
+                if (imported) {
+                    const current = isTranslationOfCurrentImport(existing.generation_meta, imported);
+                    if (!current) {
+                        console.log(`${LOG_PREFIX} The source changed the imported text (#1088). Translating again.`);
+                    } else if (!force && hasAudio) {
+                        console.log(`${LOG_PREFIX} Translation of the current imported text (#1088). Returning.`);
+                        const { generation_meta: _trail, ...hit } = existing;
+                        mark("lookup");
+                        logTiming("hit");
+                        return { ...hit, status: "hit" };
+                    } else if (!force) {
+                        cachedForAudioOnly = {
+                            description: existing.description,
+                            facts_pack_json: existing.facts_pack_json,
+                        };
+                    }
+                } else if (!force && !isStale && (existing.facts_pack_json?.length > 0) && hasAudio && composedWithVenue) {
                     console.log(`${LOG_PREFIX} Cache Hit (Fresh). Returning.`);
                     // `generation_meta` é trilha interna e entrou na query só para a
                     // decisão acima: fica fora da resposta, que continua byte a byte
@@ -329,7 +460,7 @@ async function processPOIItem(
                 // empacotar, e inventar um para satisfazer este gate seria mentir na trilha. Com a
                 // exigência aqui, os 19 locais do backfill caíam para a geração fresca e batiam na
                 // guarda `PARTNER_WITHOUT_INPUT`: texto trocado, áudio nenhum, local mudo.
-                if (!force && !isStale && !hasAudio) {
+                if (!imported && !force && !isStale && !hasAudio) {
                     console.log(`${LOG_PREFIX} Cache Hit (Description only, audio_url missing). Proceeding to TTS synthesis.`);
                     // E o texto vai JUNTO, que é o que o comentário sempre prometeu — ver
                     // `cachedForAudioOnly` no topo. Sem isto o passo 3 regera do zero.
@@ -427,14 +558,35 @@ async function processPOIItem(
         if (!force && cachedForAudioOnly) {
             console.log(`${LOG_PREFIX} Reusing the stored ${language} text — TTS only, no LLM call.`);
             result = cachedForAudioOnly;
-            generationMeta = { kind: "tts_only", grounded: null };
+            // #1088: the voice of a translation of an imported event keeps the hash its text was translated from.
+            generationMeta = imported
+                ? { kind: "tts_only", grounded: null, source_description_hash: imported.description_hash }
+                : { kind: "tts_only", grounded: null };
         }
 
         // 3.1 Check existing descriptions for potential translation source
         // We try to find any existing description to translate FROM, 
         // prioritizing pt-br if target is not pt-br, or just taking any available one.
         // SKIP this if 'force' is true (user wants a fresh generation)
-        if (!force && !result) {
+        if (imported && !result) {
+            // #1088, BR-EVENTO-009 items 3 and 4: every other language of an imported event is a translation of the
+            // imported text, and only of it. Another translation would carry its age (a pt-br made before the source
+            // changed), and a fresh generation would narrate what the source did not say; `force` translates again.
+            console.log(`${LOG_PREFIX} Translating the imported ${imported.language} text to ${language}...`);
+            const { text: translated, usage: tUsage } = await translateWithGeminiWithUsage(
+                imported.description,
+                language,
+                GEMINI_API_KEY,
+            );
+            result = { description: translated, facts_pack_json: imported.facts_pack_json };
+            if (tUsage) callUsage = { ...tUsage, kind: "translation" };
+            generationMeta = {
+                kind: "translation",
+                source_language: imported.language,
+                grounded: null,
+                source_description_hash: imported.description_hash,
+            };
+        } else if (!force && !result) {
             const { data: candidates } = await supabaseAdmin.schema("core")
                 .from("attraction_descriptions")
                 .select("description, facts_pack_json, language, generation_meta")
@@ -486,7 +638,7 @@ async function processPOIItem(
                     };
                 }
             }
-        } else {
+        } else if (force) {
             console.log(`${LOG_PREFIX} Force flag detected. Skipping translation and generating fresh.`);
         }
 
@@ -540,7 +692,7 @@ async function processPOIItem(
             console.log(`${LOG_PREFIX} Generating FRESH Master (Gemini)...`);
             
             // Check for group membership (Parent/Main POI)
-            let memberPois = [];
+            let memberPois: Record<string, unknown>[] = [];
             const { data: groupMembership } = await supabaseAdmin.schema("core")
                 .from("attraction_group_members")
                 .select("group_id")
@@ -846,22 +998,21 @@ async function processPOIItem(
         await rebuildReadModel(supabaseAdmin, poi_id);
         mark("read_model");
 
-        // 5.1 Track who generated this description (non-blocking, defensive)
-        // Runs as a separate UPDATE so that if the generated_by columns don't exist
-        // yet (migration not applied), the main generation flow is NOT affected.
+        // 5.1 Track who generated this description. Separate UPDATE, best-effort: a failure here
+        // must not cost the text that was just paid for. `generated_by_email` is never written
+        // (#1014); the source is the only part that goes to the log.
         if (generatedBy && finalRows?.id) {
-            try {
-                await supabaseAdmin.schema("core")
-                    .from("attraction_descriptions")
-                    .update({
-                        generated_by_user_id: generatedBy.user_id,
-                        generated_by_email: generatedBy.email,
-                        generated_by_source: generatedBy.source,
-                    })
-                    .eq("id", finalRows.id);
-                console.log(`${LOG_PREFIX} ✅ Generated-by tracked: ${generatedBy.source} (${generatedBy.email})`);
-            } catch (trackingErr) {
-                console.warn(`${LOG_PREFIX} ⚠️ Generated-by tracking skipped (columns may not exist yet):`, trackingErr);
+            const { error: trackingError } = await supabaseAdmin.schema("core")
+                .from("attraction_descriptions")
+                .update({
+                    generated_by_user_id: generatedBy.user_id,
+                    generated_by_source: generatedBy.source,
+                })
+                .eq("id", finalRows.id);
+            if (trackingError) {
+                console.warn(`${LOG_PREFIX} ⚠️ Generated-by tracking skipped: ${trackingError.code ?? "unknown"}`);
+            } else {
+                console.log(`${LOG_PREFIX} ✅ Generated-by tracked: ${generatedBy.source}`);
             }
         }
 
@@ -1028,7 +1179,7 @@ serve(async (req) => {
             );
         }
         console.log(
-            `[Generate-Description] ✅ Authorized: ${authResult.email}`,
+            `[Generate-Description] ✅ Authorized (ID: ${authResult.userId})`,
         );
 
         // ✅ VERIFICAR RATE LIMIT
@@ -1041,7 +1192,7 @@ serve(async (req) => {
         );
         if (!rateLimit.allowed) {
             console.warn(
-                `[Generate-Description] 🚫 Rate limit exceeded for ${authResult.email}`,
+                `[Generate-Description] 🚫 Rate limit exceeded (ID: ${authResult.userId})`,
             );
             return createRateLimitResponse(rateLimit, corsHeaders);
         }
@@ -1066,7 +1217,7 @@ serve(async (req) => {
         );
         if (!productionGate.allowed) {
             console.log(
-                `[Generate-Description] ⛔ BR-CONTEUDO-003: production refused (state=${productionGate.state})`,
+                `[Generate-Description] ⛔ production refused (refusal=${productionGate.refusal}, state=${productionGate.state})`,
             );
             return createProductionRefusedResponse(
                 productionGate,
@@ -1085,13 +1236,12 @@ serve(async (req) => {
         // --- Derive generatedBy from auth result ---
         const generatedBy: GeneratedByInfo = {
             user_id: authResult.userId!,
-            email: authResult.email!,
             // SSOT with the production gate above: one spelling of "who is
             // asking", in `_shared/content-production-gate.ts`.
             source: classifyProductionRequester(authResult.role),
         };
         console.log(
-            `[Generate-Description] 📋 Generated-by: ${generatedBy.source} (${generatedBy.email})`,
+            `[Generate-Description] 📋 Generated-by: ${generatedBy.source}`,
         );
 
         // --- BATCH PATH (APP) ---

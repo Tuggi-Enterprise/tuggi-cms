@@ -1,10 +1,9 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import dynamic from 'next/dynamic'
 import {
-  CheckCircle, TrendingUp, AlertCircle, RefreshCw, Clock, Play, Users, ShieldCheck,
-  Database, Zap, MapPin, Globe, Radar, Wallet, Hourglass, Timer,
+  CheckCircle, AlertCircle, RefreshCw, Play, Users, ShieldCheck,
+  Zap, Globe, Radar, Wallet, Timer,
 } from 'lucide-react'
 import { useTranslations, useLocale } from 'next-intl'
 import { Link } from '@/navigation'
@@ -13,33 +12,18 @@ import { StatCard } from '@/components/ui/StatCard'
 import { WidgetCard, SectionHeader } from '@/components/dashboard/WidgetCard'
 import {
   dashboardService, DashboardStats, EMPTY_DASHBOARD_STATS, EMPTY_PAID_ACCESS,
-  UserLocationPin, WaitlistPin, PaidAccessSnapshot, consumedMinutesTotal,
+  UserLocationPin, WaitlistPin, PaidAccessSnapshot, RealtimeActiveUser, consumedMinutesTotal,
 } from '@/lib/services/dashboard-service'
-import { LOW_BALANCE_CEILING_MINUTES } from '@/lib/credit/entitlement'
 import { formatDuration } from '@/lib/format/duration'
 import { appUserLabel } from '@/lib/format/user-identity'
 import { RecentVisitCard } from '@/components/dashboard/RecentVisitCard'
-import { UpcomingExpirationsCard } from '@/components/dashboard/UpcomingExpirationsCard'
-import { LowBalanceCard } from '@/components/dashboard/LowBalanceCard'
 import { PaidAccessCard } from '@/components/dashboard/PaidAccessCard'
-import { WaitlistDemandList } from '@/components/dashboard/WaitlistDemandList'
+import { MonthlyUsageCard, TotalBaseCard, UsageByHourCard } from '@/components/dashboard/UsageCards'
+import { usageMonths } from '@/lib/dashboard/usage'
 import { GoogleMapComponent } from '@/components/ui/GoogleMapComponent'
-
-// recharts is the single heaviest dependency of this route's initial JS and only one widget
-// uses it. ssr: false keeps it out of the server render too — the chart has no SEO value in an
-// authenticated CMS. The placeholder fills the same box, so nothing below it moves.
-const UserGrowthChart = dynamic(
-  () => import('@/components/dashboard/UserGrowthChart').then(m => m.UserGrowthChart),
-  { ssr: false, loading: () => <div className="h-full w-full animate-pulse rounded-xl bg-gray-100 dark:bg-gray-800/60" /> }
-)
-
-const TUGGI_COLORS = {
-  blue: '#00A8E8',
-  orange: '#FF6F00',
-  green: '#10B981',
-  purple: '#8B5CF6',
-  red: '#EF4444',
-}
+import { MapLegend } from '@/components/dashboard/MapLegend'
+import { CHART_COLORS } from '@/lib/constants/chart-colors'
+import { LIVE_PIN_STATES, livePinColor, livePinState, livePinTitle } from '@/lib/dashboard/live-pin'
 
 // Janela de "online agora" em SEGUNDOS: usuário é ativo se teve ping nos últimos N seg.
 // Ping de background ~30s → 90s tolera 2 pings perdidos sem falso-online, e derruba um
@@ -47,13 +31,11 @@ const TUGGI_COLORS = {
 // O polling abaixo (60s) deve ser ≤ janela pra a UI refletir o offline a tempo.
 const REALTIME_WINDOW_SEC = 90
 
-type ActiveUser = { user_id: string; lat: number; lng: number; timestamp: string }
-
 export default function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats>(EMPTY_DASHBOARD_STATS)
   const [userPins, setUserPins] = useState<UserLocationPin[]>([])
   const [waitlistPins, setWaitlistPins] = useState<WaitlistPin[]>([])
-  const [activeUsers, setActiveUsers] = useState<ActiveUser[]>([])
+  const [activeUsers, setActiveUsers] = useState<RealtimeActiveUser[]>([])
   const [paidAccess, setPaidAccess] = useState<PaidAccessSnapshot>(EMPTY_PAID_ACCESS)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -61,12 +43,14 @@ export default function DashboardPage() {
 
   const t = useTranslations('Pages.Dashboard')
   const locale = useLocale()
+  // The twelve months of the use and base cards, born on the client (spec §2).
+  const months = useMemo(() => usageMonths(), [])
 
   useEffect(() => { setIsMounted(true) }, [])
 
   const liveRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Carrega os dados pesados (KPIs, MAU, expirations, feed) + as fatias slim do mapa.
+  // Loads the heavy data (KPIs, MAU, feed) plus the slim map slices.
   const fetchData = useCallback(async (isBackground = false, force = false) => {
     try {
       if (!isBackground) setIsLoading(true)
@@ -74,9 +58,9 @@ export default function DashboardPage() {
         dashboardService.getDashboardData(undefined, force),
         dashboardService.getUserLocationPins(5000),
         dashboardService.getWaitlistPins(5000, true),
-        // Only what is not yet a comfortable balance. The list arrives from the
-        // database already ordered by ascending balance — the top runs out first.
-        dashboardService.getPaidAccess(20, LOW_BALANCE_CEILING_MINUTES),
+        // Only the aggregate is read here. The per-user list belongs to the premium report
+        // (MeteredBalances); the route always serves one, so ask for the smallest (#1204).
+        dashboardService.getPaidAccess(1),
       ])
       if (!dash.success || !dash.data) throw new Error(dash.error || 'Failed to load dashboard')
       setStats(dash.data)
@@ -136,8 +120,9 @@ export default function DashboardPage() {
     }
   }, [fetchData, fetchRealtime])
 
-  // Markers do mapa, com cores distintas por tipo:
-  //   🔵 usuário · 🟠 premium · 🟢 ativo agora · 🔴 demanda (waitlist)
+  // Map markers. Snapshot pins: blue user, orange premium. Live pins take the guide state of #1266
+  // (green guide on, red guide on with no balance, grey location only). Demand (waitlist) is purple,
+  // so it does not read as "no balance".
   const mapMarkers = useMemo(() => {
     // Índice dos ativos AGORA → posição AO VIVO (RPC de presença). Para um usuário ativo, essa é
     // a FONTE DA VERDADE da posição; o snapshot em userPins (última localização salva) envelhece
@@ -152,8 +137,9 @@ export default function DashboardPage() {
         position: live ? { lat: live.lat, lng: live.lng } : { lat: p.latitude, lng: p.longitude },
         // The pin names the tourist by `nickname`, falling back to the truncated `user_id`
         // — BR-USUARIO-042. It used to fall back to the word "User", which named nobody.
-        title: appUserLabel(p),
-        color: p.is_premium ? TUGGI_COLORS.orange : TUGGI_COLORS.blue,
+        // A live pin also says the guide state (#1266); the snapshot pin stays as it was.
+        title: live ? livePinTitle({ ...live, nickname: live.nickname ?? p.nickname }, t) : appUserLabel(p),
+        color: live ? livePinColor(livePinState(live)) : (p.is_premium ? CHART_COLORS.orange : CHART_COLORS.blue),
         active: !!live,
       }
     })
@@ -164,8 +150,8 @@ export default function DashboardPage() {
         markers.push({
           id: `a-${u.user_id}`,
           position: { lat: u.lat, lng: u.lng },
-          title: appUserLabel(u),
-          color: TUGGI_COLORS.green,
+          title: livePinTitle(u, t),
+          color: livePinColor(livePinState(u)),
           active: true,
         })
       }
@@ -176,21 +162,12 @@ export default function DashboardPage() {
         id: `w-${w.id}`,
         position: { lat: w.latitude, lng: w.longitude },
         title: `${t('labels.demand')}${w.country ? ` · ${w.country}` : ''}`,
-        color: TUGGI_COLORS.red,
+        color: CHART_COLORS.purple,
         active: false,
       })
     }
     return markers
   }, [userPins, activeUsers, waitlistPins, t])
-
-  // Running out means depending on the balance NOW: an `unlimited` user with a low
-  // balance is at no risk — their balance is idle until the term ends
-  // (BR-MONETIZACAO-051). The cut is the `state` the database resolved, never a local
-  // comparison of `ends_at` (BR-MONETIZACAO-046).
-  const lowBalanceUsers = useMemo(
-    () => paidAccess.meteredUsers.filter((u) => u.state === 'metered'),
-    [paidAccess.meteredUsers]
-  )
 
   const mapCenter = useMemo(() => {
     if (activeUsers.length > 0) return { lat: activeUsers[0].lat, lng: activeUsers[0].lng }
@@ -228,13 +205,29 @@ export default function DashboardPage() {
       {/* 1. HERO KPI ROW (6) — cada card é drill-down pro report */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
         <Link href="/dashboard/reports/catalog">
-          <StatCard size="compact" icon={CheckCircle} title={t('labels.approved')} value={stats.approvedPOIs} color={TUGGI_COLORS.green} isLoading={isLoading} />
+          <StatCard size="compact" icon={CheckCircle} title={t('labels.approved')} value={stats.approvedPOIs} color={CHART_COLORS.green} isLoading={isLoading} />
         </Link>
         <Link href="/dashboard/reports/users">
-          <StatCard size="compact" icon={Users} title={t('labels.users')} value={stats.totalUsers} color={TUGGI_COLORS.purple} isLoading={isLoading} />
+          {/* The general numbers count everyone who uses the app, account and guest together
+              (BR-USUARIO-037, amendment of 2026-11-02, #1067). The RPC already sums them. */}
+          <StatCard
+            size="compact"
+            icon={Users}
+            title={t('labels.users')}
+            value={stats.totalUsers}
+            color={CHART_COLORS.purple}
+            isLoading={isLoading}
+          />
         </Link>
         <Link href="/dashboard/reports/engagement">
-          <StatCard size="compact" icon={Zap} title={t('labels.active_30d')} value={stats.activeUsers30d} color={TUGGI_COLORS.green} isLoading={isLoading} />
+          <StatCard
+            size="compact"
+            icon={Zap}
+            title={t('labels.active_30d')}
+            value={stats.activeUsers30d}
+            color={CHART_COLORS.green}
+            isLoading={isLoading}
+          />
         </Link>
         {/* Paid access = `unlimited` + `metered` (BR-MONETIZACAO-046). With no aggregate
             the card shows an em dash: zero would claim that nobody pays. */}
@@ -244,12 +237,12 @@ export default function DashboardPage() {
             icon={ShieldCheck}
             title={t('labels.paid_access')}
             value={paidAccess.overview ? paidAccess.overview.unlimited_users + paidAccess.overview.metered_users : '—'}
-            color={TUGGI_COLORS.orange}
+            color={CHART_COLORS.orange}
             isLoading={isLoading}
           />
         </Link>
         <Link href="/dashboard/reports/engagement">
-          <StatCard size="compact" icon={Play} title={t('labels.total_trips')} value={stats.totalTrips} color={TUGGI_COLORS.blue} isLoading={isLoading} />
+          <StatCard size="compact" icon={Play} title={t('labels.total_trips')} value={stats.totalTrips} color={CHART_COLORS.blue} isLoading={isLoading} />
         </Link>
         {/* Consumption, cut by how the minute was granted (BR-MONETIZACAO-047): purchased is
             recognised revenue being used; granted — welcome, coupon, CMS grant — is
@@ -270,7 +263,7 @@ export default function DashboardPage() {
                     granted: formatDuration(paidAccess.overview?.consumed_minutes_granted),
                   })
             }
-            color={TUGGI_COLORS.orange}
+            color={CHART_COLORS.orange}
             isLoading={isLoading}
           />
         </Link>
@@ -284,7 +277,7 @@ export default function DashboardPage() {
             <SectionHeader
               title={t('labels.user_map')}
               icon={Globe}
-              iconColor={TUGGI_COLORS.blue}
+              iconColor={CHART_COLORS.blue}
               className="mb-0"
               right={
                 <div className="flex items-center gap-3">
@@ -318,13 +311,14 @@ export default function DashboardPage() {
                 </span>
               </div>
             )}
-            {/* Legenda — cores por tipo de pin */}
-            <div className="absolute bottom-3 left-3 z-10 flex flex-col gap-1.5 bg-white/90 dark:bg-gray-900/90 backdrop-blur-sm rounded-lg border border-gray-200 dark:border-gray-800 px-3 py-2 shadow-sm pointer-events-none">
-              <LegendItem color={TUGGI_COLORS.blue} label={t('labels.users')} />
-              <LegendItem color={TUGGI_COLORS.orange} label={t('labels.premium')} />
-              <LegendItem color={TUGGI_COLORS.green} label={t('labels.active_now')} pulse />
-              <LegendItem color={TUGGI_COLORS.red} label={t('labels.demand')} />
-            </div>
+            <MapLegend
+              items={[
+                { color: CHART_COLORS.blue, label: t('labels.users') },
+                { color: CHART_COLORS.orange, label: t('labels.premium') },
+                ...LIVE_PIN_STATES.map(s => ({ color: s.color, label: t(`live_pin.${s.state}`), pulse: true })),
+                { color: CHART_COLORS.purple, label: t('labels.demand') },
+              ]}
+            />
           </div>
         </WidgetCard>
 
@@ -333,7 +327,7 @@ export default function DashboardPage() {
           <SectionHeader
             title={t('labels.pois_listened')}
             icon={Radar}
-            iconColor={TUGGI_COLORS.orange}
+            iconColor={CHART_COLORS.orange}
             right={
               <Link href="/dashboard/realtime" className="group flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-green-500 hover:text-green-600 transition-colors">
                 <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
@@ -356,68 +350,23 @@ export default function DashboardPage() {
         </WidgetCard>
       </div>
 
-      {/* 3. PAID ACCESS — the two ways it holds, side by side.
-          `unlimited` ends on a date and shows in the middle list; `metered` ends by
-          consumption and shows in the right one. Same business block, and the operator
-          needs both in one sweep (BR-MONETIZACAO-046). */}
+      {/* 3. USE AND BASE (#1204, spec-cms-dashboard-uso-2026-11 §1). Monthly use opens the row because
+          the card's question is "does use grow, and do people come back?"; the base sits beside it over
+          the same twelve months. Both usage cards load from their own routes, so a failure takes down
+          only that card. */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-        {/* PAID ACCESS COMPOSITION */}
-        <WidgetCard className="lg:col-span-4 h-[360px]">
-          <SectionHeader title={t('labels.paid_access')} icon={Wallet} iconColor={TUGGI_COLORS.purple} href="/dashboard/reports/premium" linkLabel={t('labels.view_details')} />
-          <PaidAccessCard overview={paidAccess.overview} />
-        </WidgetCard>
-
-        {/* EXPIRATIONS (term by date) */}
-        <WidgetCard className="lg:col-span-4 h-[360px]">
-          <SectionHeader title={t('labels.expirations_30d')} icon={Clock} iconColor={TUGGI_COLORS.orange} href="/dashboard/reports/premium" linkLabel={t('labels.view_details')} />
-          <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 space-y-2">
-            {stats.upcomingExpirations.length > 0 ? (
-              stats.upcomingExpirations.slice(0, 10).map((exp) => (
-                <UpcomingExpirationsCard key={exp.user_id} expiration={exp} locale={locale} />
-              ))
-            ) : (
-              <div className="h-full flex flex-col items-center justify-center opacity-30 text-center">
-                <ShieldCheck className="h-10 w-10 mb-2" />
-                <p className="text-[10px] font-black uppercase">{t('labels.no_expirations')}</p>
-              </div>
-            )}
-          </div>
-        </WidgetCard>
-
-        {/* RUNNING OUT (hour consumption) */}
-        <WidgetCard className="lg:col-span-4 h-[360px]">
-          <SectionHeader title={t('labels.low_balance')} icon={Hourglass} iconColor={TUGGI_COLORS.red} href="/dashboard/reports/premium" linkLabel={t('labels.view_details')} />
-          <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 space-y-2">
-            {lowBalanceUsers.length > 0 ? (
-              lowBalanceUsers.slice(0, 10).map((user) => (
-                <LowBalanceCard key={user.user_id} user={user} locale={locale} />
-              ))
-            ) : (
-              <div className="h-full flex flex-col items-center justify-center opacity-30 text-center">
-                <Hourglass className="h-10 w-10 mb-2" />
-                <p className="text-[10px] font-black uppercase">{t('labels.no_low_balance')}</p>
-              </div>
-            )}
-          </div>
-        </WidgetCard>
+        <MonthlyUsageCard months={months} className="lg:col-span-8" />
+        <TotalBaseCard userGrowth={stats.userGrowth} months={months} isLoading={isLoading} className="lg:col-span-4" />
       </div>
 
-      {/* 4. STRATEGIC BAND: MAU + demand by country */}
+      {/* 4. USE BY HOUR + PAID ACCESS composition (BR-MONETIZACAO-046). The expirations, running-out
+          and demand-point lists left the Overview in #1204; the per-user view is the premium report.
+          Paid access has no fixed height under lg: it had ~130 px of nothing inside. */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-        {/* MAU GROWTH */}
-        <WidgetCard className="lg:col-span-8 h-[360px]">
-          <SectionHeader title={t('labels.active_base')} icon={TrendingUp} iconColor={TUGGI_COLORS.blue} href="/dashboard/reports/users" linkLabel={t('labels.view_details')} />
-          <div className="flex-1 min-h-0">
-            <UserGrowthChart data={stats.userGrowth} color={TUGGI_COLORS.blue} />
-          </div>
-        </WidgetCard>
-
-        {/* PONTOS DE DEMANDA (waitlist pendente — nickname + link Google Maps) */}
-        <WidgetCard className="lg:col-span-4 h-[360px]">
-          <SectionHeader title={t('labels.demand_points')} icon={MapPin} iconColor={TUGGI_COLORS.red} href="/dashboard/reports/geography" linkLabel={t('labels.view_details')} />
-          <div className="flex-1 overflow-y-auto custom-scrollbar pr-1">
-            <WaitlistDemandList pins={waitlistPins} />
-          </div>
+        <UsageByHourCard className="lg:col-span-8" />
+        <WidgetCard className="lg:col-span-4 lg:h-[380px]">
+          <SectionHeader title={t('labels.paid_access')} icon={Wallet} iconColor={CHART_COLORS.purple} href="/dashboard/reports/premium" linkLabel={t('labels.view_details')} />
+          <PaidAccessCard overview={paidAccess.overview} />
         </WidgetCard>
       </div>
 
@@ -429,18 +378,6 @@ export default function DashboardPage() {
           <p suppressHydrationWarning className="font-bold lowercase opacity-60 italic">Last sync: {stats.lastUpdated.toLocaleTimeString()}</p>
         </div>
       </footer>
-    </div>
-  )
-}
-
-function LegendItem({ color, label, pulse }: { color: string; label: string; pulse?: boolean }) {
-  return (
-    <div className="flex items-center gap-2">
-      <span
-        className={`w-2.5 h-2.5 rounded-full ${pulse ? 'animate-pulse' : ''}`}
-        style={{ backgroundColor: color }}
-      />
-      <span className="text-[10px] font-black uppercase tracking-tight text-gray-600 dark:text-gray-300">{label}</span>
     </div>
   )
 }

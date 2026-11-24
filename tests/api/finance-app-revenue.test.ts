@@ -285,6 +285,69 @@ test('compra sem parceiro não gera comissão de ninguém', () => {
   assert.deepEqual(lines, [])
 })
 
+// ── #1139: THE MARK OF THE PARTNER WITHOUT A PLACE ───────────────────────────────────────────
+
+const MARK = '2026-11-09T12:00:00.000+00:00'
+const BEFORE_MARK_MS = Date.parse('2026-11-09T11:59:59.000Z')
+const AFTER_MARK_MS = Date.parse('2026-11-10T08:00:00.000Z')
+
+function attributed(over: Record<string, unknown>): RcEvent[] {
+  return withProfilePartners([event(over)], new Map([[String(over.app_user_id ?? 'user-1'), 'creator-1']]))
+}
+
+test('BR-B2B-066 item 6: only the purchase made after the approval enters the commission', () => {
+  const events = [
+    ...attributed({ id: 'before', purchased_at_ms: BEFORE_MARK_MS }),
+    ...attributed({ id: 'after', purchased_at_ms: AFTER_MARK_MS, price_in_purchased_currency: 49.9 }),
+  ]
+  const { lines } = commissionByPartner(
+    events,
+    new Map([['creator-1', 0.2]]),
+    new Map([['creator-1', { countsFrom: MARK, excludedReason: null }]])
+  )
+
+  assert.equal(lines.length, 1)
+  assert.equal(lines[0].transactions, 1, 'the purchase before the mark never enters, not even later')
+  assert.equal(lines[0].baseCents, Math.round(4990 * 0.85))
+  assert.equal(lines[0].commissionCents, Math.round(Math.round(4990 * 0.85) * 0.2))
+})
+
+test('BR-B2B-066 item 6: a purchase before the mark gives no line at all', () => {
+  const { lines, withoutRate } = commissionByPartner(
+    attributed({ id: 'before', purchased_at_ms: BEFORE_MARK_MS }),
+    new Map([['creator-1', 0.2]]),
+    new Map([['creator-1', { countsFrom: MARK, excludedReason: null }]])
+  )
+  assert.deepEqual(lines, [])
+  assert.deepEqual(withoutRate, [])
+})
+
+test('BR-B2B-066 item 6: a creator without the mark (no_tax_id) has nothing counted', () => {
+  const { lines } = commissionByPartner(
+    attributed({ id: 'after', purchased_at_ms: AFTER_MARK_MS }),
+    new Map([['creator-1', 0.2]]),
+    new Map([['creator-1', { countsFrom: null, excludedReason: 'no_tax_id' }]])
+  )
+  assert.deepEqual(lines, [])
+})
+
+test('a partner with no window keeps every purchase, as before #1133', () => {
+  const events = [
+    ...attributed({ id: 'before', purchased_at_ms: BEFORE_MARK_MS }),
+    ...attributed({ id: 'after', purchased_at_ms: AFTER_MARK_MS }),
+  ]
+  const { lines } = commissionByPartner(events, new Map([['creator-1', 0.2]]), new Map())
+  assert.equal(lines[0].transactions, 2)
+})
+
+test('the route reads the windows and fails closed when they do not answer', () => {
+  const route = readFileSync(resolve(root, 'app/api/finance/app-credit/route.ts'), 'utf8')
+  assert.ok(/commissionByPartner\(paid, rates, windows\)/.test(route))
+  assert.ok(/if \(windows === null\)/.test(route), 'without the windows the purchases before the mark would be paid')
+  const service = readFileSync(resolve(root, 'lib/services/finance-service.ts'), 'utf8')
+  assert.ok(/rpc\('get_commission_starts'/.test(service), 'the window is the database answer, not recomputed here')
+})
+
 // ── O CALENDÁRIO DO APP ───────────────────────────────────────────────────────────────────────
 
 test('a cobrança feita cai no mês em que foi feita', () => {

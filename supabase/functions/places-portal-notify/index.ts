@@ -21,7 +21,7 @@ import { transitionDeps } from '../_shared/places-transition-email-runtime.ts';
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 
-const STATUS = { sent: 200, not_found: 404, not_approved: 409, not_live: 409, failed: 502 } as const;
+const STATUS = { sent: 200, not_found: 404, not_approved: 409, not_live: 409, no_place: 409, failed: 502 } as const;
 
 Deno.serve(async (req: Request) => {
   if (req.method !== 'POST') return json(405, { error: 'method_not_allowed' });

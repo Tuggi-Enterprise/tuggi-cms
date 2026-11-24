@@ -1,0 +1,205 @@
+{
+ "@context": {
+  "c": "http://www.w3.org/2002/12/cal#",
+  "dcterms": "http://purl.org/dc/terms/",
+  "geo": "http://www.w3.org/2003/01/geo/wgs84_pos#",
+  "loc": "http://purl.org/ctic/infraestructuras/localizacion#",
+  "org": "http://purl.org/ctic/infraestructuras/organizacion#",
+  "vcard": "http://www.w3.org/2006/vcard/ns#",
+  "schema": "https://schema.org/",
+  "title": "vcard:fn",
+  "id": "dcterms:identifier",
+  "relation": "dcterms:relation",
+  "references": "dcterms:references",
+  "address": "vcard:adr",
+  "area": "loc:barrio",
+  "district": "loc:distrito",
+  "locality": "vcard:locality",
+  "postal-code": "vcard:postal-code",
+  "street-address": "vcard:street-address",
+  "location": "vcard:geo",
+  "latitude": "geo:lat",
+  "longitude": "geo:long",
+  "organization": "vcard:org",
+  "organization-desc": "dcterms:description",
+  "accesibility": "org:accesibilidad",
+  "services": "org:servicios",
+  "schedule": "org:horario",
+  "organization-name": "vcard:organization-name",
+  "description": "c:summary",
+  "link": "c:url",
+  "uid": "c:uid",
+  "dtstart": "c:dtstart",
+  "dtend": "c:dtend",
+  "time": "c:time",
+  "excluded-days": "c:exdate",
+  "event-location": "c:location",
+  "free": "schema:free",
+  "price": "c:resource",
+  "recurrence": "c:rrule",
+  "days": "c:byday",
+  "frequency": "c:freq",
+  "interval": "c:interval",
+  "audience": "dc:audience"
+ },
+ "@graph": [
+  {
+   "@id": "https://datos.madrid.es/egob/catalogo/tipo/evento/50430455-1927-lorca-culminacion-teatro-poetico.json",
+   "@type": "https://datos.madrid.es/egob/kos/actividades/ConferenciasColoquios",
+   "id": "50430455",
+   "title": "1927. Lorca y la culminación del teatro poético",
+   "description": "",
+   "free": 0,
+   "price": "3 euros",
+   "dtstart": "2027-01-27 18:00:00.0",
+   "dtend": "2027-01-27 23:59:00.0",
+   "time": "18:00",
+   "excluded-days": "",
+   "uid": "50430455",
+   "link": "http://www.madrid.es/sites/v/index.jsp?vgnextchannel=ca9671ee4a9eb410VgnVCM100000171f5a0aRCRD&vgnextoid=9621c7fc21dc0a10VgnVCM200000f921e388RCRD",
+   "event-location": "Teatro Español",
+   "references": {
+    "@id": ""
+   },
+   "relation": {
+    "@id": "https://datos.madrid.es/egob/catalogo/tipo/entidadesyorganismos/2190-teatro-espanol.json"
+   },
+   "address": {
+    "district": {
+     "@id": "https://datos.madrid.es/egob/kos/Provincia/Madrid/Municipio/Madrid/Distrito/Centro"
+    },
+    "area": {
+     "@id": "https://datos.madrid.es/egob/kos/Provincia/Madrid/Municipio/Madrid/Distrito/Centro/Barrio/Cortes",
+     "locality": "MADRID",
+     "postal-code": "28012",
+     "street-address": "CALLE PRINCIPE 25"
+    }
+   },
+   "location": {
+    "latitude": 40.414828532240946,
+    "longitude": -3.700164949543688
+   },
+   "organization": {
+    "organization-name": "Teatro Español",
+    "accesibility": "1,6"
+   }
+  },
+  {
+   "@id": "https://datos.madrid.es/egob/catalogo/tipo/evento/50409003-19-edicion-mi-primer-festival-cine.json",
+   "@type": "https://datos.madrid.es/egob/kos/actividades/ProgramacionDestacadaAgendaCultura",
+   "id": "50409003",
+   "title": "19ª edición Mi Primer Festival de Cine",
+   "description": "",
+   "free": 0,
+   "price": "",
+   "dtstart": "2026-11-07 00:00:00.0",
+   "dtend": "2026-11-22 23:59:00.0",
+   "time": "",
+   "excluded-days": "",
+   "recurrence": {
+    "days": "MO,TU,WE,TH,FR,SA,SU",
+    "frequency": "WEEKLY",
+    "interval": 1
+   },
+   "audience": "Niños,Familias",
+   "uid": "50409003",
+   "link": "http://www.madrid.es/sites/v/index.jsp?vgnextchannel=ca9671ee4a9eb410VgnVCM100000171f5a0aRCRD&vgnextoid=a32c600f78a80a10VgnVCM100000891ecb1aRCRD",
+   "event-location": "Centro de Cultura Contemporánea CondeDuque",
+   "references": {
+    "@id": ""
+   },
+   "relation": {
+    "@id": "https://datos.madrid.es/egob/catalogo/tipo/entidadesyorganismos/1916-centro-cultura-contemporanea-condeduque.json"
+   },
+   "address": {
+    "district": {
+     "@id": "https://datos.madrid.es/egob/kos/Provincia/Madrid/Municipio/Madrid/Distrito/Centro"
+    },
+    "area": {
+     "@id": "https://datos.madrid.es/egob/kos/Provincia/Madrid/Municipio/Madrid/Distrito/Centro/Barrio/Universidad",
+     "locality": "MADRID",
+     "postal-code": "28015",
+     "street-address": "CALLE CONDE DUQUE 9"
+    }
+   },
+   "location": {
+    "latitude": 40.42739911262292,
+    "longitude": -3.710589286287491
+   },
+   "organization": {
+    "organization-name": "Centro de Cultura Contemporánea CondeDuque",
+    "accesibility": "1"
+   }
+  },
+  {
+   "@id": "https://datos.madrid.es/egob/catalogo/tipo/evento/50366129-25-anos-museo-san-isidro-origenes-madrid.json",
+   "@type": "https://datos.madrid.es/egob/kos/actividades/Exposiciones",
+   "id": "50366129",
+   "title": "25 años del Museo de San Isidro. Los Orígenes de Madrid",
+   "description": "",
+   "free": 1,
+   "price": "",
+   "dtstart": "2026-07-21 00:00:00.0",
+   "dtend": "2027-01-31 23:59:00.0",
+   "time": "",
+   "excluded-days": "24/12/2026;25/12/2026;31/12/2026;1/1/2027;",
+   "recurrence": {
+    "days": "TU,WE,TH,FR,SA,SU",
+    "frequency": "WEEKLY",
+    "interval": 1
+   },
+   "uid": "50366129",
+   "link": "http://www.madrid.es/sites/v/index.jsp?vgnextchannel=ca9671ee4a9eb410VgnVCM100000171f5a0aRCRD&vgnextoid=92684dde03f7f910VgnVCM200000f921e388RCRD",
+   "event-location": "Museo de San Isidro. Los Orígenes de Madrid",
+   "references": {
+    "@id": "http://www.madrid.es/sites/v/index.jsp?vgnextchannel=ca9671ee4a9eb410VgnVCM100000171f5a0aRCRD&vgnextoid=39b35c3f9fe7f910VgnVCM200000f921e388RCRD"
+   },
+   "relation": {
+    "@id": "https://datos.madrid.es/egob/catalogo/tipo/entidadesyorganismos/2112-museo-san-isidro-origenes-madrid.json"
+   },
+   "address": {
+    "district": {
+     "@id": "https://datos.madrid.es/egob/kos/Provincia/Madrid/Municipio/Madrid/Distrito/Centro"
+    },
+    "area": {
+     "@id": "https://datos.madrid.es/egob/kos/Provincia/Madrid/Municipio/Madrid/Distrito/Centro/Barrio/Palacio",
+     "locality": "MADRID",
+     "postal-code": "28005",
+     "street-address": "PLAZA SAN ANDRES 2"
+    }
+   },
+   "location": {
+    "latitude": 40.41207900253883,
+    "longitude": -3.7108161027466378
+   },
+   "organization": {
+    "organization-name": "Museo de San Isidro. Los Orígenes de Madrid",
+    "accesibility": "2,6"
+   }
+  },
+  {
+   "@id": "https://datos.madrid.es/egob/catalogo/tipo/evento/12130154-actividades-mensuales-centros-mayores-distrito-centro.json",
+   "id": "12130154",
+   "title": "Actividades mensuales de los centros de mayores del distrito Centro",
+   "description": "",
+   "free": 0,
+   "price": "",
+   "dtstart": "2025-11-01 00:00:00.0",
+   "dtend": "2032-04-30 23:59:00.0",
+   "time": "",
+   "excluded-days": "1/5/2026;2/5/2026;3/5/2026;15/5/2026;16/5/2026;17/5/2026;22/5/2026;23/5/2026;24/5/2026;25/5/2026;29/5/2026;30/5/2026;31/5/2026;",
+   "recurrence": {
+    "days": "MO,TU,WE,TH,FR,SA",
+    "frequency": "WEEKLY",
+    "interval": 1
+   },
+   "audience": "Mayores",
+   "uid": "12130154",
+   "link": "http://www.madrid.es/sites/v/index.jsp?vgnextchannel=ca9671ee4a9eb410VgnVCM100000171f5a0aRCRD&vgnextoid=b8d69bd86cd1b810VgnVCM2000001f4a900aRCRD",
+   "event-location": "",
+   "references": {
+    "@id": "http://www.madrid.es/sites/v/index.jsp?vgnextchannel=ca9671ee4a9eb410VgnVCM100000171f5a0aRCRD&vgnextoid=038a389dcf828810VgnVCM1000001d4a900aRCRD"
+   }
+  }
+ ]
+}

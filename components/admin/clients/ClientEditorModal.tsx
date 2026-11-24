@@ -22,11 +22,11 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import {
   Save, Loader2, Building2, Scale, Users, MapPin, Gift, AlertTriangle, Plus, Edit,
-  FileSignature, Handshake,
+  FileSignature, Handshake, UserRound, BadgeCheck,
 } from 'lucide-react'
 import { useLocale, useTranslations } from 'next-intl'
 import { useDialogShell } from '@/lib/hooks/use-dialog-shell'
-import { taxConfigFor } from '@/components/admin/clients/shared/countries'
+import { taxConfigOfClient } from '@/components/admin/clients/shared/countries'
 import { ApprovalHeaderControls } from '@/components/admin/clients/shared/ApprovalHeaderControls'
 import { RecordShell } from '@/components/admin/clients/shared/RecordShell'
 import { RecordTabs } from '@/components/admin/clients/shared/RecordTabs'
@@ -35,8 +35,11 @@ import { FiscalPaymentsTab } from '@/components/admin/clients/tabs/FiscalPayment
 import { AffiliateNetworkSection, TeamTab } from '@/components/admin/clients/tabs/TeamTab'
 import { AppUsersTab, type AppUserLite } from '@/components/admin/clients/tabs/AppUsersTab'
 import { PlacesTab } from '@/components/admin/clients/tabs/PlacesTab'
+import { GuideProfileTab } from '@/components/admin/clients/tabs/GuideProfileTab'
+import { isAppPartnerType, partnerKindOf, placesTabOf, type PartnerKind } from '@/lib/partnerships/partner-kind'
 import { PartnershipTab } from '@/components/admin/clients/tabs/PartnershipTab'
 import { CouponsTab } from '@/components/admin/clients/tabs/CouponsTab'
+import { BrandTab } from '@/components/admin/clients/tabs/BrandTab'
 import { ContractTab } from '@/components/admin/clients/tabs/ContractTab'
 import { useValidationRecord } from '@/components/admin/clients/shared/PortalSubmission'
 import { DecisionSummary, ValidationDecision } from '@/components/admin/partner-proposals/ValidationDecision'
@@ -63,7 +66,11 @@ export type ClientEditorTab =
   | 'contract'
   | 'team'
   | 'places'
+  // #936: the tour guide's public profile, in place of `places` (a guide has no place).
+  | 'guide'
   | 'coupons'
+  // #1257: the Tuggi do parceiro (logo decision and pilot, BR-B2B-070 items 2 and 9).
+  | 'brand'
 
 interface ClientEditorModalProps {
   clientId?: string
@@ -113,7 +120,20 @@ const TABS: TabDef[] = [
   { id: 'team', labelKey: 'people', icon: Users },
   { id: 'places', labelKey: 'places', icon: MapPin },
   { id: 'coupons', labelKey: 'coupons', icon: Gift },
+  { id: 'brand', labelKey: 'brand', icon: BadgeCheck },
 ]
+
+/**
+ * The tabs of a record by partner kind (spec #936 §5): the guide's `places` becomes `guide`
+ * ("Perfil no app"); the transfer without a base has no place and nothing takes its spot.
+ */
+function tabsOfKind(kind: PartnerKind): TabDef[] {
+  const placesTab = placesTabOf(kind)
+  return TABS.flatMap((tab) => {
+    if (tab.id !== 'places' || placesTab === 'places') return [tab]
+    return placesTab === 'guide' ? [{ id: 'guide' as const, labelKey: 'guide', icon: UserRound }] : []
+  })
+}
 
 export function ClientEditorModal({
   clientId: clientIdProp,
@@ -243,6 +263,8 @@ export function ClientEditorModal({
   }, [])
 
   const review = validation.review
+  // #1184: the guide of the app request has no submission; its `client_type` names the kind.
+  const partnerKind = partnerKindOf(review?.answers, client?.client_type)
   const reviewAnswers = review?.answers
   const headerName = useMemo(() => {
     if (preRegistration) return reviewAnswers?.trade_name || tValidation('noTradeName')
@@ -266,10 +288,13 @@ export function ClientEditorModal({
     setError(null)
     setSuccess(null)
 
-    // Auto-set tax_id_type from country (preserve legacy behaviour).
+    // Auto-set tax_id_type from country (preserve legacy behaviour). Creator, influencer, driver and
+    // guide take it from the document, CPF or CNPJ (#1139, #1184): the country's `cnpj` over a CPF is refused by
+    // the database, and saving the commission of an approved app partner would fail with it.
     const payload: Partial<Client> = { ...edited }
-    if (payload.country) {
-      payload.tax_id_type = taxConfigFor(payload.country).type
+    const clientType = payload.client_type ?? client?.client_type ?? null
+    if (payload.country || isAppPartnerType(clientType)) {
+      payload.tax_id_type = taxConfigOfClient(clientType, payload.country ?? '', payload.tax_id ?? client?.tax_id ?? null).type
     }
 
     try {
@@ -455,7 +480,7 @@ export function ClientEditorModal({
             const isDisabled = (tab: (typeof TABS)[number]) =>
               preRegistration
                 ? tab.id !== 'partnership'
-                : !isEditing && (tab.id === 'partnership' || tab.id === 'places' || tab.id === 'coupons')
+                : !isEditing && (tab.id === 'partnership' || tab.id === 'places' || tab.id === 'coupons' || tab.id === 'brand')
             const hasValidation = Boolean(validation.submissionId)
             const onValidation = activeTab === 'partnership' && hasValidation
             const decisionSummary = (describesApprove: boolean) =>
@@ -513,7 +538,7 @@ export function ClientEditorModal({
             return (
               <>
                 <RecordTabs
-                  tabs={TABS.map((tab) => ({
+                  tabs={tabsOfKind(partnerKind).map((tab) => ({
                     id: tab.id,
                     label: tTabs(tab.labelKey),
                     icon: tab.icon,
@@ -585,7 +610,10 @@ export function ClientEditorModal({
                 ) : null}
               </div>
             )}
-            {activeTab === 'places' && (
+            {activeTab === 'guide' && partnerKind === 'guide' && clientId ? (
+              <GuideProfileTab clientId={clientId} submissionId={review?.id ?? null} fallbackName={headerName} onPublished={() => void validation.refetch()} />
+            ) : null}
+            {activeTab === 'places' && partnerKind === 'place' && (
               <PlacesTab
                 client={client}
                 edited={edited}
@@ -593,10 +621,14 @@ export function ClientEditorModal({
                 canEdit
                 clientId={clientId}
                 onOpenPipeline={() => setActiveTab('partnership')}
+                portalRecords={portalRecords}
               />
             )}
             {activeTab === 'coupons' && (
               <CouponsTab client={client} edited={edited} updateField={updateField} canEdit clientId={clientId} />
+            )}
+            {activeTab === 'brand' && (
+              <BrandTab client={client} edited={edited} updateField={updateField} canEdit clientId={clientId} />
             )}
                 </RecordCacheProvider>
                 </main>

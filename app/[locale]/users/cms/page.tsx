@@ -4,12 +4,11 @@ import { useState, useEffect, useCallback } from 'react'
 import { useSupabaseClient } from '@supabase/auth-helpers-react'
 import { 
   UserCog, Plus, Search, MoreVertical, Shield, Edit2, 
-  Trash2, CheckCircle, XCircle, Mail, Calendar, RefreshCw,
+  CheckCircle, XCircle, Mail, RefreshCw,
   AlertCircle, Loader2, Users
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { StatCard, StatCardRow } from '@/components/ui/StatCard'
-import { RoleBadge } from '@/components/ui/RoleBadge'
 
 // ============================================================================
 // TYPES
@@ -186,6 +185,7 @@ export default function CMSUsersPage() {
   const [showInviteModal, setShowInviteModal] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
 
   // Fetch CMS users
   const fetchUsers = useCallback(async () => {
@@ -213,91 +213,58 @@ export default function CMSUsersPage() {
     fetchUsers()
   }, [fetchUsers])
 
-  // Invite new user
+  // Invite new user. The invite needs the service role, so it runs on the server (#941):
+  // `POST /api/admin/cms-users` sends the e-mail and writes `core.cms_users`. An error thrown
+  // here is shown inside the modal, which stays open.
   const handleInvite = async (data: InviteFormData) => {
     setIsInviting(true)
-    
+    setNotice(null)
+
     try {
-      // 1. Create user in Supabase Auth via invite
-      const { data: authData, error: authError } = await supabase.auth.admin.inviteUserByEmail(data.email, {
-        data: {
-          full_name: data.full_name
-        }
+      const response = await fetch('/api/admin/cms-users', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(data),
       })
-      
-      if (authError) {
-        // If user already exists in auth, we can still add to cms_users
-        if (!authError.message.includes('already registered')) {
-          throw authError
-        }
+      const body = await response.json().catch(() => null)
+
+      if (!response.ok) {
+        throw new Error(body?.error || 'Erro ao convidar usuário')
       }
-      
-      // 2. Create entry in cms_users
-      const { error: cmsError } = await supabase
-        .schema('core')
-        .from('cms_users')
-        .insert({
-          email: data.email,
-          full_name: data.full_name || null,
-          role: data.role,
-          is_active: true
-        })
-      
-      if (cmsError) {
-        if (cmsError.message.includes('duplicate key')) {
-          throw new Error('Este email já está cadastrado no CMS')
-        }
-        throw cmsError
+
+      const notices: Record<string, string> = {
+        invite: `Convite enviado para ${data.email}.`,
+        password_link: `${data.email} já tinha conta no Tuggi. Foi adicionado ao CMS e recebeu um link para definir a senha.`,
+        none: `${data.email} já tinha conta no Tuggi e foi adicionado ao CMS, mas o e-mail para definir a senha não saiu. Ele entra com a senha que já usa.`,
       }
-      
-      // Refresh list
+      setNotice(notices[body?.mail] ?? notices.invite)
       await fetchUsers()
-      
-    } catch (err) {
-      console.error('Error inviting user:', err)
-      throw err
     } finally {
       setIsInviting(false)
     }
   }
 
-  // Toggle user active status
+  // Toggle user active status. Goes through the PATCH (#969): RLS lets the browser read
+  // core.cms_users and not write it, so the old direct update changed nothing while the
+  // screen said "desativado".
   const toggleUserStatus = async (user: CMSUser) => {
     try {
-      const { error } = await supabase
-        .schema('core')
-        .from('cms_users')
-        .update({ is_active: !user.is_active })
-        .eq('id', user.id)
+      const response = await fetch(`/api/admin/users/${user.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_active: !user.is_active }),
+      })
+      const body = await response.json().catch(() => null)
+      if (!response.ok) {
+        throw new Error(body?.error || `HTTP ${response.status}`)
+      }
 
-      if (error) throw error
-      
-      setUsers(prev => prev.map(u => 
-        u.id === user.id ? { ...u, is_active: !u.is_active } : u
+      const saved = body?.user?.is_active
+      setUsers(prev => prev.map(u =>
+        u.id === user.id ? { ...u, is_active: typeof saved === 'boolean' ? saved : !u.is_active } : u
       ))
     } catch (err) {
-      console.error('Error toggling user status:', err)
-      alert('Erro ao atualizar status do usuário')
-    }
-  }
-
-  // Update user role
-  const updateUserRole = async (user: CMSUser, newRole: CMSUser['role']) => {
-    try {
-      const { error } = await supabase
-        .schema('core')
-        .from('cms_users')
-        .update({ role: newRole })
-        .eq('id', user.id)
-
-      if (error) throw error
-      
-      setUsers(prev => prev.map(u => 
-        u.id === user.id ? { ...u, role: newRole } : u
-      ))
-    } catch (err) {
-      console.error('Error updating user role:', err)
-      alert('Erro ao atualizar papel do usuário')
+      alert(`Erro ao atualizar status do usuário: ${err instanceof Error ? err.message : 'erro desconhecido'}`)
     }
   }
 
@@ -370,6 +337,13 @@ export default function CMSUsersPage() {
         </div>
       </div>
 
+      {notice && (
+        <div className="mb-6 p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl text-green-700 dark:text-green-400 flex items-center">
+          <CheckCircle className="h-5 w-5 mr-2 flex-shrink-0" />
+          {notice}
+        </div>
+      )}
+
       {/* Error State */}
       {error && (
         <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl text-red-600 dark:text-red-400 flex items-center">
@@ -427,10 +401,13 @@ export default function CMSUsersPage() {
                       </div>
                     </td>
                     <td className="px-6 py-4">
+                      {/* Read only (#969): the role is immutable after creation, the PATCH refuses it,
+                          and the old direct update was dropped by RLS while the select moved. */}
                       <select
                         value={user.role}
-                        onChange={(e) => updateUserRole(user, e.target.value as CMSUser['role'])}
-                        className="bg-transparent border-none text-sm font-medium focus:ring-0 cursor-pointer"
+                        disabled
+                        aria-readonly="true"
+                        className="bg-transparent border-none text-sm font-medium focus:ring-0"
                       >
                         <option value="admin">Admin</option>
                         <option value="editor">Editor</option>

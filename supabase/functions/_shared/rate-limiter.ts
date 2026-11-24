@@ -104,7 +104,7 @@ export function checkRateLimit(
 
   // Determinar chave de rate limit: preferir user ID, caso contrário IP
   const authHeader = req.headers.get('authorization')
-  const userId = extractUserID(authHeader)
+  const userId = extractUserID(authHeader ?? undefined)
   const clientIP = getClientIP(req)
   const identifier = userId || clientIP
   const key = `ratelimit:${functionName}:${identifier}`
@@ -173,6 +173,20 @@ export const RATE_LIMIT_CONFIG: Record<string, RateLimitConfig> = {
   },
   'generate-translated-audio': {
     maxRequests: 5,
+    windowSeconds: 3600,
+  },
+
+  // One Vision call per diary photo (#1116). A long offline trip syncs up to 3 photos per
+  // annotation in one pass; a 429 only makes the app try again on its next sync.
+  'register-diary-photo': {
+    maxRequests: 120,
+    windowSeconds: 3600,
+  },
+
+  // One Vision call per profile photo (#1130). A person trying a few photos in a row stays far
+  // below; a 429 only asks to try later.
+  'register-profile-photo': {
+    maxRequests: 30,
     windowSeconds: 3600,
   },
 

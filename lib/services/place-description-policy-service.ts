@@ -415,9 +415,9 @@ export async function applyPartnerPlaceDescription(
   if (inserted.error) throw new Error(inserted.error.message)
   if ((inserted.data ?? []).length > 0) return 'written'
 
-  // TWIN IN DENO: `supabase/functions/_shared/places-story-suspension.ts` (`reconcilePartnerStories`) does
-  // this same conditional UPDATE for the payment sweep (BR-B2B-019 item 6), under `service_role`,
-  // because this RPC path needs an operator's JWT. Change one, change the other.
+  // TWIN IN SQL: `partner.place_restore_paid_content` (#1055, called by the payment sweep) writes
+  // this same row over the name-only one for a place #889 suspended (BR-B2B-019 item 6), under
+  // `service_role`, because this path needs an operator's JWT. Change one, change the other.
   const replaced = await core(db)
     .from('attraction_descriptions')
     .update(row)

@@ -34,7 +34,7 @@
  * hands the Portuguese to this subtree and nothing else.
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRecordRead } from '@/lib/hooks/use-record-cache'
 import { NextIntlClientProvider, useLocale, useTranslations } from 'next-intl'
 import { MapPin } from 'lucide-react'
@@ -49,8 +49,14 @@ import type { PendencyId } from '@/lib/partnerships/place-readiness'
 import type { PartnershipDetail, PartnershipPlace } from '@/lib/services/partnership-service'
 import type { PartnerPlaceOutcome } from '@/lib/services/partner-place-provisioning'
 import type { ClientEditorTabProps } from './ProfileTab'
+import type { ClientPortalRecord } from '@/lib/services/portal-submission-review-service'
+import type { Client } from '@/types/clients'
+import { formatDate, formatFee } from '@/lib/contract/snapshot'
+import { formatCalendarDay, placePlanOf, type PlacePlan } from '@/lib/partnerships/place-plan'
 
-export function PlacesTab(props: ClientEditorTabProps & { onOpenPipeline: () => void }) {
+export function PlacesTab(
+  props: ClientEditorTabProps & { onOpenPipeline: () => void; portalRecords?: ClientPortalRecord[] }
+) {
   // Read OUTSIDE the Portuguese provider below: the vocabulary of the pipeline is pt-only, but
   // the routes it links to are the operator's own, and `/pt/pois/...` for somebody working in
   // `en` is a locale switch nobody asked for.
@@ -64,7 +70,13 @@ export function PlacesTab(props: ClientEditorTabProps & { onOpenPipeline: () => 
         locale="pt"
         messages={{ Partnerships: ptMessages.Partnerships }}
       >
-        <PartnerPlaces clientId={props.clientId} locale={locale} onOpenPipeline={props.onOpenPipeline} />
+        <PartnerPlaces
+          clientId={props.clientId}
+          locale={locale}
+          onOpenPipeline={props.onOpenPipeline}
+          client={props.client}
+          portalRecords={props.portalRecords ?? []}
+        />
       </NextIntlClientProvider>
     </div>
   )
@@ -74,10 +86,14 @@ function PartnerPlaces({
   clientId,
   locale,
   onOpenPipeline,
+  client,
+  portalRecords,
 }: {
   clientId?: string
   locale: string
   onOpenPipeline: () => void
+  client: Client | null
+  portalRecords: ClientPortalRecord[]
 }) {
   const t = useTranslations('Partnerships')
   const [detail, setDetail] = useState<PartnershipDetail | null>(null)
@@ -248,6 +264,7 @@ function PartnerPlaces({
               onWelcomeChanged={load}
               onUnlinked={load}
               onPulled={load}
+              plan={placePlanOf(place.readiness.place.attractionId, client, portalRecords)}
             />
           ))}
         </div>
@@ -279,6 +296,7 @@ function Place({
   onWelcomeChanged,
   onUnlinked,
   onPulled,
+  plan,
 }: {
   place: PartnershipPlace
   placeHref: (place: PartnershipPlace, pendency?: PendencyId) => string
@@ -288,15 +306,22 @@ function Place({
   onWelcomeChanged: () => Promise<void>
   onUnlinked: () => Promise<void>
   onPulled: () => Promise<void>
+  plan: PlacePlan
 }) {
   const t = useTranslations('Partnerships')
   const attractionId = place.readiness.place.attractionId
   const [choosing, setChoosing] = useState(false)
   const [chooseFailed, setChooseFailed] = useState(false)
-  const [confirmingUnlink, setConfirmingUnlink] = useState(false)
+  // One confirmation slot per card (spec #1054 §9.3): opening one closes the other.
+  const [slot, setSlot] = useState<'unlink' | 'cancelPlan' | null>(null)
+  const confirmingUnlink = slot === 'unlink'
+  const setConfirmingUnlink = (open: boolean) => setSlot(open ? 'unlink' : null)
   const [unlinking, setUnlinking] = useState(false)
   const [unlinkFailed, setUnlinkFailed] = useState(false)
   const [pulling, setPulling] = useState(false)
+  // The answer of a cancel made here, until the record is read again.
+  const [canceled, setCanceled] = useState<CancelResult | null>(null)
+  const cancelPlanButton = useRef<HTMLButtonElement>(null)
   const [pullResult, setPullResult] = useState<PullResult | null>(null)
 
   async function chooseWelcome() {
@@ -401,6 +426,9 @@ function Place({
         </p>
       )}
 
+      {/* A linha do plano cancelado (spec §9.2): a data em que história e fotos saem do app. */}
+      <PlanStatusLine plan={plan} canceled={canceled} />
+
       <div className="mt-3">
         <PendencyList
           readiness={place.readiness}
@@ -443,7 +471,37 @@ function Place({
             {t('unlink.action')}
           </button>
         )}
+
+        {/* Último da linha, raro e destrutivo (#1054, spec §9.3): só com plano pago ativo. */}
+        {plan?.state === 'active' && !canceled && slot !== 'cancelPlan' && (
+          <button
+            ref={cancelPlanButton}
+            type="button"
+            onClick={() => setSlot('cancelPlan')}
+            className="inline-flex min-h-[24px] items-center text-sm font-medium text-gray-700 underline underline-offset-4 dark:text-gray-300"
+          >
+            {t('cancelPlan.action')}
+          </button>
+        )}
       </div>
+
+      {slot === 'cancelPlan' && plan?.state === 'active' && (
+        <PlanCancelBox
+          clientId={clientId}
+          attractionId={attractionId}
+          placeName={place.readiness.place.name}
+          plan={plan}
+          onClose={() => {
+            setSlot(null)
+            // Back to the button that opened it (spec §9.3); after a cancel it is gone, and the line takes the focus.
+            requestAnimationFrame(() => cancelPlanButton.current?.focus())
+          }}
+          onCanceled={(result) => {
+            setCanceled(result)
+            setSlot(null)
+          }}
+        />
+      )}
 
       {confirmingUnlink && (
         <div className="mt-3 rounded-md border border-gray-200 p-3 dark:border-gray-800">
@@ -495,4 +553,200 @@ function pullResultOf(outcome: PartnerPlaceOutcome): PullResult {
   }
   if (outcome.status === 'skipped' && outcome.reason === 'not_linked') return 'notLinked'
   return 'failed'
+}
+
+// ─── #1054: Cancelar plano (spec docs/design/spec-cancelamento-places-2026-10.md §9) ──────────
+
+/** What the cancel answered, kept on the card. `endsOn` is a calendar day (`YYYY-MM-DD`), null = today. */
+type CancelResult = { endsOn: string | null; already: boolean; providerFailed: boolean }
+
+type QuotePlan = { plan: 'experience' | 'legacy'; state: 'active' | 'canceled'; ends_on: string | null; fee_cents: number; charge_on: string | null }
+type Quote = { plans: QuotePlan[]; fee_cents: number }
+
+/** The latest day among the plans: the story leaves when the last paid period ends. Null = today. */
+function latestDay(days: (string | null)[]): string | null {
+  const sorted = days.filter((d): d is string => Boolean(d)).sort()
+  return sorted.length ? sorted[sorted.length - 1] : null
+}
+
+function PlanStatusLine({ plan, canceled }: { plan: PlacePlan; canceled: CancelResult | null }) {
+  const t = useTranslations('Partnerships')
+  if (canceled) {
+    return (
+      <div className="mt-1 space-y-1 text-xs text-gray-700 dark:text-gray-300">
+        {canceled.already ? (
+          <p role="status">{t('cancelPlan.alreadyCanceled')}</p>
+        ) : (
+          <p role="status">
+            {canceled.endsOn
+              ? t('cancelPlan.canceledStatus', { date: formatCalendarDay(canceled.endsOn) })
+              : t('cancelPlan.canceledStatusToday')}
+          </p>
+        )}
+        {canceled.providerFailed && (
+          <p role="alert" className="text-gray-900 dark:text-white">
+            {t('cancelPlan.asaasFailed')}
+          </p>
+        )}
+      </div>
+    )
+  }
+  if (plan?.state !== 'canceled') return null
+  const future = plan.storyUntil && new Date(plan.storyUntil) > new Date()
+  return (
+    <p className="mt-1 text-xs text-gray-700 dark:text-gray-300">
+      {future && plan.storyUntil
+        ? t('cancelPlan.canceledStatus', { date: formatDate(plan.storyUntil) })
+        : t('cancelPlan.canceledStatusToday')}
+    </p>
+  )
+}
+
+function PlanCancelBox({
+  clientId,
+  attractionId,
+  placeName,
+  plan,
+  onClose,
+  onCanceled,
+}: {
+  clientId: string
+  attractionId: string
+  placeName: string
+  plan: Extract<PlacePlan, { state: 'active' }>
+  onClose: () => void
+  onCanceled: (result: CancelResult) => void
+}) {
+  const t = useTranslations('Partnerships')
+  const title = useRef<HTMLParagraphElement>(null)
+  const [quote, setQuote] = useState<Quote | null>(null)
+  const [quoteFailed, setQuoteFailed] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<'failed' | 'forbidden' | null>(null)
+  const url = `/api/admin/clients/${clientId}/plan-cancel`
+
+  // The fetch sets no state: the callers do, so the effect below only applies its answer.
+  const fetchQuote = useCallback(async (): Promise<Quote | 'forbidden' | null> => {
+    try {
+      const res = await fetch(`${url}?attractionId=${attractionId}`)
+      if (res.status === 403) return 'forbidden'
+      const body = (await res.json().catch(() => null)) as Quote | null
+      return res.ok && body && Array.isArray(body.plans) ? body : null
+    } catch {
+      return null
+    }
+  }, [url, attractionId])
+
+  function applyQuote(q: Quote | 'forbidden' | null) {
+    if (q === 'forbidden') setError('forbidden')
+    else if (q) setQuote(q)
+    else setQuoteFailed(true)
+  }
+
+  useEffect(() => {
+    title.current?.focus()
+    let active = true
+    void fetchQuote().then((q) => {
+      if (active) applyQuote(q)
+    })
+    return () => {
+      active = false
+    }
+  }, [fetchQuote])
+
+  async function retryQuote() {
+    setQuoteFailed(false)
+    applyQuote(await fetchQuote())
+  }
+
+  const active = quote?.plans.filter((p) => p.state === 'active') ?? []
+  const endsOn = latestDay(active.map((p) => p.ends_on))
+  const feePlan = active.find((p) => p.fee_cents > 0 && p.charge_on)
+
+  async function confirm() {
+    if (!quote) return
+    setBusy(true)
+    setError(null)
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ attractionId, expectedFeeCents: quote.fee_cents }),
+      })
+      const body = (await res.json().catch(() => null)) as
+        | { result?: string; plans?: { ends_on: string | null }[]; provider?: string }
+        | null
+      if (res.ok && body?.result) {
+        onCanceled({
+          endsOn: latestDay((body.plans ?? []).map((p) => p.ends_on)),
+          already: body.result === 'already_canceled',
+          providerFailed: body.provider === 'failed',
+        })
+        return
+      }
+      if (res.status === 409) {
+        // The fee moved since the box opened: show the new one before anyone confirms it.
+        setQuote(null)
+        applyQuote(await fetchQuote())
+      }
+      setError(res.status === 403 ? 'forbidden' : 'failed')
+    } catch {
+      setError('failed')
+    }
+    setBusy(false)
+  }
+
+  const value = plan.monthlyCents !== null ? formatFee(plan.monthlyCents) : '—'
+
+  return (
+    <div className="mt-3 rounded-md border border-gray-200 p-3 dark:border-gray-800" aria-busy={busy || (!quote && !quoteFailed)}>
+      <p ref={title} tabIndex={-1} className="text-sm text-gray-900 outline-none dark:text-white">
+        {t('cancelPlan.confirmTitle', { place: placeName })}
+      </p>
+      <div className="mt-1 space-y-1 text-xs leading-relaxed text-gray-700 dark:text-gray-300">
+        <p>{plan.plan === 'experience' ? t('cancelPlan.planPortal', { value }) : t('cancelPlan.planLegacy', { value })}</p>
+        <p>{t('cancelPlan.effectNow')}</p>
+        {quote && (
+          <p>{endsOn ? t('cancelPlan.effectLater', { date: formatCalendarDay(endsOn) }) : t('cancelPlan.effectLaterToday')}</p>
+        )}
+        {feePlan?.charge_on && (
+          <p>{t('cancelPlan.fee', { fee: formatFee(feePlan.fee_cents), chargeOn: formatCalendarDay(feePlan.charge_on) })}</p>
+        )}
+        {quote && active.length === 0 && <p role="status">{t('cancelPlan.alreadyCanceled')}</p>}
+      </div>
+
+      {quoteFailed && (
+        <p role="alert" className="mt-2 text-xs text-gray-900 dark:text-white">
+          {t('cancelPlan.failed')}{' '}
+          <button
+            type="button"
+            onClick={() => void retryQuote()}
+            className="inline-flex min-h-[24px] items-center font-medium text-primary-800 underline underline-offset-4"
+          >
+            {t('clientPlaces.retry')}
+          </button>
+        </p>
+      )}
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        <Button type="button" variant="ghost" disabled={busy} onClick={onClose}>
+          {t('cancelPlan.back')}
+        </Button>
+        <Button
+          type="button"
+          variant="destructive"
+          disabled={busy || !quote || active.length === 0}
+          onClick={() => void confirm()}
+        >
+          {busy ? t('cancelPlan.canceling') : t('cancelPlan.confirmAction')}
+        </Button>
+      </div>
+
+      {error && (
+        <p role="alert" className="mt-2 text-xs text-gray-900 dark:text-white">
+          {t(`cancelPlan.${error}`)}
+        </p>
+      )}
+    </div>
+  )
 }

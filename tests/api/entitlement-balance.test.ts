@@ -35,6 +35,7 @@ import {
   balanceBand,
   balanceBandCeiling,
   grantOrigin,
+  missionOf,
 } from '@/lib/credit/entitlement'
 import { formatDuration } from '@/lib/format/duration'
 
@@ -140,13 +141,24 @@ test('BR-MONETIZACAO-046: no paid-access surface infers the state from `ends_at`
 
 test('BR-MONETIZACAO-046: the state vocabulary has one owner, and no fourth value', () => {
   assert.deepEqual([...ENTITLEMENT_STATES], ['unlimited', 'metered', 'free'])
-  assert.deepEqual([...GRANT_SOURCES], ['purchase', 'welcome', 'coupon', 'cms', 'partner', 'transfer'])
+  assert.deepEqual([...GRANT_SOURCES], ['purchase', 'welcome', 'coupon', 'cms', 'partner', 'transfer', 'referral', 'mission'])
 
-  // The credit panel used to keep its own copy of the six sources. One list, one meaning.
+  // The credit panel used to keep its own copy of the sources. One list, one meaning.
   const panel = codeOf('components/admin/credit/CreditPanel.tsx')
   assert.equal(
     /const\s+KNOWN_SOURCES\s*=/.test(panel),
     false,
     'CreditPanel must read GRANT_SOURCES from lib/credit/entitlement, not redeclare the list'
   )
+})
+
+test('BR-MONETIZACAO-047: a mission grant names its mission, so same-instant grants stop reading as duplicates', () => {
+  const user = 'f8e82ea7-0000-4000-8000-000000000000'
+  assert.equal(missionOf(`mission:${user}:profile_field:travel_party`), 'profile_field · travel_party')
+  assert.equal(missionOf(`mission:${user}:first_trip:first`), 'first_trip · first')
+  // The user id never reaches the screen.
+  assert.equal(missionOf(`mission:${user}:profile_complete:all`)?.includes(user), false)
+  assert.equal(missionOf('6B5B313D-89B2-44D7-98CC-587A00C1C00C'), null)
+  assert.equal(missionOf(null), null)
+  assert.equal(grantOrigin('mission'), 'grant')
 })

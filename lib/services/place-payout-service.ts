@@ -1,5 +1,5 @@
 /**
- * The 10 % payout of the Com história place — reads and writes of the CMS (#903).
+ * The 10 % payout of the Experiência place accepted up to the v10 — reads and writes of the CMS (#903, #1053).
  *
  * Every write is a `partner.*_place_payout*` function of #900 (`places-pagamento.md` §3.5), called
  * with the service role; the functions do not gate (B1), so every route that calls this module
@@ -13,7 +13,9 @@
 import { getSupabaseService } from '@/lib/core/supabase-client'
 import { loadFxRates, loadRcEvents } from '@/lib/services/finance-service'
 import {
+  acceptancesWithCommission,
   buildPayoutStatement,
+  hasCommissionInTerms,
   type NegativeCarry,
   type PaidWindow,
   type PayoutClient,
@@ -34,7 +36,11 @@ function chunk<T>(ids: T[], size = 100): T[][] {
   return out
 }
 
-/** The Com história acceptances of each client, with the windows in which the plan was paid or free. */
+/**
+ * The Experiência acceptances with commission of each client, with the windows in which the plan was
+ * paid or free. #1053: an acceptance of the `locais-2026-10-v11` on has no commission and is dropped
+ * here, before any window or candidate (`partner.place_acceptance_terms_model`, places-pagamento §3.9).
+ */
 async function loadPayoutClients(): Promise<PayoutClient[] | null> {
   const accs = await partner()
     .from('place_acceptances')
@@ -42,7 +48,14 @@ async function loadPayoutClients(): Promise<PayoutClient[] | null> {
     .eq('plan_choice', 'map_and_description')
     .limit(5000)
   if (accs.error) return null
-  const acceptances = (accs.data ?? []) as Row[]
+  const paidAcceptances = (accs.data ?? []) as Row[]
+  const commission = new Map<string, boolean>()
+  for (const a of paidAcceptances) {
+    const { data, error } = await partner().rpc('place_acceptance_terms_model', { p_acceptance_id: String(a.id) })
+    if (error) return null
+    commission.set(String(a.id), hasCommissionInTerms(data))
+  }
+  const acceptances = acceptancesWithCommission(paidAcceptances, commission)
   if (!acceptances.length) return []
 
   const accIds = acceptances.map((a) => String(a.id))

@@ -12,13 +12,15 @@
  * confirmation, not after it. The database stays the judge — its refusal is shown as is.
  */
 
-export type RewardUnit = 'minutes' | 'days' | 'count' | 'points' | 'meters' | 'miles'
+export type RewardUnit = 'minutes' | 'days' | 'months' | 'count' | 'points' | 'meters' | 'miles'
 
 export interface RewardSetting {
   key: string
   value: number
   /** `null` only when no read returned it (a key added after this screen's last deploy). */
   unit: RewardUnit | null
+  /** The `rule_id` column, when the read carries it (`drive.cms_get_trip_settings`); else `ruleOf`. */
+  rule_id?: string | null
 }
 
 export interface RewardSettingsEnvelope {
@@ -30,7 +32,7 @@ export interface RewardSettingsEnvelope {
 /** Same shape `reward_settings_key_ck` enforces. */
 export const REWARD_KEY_RE = /^[a-z0-9_]+(\.[a-z0-9_:]+)+$/
 
-const UNITS: readonly RewardUnit[] = ['minutes', 'days', 'count', 'points', 'meters', 'miles']
+const UNITS: readonly RewardUnit[] = ['minutes', 'days', 'months', 'count', 'points', 'meters', 'miles']
 
 export function isRewardUnit(value: unknown): value is RewardUnit {
   return typeof value === 'string' && (UNITS as readonly string[]).includes(value)
@@ -70,7 +72,7 @@ export function mergeRewardReads(
       unit: isRewardUnit(unit) ? unit : (SERVER_ONLY_UNITS[key] ?? null),
     })
   }
-  settings.sort((a, b) => a.key.localeCompare(b.key))
+  settings.sort((a, b) => compareRewardKeys(a.key, b.key))
   return {
     updated_at: typeof appRead?.updated_at === 'string' ? appRead.updated_at : null,
     settings,
@@ -81,6 +83,7 @@ export function mergeRewardReads(
 
 export type RewardProgram =
   | 'welcome'
+  | 'planned_trip'
   | 'stamps'
   | 'missions'
   | 'profile'
@@ -91,6 +94,7 @@ export type RewardProgram =
 
 export const PROGRAM_ORDER: readonly RewardProgram[] = [
   'welcome',
+  'planned_trip',
   'stamps',
   'missions',
   'profile',
@@ -102,6 +106,7 @@ export const PROGRAM_ORDER: readonly RewardProgram[] = [
 
 export const PROGRAM_LABEL: Record<RewardProgram, string> = {
   welcome: 'Boas-vindas',
+  planned_trip: 'Viagem marcada',
   stamps: 'Stamps (convites)',
   missions: 'Missões',
   profile: 'Perfil',
@@ -114,6 +119,7 @@ export const PROGRAM_LABEL: Record<RewardProgram, string> = {
 /** The rule each program cites — the `rule_id` column, by program (#854 seed). */
 const PROGRAM_RULE: Record<RewardProgram, string | null> = {
   welcome: 'BR-MONETIZACAO-058',
+  planned_trip: 'BR-MONETIZACAO-091',
   stamps: 'BR-MONETIZACAO-085',
   missions: 'BR-MONETIZACAO-088',
   profile: 'BR-USUARIO-047',
@@ -125,6 +131,7 @@ const PROGRAM_RULE: Record<RewardProgram, string | null> = {
 
 export function programOf(key: string): RewardProgram {
   if (key.startsWith('welcome.')) return 'welcome'
+  if (key.startsWith('planned_trip.')) return 'planned_trip'
   if (key === 'referral.validity_days') return 'validity'
   if (key.startsWith('referral.')) return 'stamps'
   if (key.startsWith('earned_credit.')) return 'validity'
@@ -137,17 +144,29 @@ export function programOf(key: string): RewardProgram {
 
 export function ruleOf(key: string): string | null {
   if (key.startsWith('wallet.')) return 'BR-MONETIZACAO-089'
+  if (key === 'partner_brand.days') return 'BR-B2B-070'
+  // Both validities are BR-MONETIZACAO-086 (items 2.c and 2.d), not the program's rule.
+  if (key === 'welcome.validity_days' || key === 'planned_trip.validity_days') return 'BR-MONETIZACAO-086'
   return PROGRAM_RULE[programOf(key)]
 }
 
 const NAMED: Record<string, string> = {
   'welcome.minutes': 'Horas de boas-vindas',
+  'welcome.validity_days': 'Validade das boas-vindas',
+  // BR-MONETIZACAO-091 2.a: one amount per length band; the band names are the app's (copy #1236).
+  'planned_trip.minutes_short': 'Hora de viagem: até 3 dias',
+  'planned_trip.minutes_week': 'Hora de viagem: de 4 a 7 dias',
+  'planned_trip.minutes_long': 'Hora de viagem: mais de 7 dias',
+  'planned_trip.lead_days': 'Dias antes da viagem: lembrete e liberação da hora',
+  'planned_trip.validity_days': 'Validade da hora de viagem',
+  'planned_trip.interval_months': 'Intervalo mínimo entre duas liberações',
   'referral.inviter_minutes': 'Quem convida ganha (por amigo ativado)',
   'referral.friend_total_minutes': 'O amigo convidado completa até',
   'referral.stamp_cap': 'Teto de stamps por pessoa (vida toda)',
   'referral.redeem_window_days': 'Código aceito em conta com até',
   'referral.validity_days': 'Validade das horas de convite',
-  'earned_credit.validity_days': 'Validade das horas ganhas (boas-vindas, missões)',
+  // The welcome grant reads `welcome.validity_days` since #1230; this one is the missions'.
+  'earned_credit.validity_days': 'Validade das horas ganhas em missões',
   'earned_credit.expiry_warning_days': 'Avisar vencimento com antecedência de',
   'wallet.low_floor_minutes': 'Piso da carteira saudável',
   'balance_warning.push_minutes': 'Push de saldo baixo ao restar',
@@ -159,6 +178,36 @@ const NAMED: Record<string, string> = {
   'mission.cities_milestone.minutes': 'Marco de cidades: prêmio',
   'podium.max_points_per_day': 'Antiabuso: pontos por dia acima disto vão para revisão',
   'podium.min_trips': 'Antiabuso: viagens na semana para receber prêmio',
+  // #1257: also edited on /admin/partner-brand, the same key and the same write.
+  'partner_brand.days': 'Marca do parceiro no app: dias desde a atribuição',
+}
+
+/**
+ * A help line shown under a parameter, where a value has a consequence the number does not tell.
+ * `welcome.validity_days`: the eve warning exists only for a grant that lives up to the short
+ * grant ceiling of BR-COMUNICACAO-019 3.h.2 (that ceiling is the rule's, not a key).
+ */
+const HINTS: Record<string, string> = {
+  'welcome.validity_days': 'Acima de 5 dias, as boas-vindas perdem o aviso da véspera.',
+  'planned_trip.minutes_short': 'Vale também para a viagem sem duração informada.',
+  'planned_trip.interval_months':
+    '0 é sem intervalo: toda viagem ganha a sua hora, salvo a que se sobrepõe a uma viagem já creditada.',
+}
+
+export function hintOf(key: string): string | null {
+  return HINTS[key] ?? null
+}
+
+const BAND_RANK: Record<string, number> = { short: 1, week: 2, long: 3 }
+const BAND_KEY_RE = /^planned_trip\.minutes_(short|week|long)$/
+
+/**
+ * Reading order of the keys: alphabetical, except the three trip length bands, which read from the
+ * shortest trip to the longest (BR-MONETIZACAO-091 2.a) instead of long, short, week.
+ */
+export function compareRewardKeys(a: string, b: string): number {
+  const readable = (key: string) => key.replace(BAND_KEY_RE, (_, band: string) => `planned_trip.minutes_${BAND_RANK[band]}`)
+  return readable(a).localeCompare(readable(b))
 }
 
 const SUFFIX: Record<string, string> = {
@@ -198,6 +247,7 @@ export function labelOf(key: string): string {
 export const UNIT_LABEL: Record<RewardUnit, string> = {
   minutes: 'min',
   days: 'dias',
+  months: 'meses',
   count: 'quantidade',
   points: 'pontos',
   meters: 'metros',
@@ -206,7 +256,10 @@ export const UNIT_LABEL: Record<RewardUnit, string> = {
 
 // ── Validation (mirror of `reward_settings_value_ck`) ────────────────────────────────────
 
-export type RewardValueProblem = 'not_a_number' | 'not_positive' | 'not_integer' | 'not_multiple_of_5'
+export type RewardValueProblem = 'not_a_number' | 'not_positive' | 'negative' | 'not_integer' | 'not_multiple_of_5'
+
+/** The one key `reward_settings_value_ck` lets be 0, meaning no interval (#1237 D3, BR-MONETIZACAO-091 2.d). */
+const ZERO_ALLOWED_KEYS: ReadonlySet<string> = new Set(['planned_trip.interval_months'])
 
 /** Parses what the operator typed; accepts the pt-BR decimal comma. */
 export function parseRewardValue(input: string): number {
@@ -215,9 +268,11 @@ export function parseRewardValue(input: string): number {
   return Number(normalized)
 }
 
-export function validateRewardValue(value: number, unit: RewardUnit | null): RewardValueProblem | null {
+export function validateRewardValue(value: number, unit: RewardUnit | null, key?: string): RewardValueProblem | null {
   if (!Number.isFinite(value)) return 'not_a_number'
-  if (value <= 0) return 'not_positive'
+  if (key !== undefined && ZERO_ALLOWED_KEYS.has(key)) {
+    if (value < 0) return 'negative'
+  } else if (value <= 0) return 'not_positive'
   // Unknown unit: only the database knows. Positive is the floor every unit shares.
   if (unit === null) return null
   if (unit !== 'points' && !Number.isInteger(value)) return 'not_integer'
@@ -228,6 +283,7 @@ export function validateRewardValue(value: number, unit: RewardUnit | null): Rew
 export const PROBLEM_TEXT: Record<RewardValueProblem, string> = {
   not_a_number: 'Digite um número.',
   not_positive: 'O valor precisa ser maior que zero.',
+  negative: 'O valor não pode ser negativo.',
   not_integer: 'Use um número inteiro.',
   not_multiple_of_5: 'Minutos vão de 5 em 5.',
 }

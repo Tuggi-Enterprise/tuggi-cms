@@ -355,6 +355,34 @@ export interface PartnerCommission {
 }
 
 /**
+ * The window of the apuração of one partner, as `partner.get_commission_starts` answers it
+ * (BR-B2B-066 item 6, contract `parceiro-sem-local.md` §4.4). The database decides who has a
+ * window; this module only applies it.
+ */
+export interface CommissionWindow {
+  /** ISO instant: only a purchase at or after it counts. */
+  countsFrom: string | null
+  /** Why nothing counts yet (`no_tax_id`: a creator without the mark). Wins over `countsFrom`. */
+  excludedReason: string | null
+}
+
+/**
+ * BR-B2B-066 item 6: a purchase before the mark never enters, not even later. A partner the map
+ * does not name has no window (every other partner type, as before #1133).
+ */
+function insideWindow(event: RcEvent, windows: ReadonlyMap<string, CommissionWindow>): boolean {
+  if (!event.partnerId) return true
+  const window = windows.get(event.partnerId)
+  if (!window) return true
+  if (window.excludedReason) return false
+  if (!window.countsFrom) return true
+  const from = Date.parse(window.countsFrom)
+  const at = Date.parse(event.purchasedAt)
+  // An unreadable date cannot prove the purchase came after the mark: it stays out.
+  return Number.isFinite(from) && Number.isFinite(at) && at >= from
+}
+
+/**
  * A comissão de cada parceiro, sobre a receita que o QR dele produziu.
  *
  * The partner is the event's `partnerId`, i.e. `drive.profiles.partner_id` set by
@@ -367,15 +395,21 @@ export interface PartnerCommission {
  * `rates` chega de `core.clients.commission_rate` e é FRAÇÃO (0,20 = 20%). Parceiro sem taxa
  * cadastrada não vira zero: ele fica de fora e a tela o nomeia, porque zero por cima de uma
  * receita real é uma dívida que some.
+ *
+ * `windows` (#1139, BR-B2B-066 item 6): the creator, influencer and driver of the app request
+ * count only the purchases made at or after `commission_starts_at`. The purchase before it stays
+ * registered (BR-MONETIZACAO-027) and out of the commission.
  */
 export function commissionByPartner(
   events: readonly RcEvent[],
-  rates: ReadonlyMap<string, number>
+  rates: ReadonlyMap<string, number>,
+  windows: ReadonlyMap<string, CommissionWindow> = new Map()
 ): { lines: PartnerCommission[]; withoutRate: string[] } {
   const lines = new Map<string, PartnerCommission>()
   const withoutRate = new Set<string>()
+  const counted = events.filter((event) => insideWindow(event, windows))
 
-  for (const spend of spendByUser(events)) {
+  for (const spend of spendByUser(counted)) {
     if (!spend.partnerId) continue
     const rate = rates.get(spend.partnerId)
     if (rate === undefined || !Number.isFinite(rate)) {

@@ -1,0 +1,15 @@
+{
+  "dimensionHeaders": [{ "name": "date" }, { "name": "sessionDefaultChannelGroup" }],
+  "metricHeaders": [{ "name": "sessions", "type": "TYPE_INTEGER" }, { "name": "totalUsers", "type": "TYPE_INTEGER" }],
+  "rows": [
+    { "dimensionValues": [{ "value": "20261027" }, { "value": "Direct" }], "metricValues": [{ "value": "9" }, { "value": "7" }] },
+    { "dimensionValues": [{ "value": "20261028" }, { "value": "Organic Search" }], "metricValues": [{ "value": "3" }, { "value": "2" }] },
+    { "dimensionValues": [{ "value": "20261029" }, { "value": "Direct" }], "metricValues": [{ "value": "11" }, { "value": "8" }] },
+    { "dimensionValues": [{ "value": "20261029" }, { "value": "Organic Social" }], "metricValues": [{ "value": "4" }, { "value": "4" }] },
+    { "dimensionValues": [{ "value": "20261030" }, { "value": "Organic Search" }], "metricValues": [{ "value": "5" }, { "value": "3" }] },
+    { "dimensionValues": [{ "value": "20261030" }, { "value": "Email" }], "metricValues": [{ "value": "1" }, { "value": "1" }] }
+  ],
+  "rowCount": 6,
+  "metadata": { "currencyCode": "BRL", "timeZone": "America/Sao_Paulo" },
+  "kind": "analyticsData#runReport"
+}

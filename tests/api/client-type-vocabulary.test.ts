@@ -51,6 +51,8 @@ const CHECK_CONSTRAINT_VALUES = [
   'creator',
   'driver',
   'venue',
+  // #933 (amendment by the `data`): the tour guide, a partner without a place (BR-B2B-064 item 1).
+  'tour_guide',
 ]
 
 /** BR-B2B-020, item 8: out of the offer, still accepted by the database, never reclassified. */

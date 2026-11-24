@@ -12,8 +12,9 @@
  * 2. **the sum growing a second owner.** The RPC has no total column: the one that adds is
  *    `consumedMinutesTotal`, and the next screen reads that function instead of summing
  *    again;
- * 3. **the waitlist leaving with it.** Only the KPI was replaced. The demand list and the
- *    red pins on the map stay, and they are easy to drag along in the same diff.
+ * 3. **the red pins leaving with it.** Only the KPI was replaced. The red pins on the map
+ *    stay, and they are easy to drag along in the same diff. The demand list is a separate
+ *    decision: it left the Overview in #1204 and lives in the geography report.
  *
  * The split is by **origin of the minute** (BR-MONETIZACAO-047: a pass purchase on one
  * side; welcome, coupon and CMS grant on the other) — never by who the user is today. No
@@ -25,7 +26,7 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 import {
@@ -172,10 +173,45 @@ test('the paid x free split exists in the three locales, with both amounts', () 
 // 4. Only the KPI was replaced
 // ---------------------------------------------------------------------------
 
-test('the pending-demand list is still on the dashboard', () => {
+test('#1204: the demand-points list left the Overview and lives in the geography report', () => {
   const page = source(PAGE)
-  assert.match(page, /import \{ WaitlistDemandList \}/)
-  assert.match(page, /<WaitlistDemandList pins=\{waitlistPins\} \/>/)
+  assert.doesNotMatch(page, /WaitlistDemandList/)
+  assert.doesNotMatch(page, /labels\.demand_points/)
+  const report = source('components/dashboard/reports/GeoDemand.tsx')
+  assert.match(report, /<WaitlistDemandList pins=\{demandPins\} \/>/)
+  assert.match(report, /labels\.demand_points/)
+})
+
+test('#1204: the expirations and running-out queues left the Overview with their files', () => {
+  const page = source(PAGE)
+  for (const gone of [
+    /UpcomingExpirationsCard/,
+    /LowBalanceCard/,
+    /LOW_BALANCE_CEILING_MINUTES/,
+    /labels\.expirations_30d/,
+    /labels\.low_balance/,
+    /upcomingExpirations/,
+  ]) {
+    assert.doesNotMatch(page, gone)
+  }
+  assert.equal(existsSync(resolve(REPO_ROOT, 'components/dashboard/UpcomingExpirationsCard.tsx')), false)
+  assert.equal(existsSync(resolve(REPO_ROOT, 'components/dashboard/LowBalanceCard.tsx')), false)
+  // The paid-access aggregate stays: the KPI and the composition card still read it.
+  assert.match(page, /dashboardService\.getPaidAccess\(/)
+  assert.match(page, /<PaidAccessCard overview=\{paidAccess\.overview\} \/>/)
+})
+
+test('#1204: the keys only the removed cards read are gone, the shared ones stay', () => {
+  for (const locale of ['pt', 'en', 'es']) {
+    const labels = JSON.parse(source(`messages/${locale}.json`)).Pages.Dashboard.labels
+    for (const key of ['expirations_30d', 'no_expirations', 'no_low_balance']) {
+      assert.equal(key in labels, false, `${locale}: ${key} still present`)
+    }
+    // Read by the premium report (MeteredBalances) and the geography report (GeoDemand).
+    for (const key of ['low_balance', 'demand_points', 'demand']) {
+      assert.ok(labels[key], `${locale}: ${key} is still in use and must stay`)
+    }
+  }
 })
 
 test('the red demand pins are still fed', () => {

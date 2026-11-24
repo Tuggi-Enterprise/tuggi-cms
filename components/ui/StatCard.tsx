@@ -161,7 +161,7 @@ export const StatCard = ({
 
 interface StatCardRowProps {
   children: React.ReactNode
-  columns?: 2 | 3 | 4 | 6 | 8
+  columns?: 2 | 3 | 4 | 6 | 7 | 8
   className?: string
 }
 
@@ -171,6 +171,7 @@ export const StatCardRow = ({ children, columns = 4, className }: StatCardRowPro
     3: 'grid-cols-2 md:grid-cols-3',
     4: 'grid-cols-2 md:grid-cols-4',
     6: 'grid-cols-2 md:grid-cols-3 lg:grid-cols-6',
+    7: 'grid-cols-2 md:grid-cols-4 lg:grid-cols-7',
     8: 'grid-cols-2 md:grid-cols-4 lg:grid-cols-8'
   }
 

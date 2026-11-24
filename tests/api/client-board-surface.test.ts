@@ -254,6 +254,8 @@ test('#409 · the whole esteira is Portuguese — the seam is between screens, n
     'components/admin/clients/ViewSwitch.tsx',
     'components/admin/clients/board/BoardCard.tsx',
     'components/admin/clients/board/BoardColumn.tsx',
+    // #1000: rendered only by the card and the table row above, inside the same overlay.
+    'components/admin/clients/shared/HeldBadges.tsx',
   ])
 
   // `awaiting_acceptance` is a state (#872), so its label and its next step live with the rest.

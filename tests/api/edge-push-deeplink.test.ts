@@ -38,10 +38,11 @@ const MODULE_PATH = resolve(
   import.meta.dirname,
   '../../supabase/functions/_shared/notification-deeplink.ts'
 )
-const FUNCTION_PATH = resolve(
-  import.meta.dirname,
-  '../../supabase/functions/firebase-push-notification/index.ts'
-)
+/** The push function is its route file plus the sender it shares with `weekly-local-push` (#1046). */
+const FUNCTION_PATHS = [
+  '../../supabase/functions/firebase-push-notification/index.ts',
+  '../../supabase/functions/_shared/push-send.ts',
+].map((path) => resolve(import.meta.dirname, path))
 
 type DataBag = Record<string, unknown> | null | undefined
 type ResolveDeeplink = (...sources: DataBag[]) => string | null
@@ -71,7 +72,7 @@ test('a link in data.url never resolves to null', () => {
 
 /**
  * The argument shape of each inbox mirror in
- * `supabase/functions/firebase-push-notification/index.ts`. Keep in sync with
+ * `supabase/functions/firebase-push-notification/index.ts` and `_shared/push-send.ts`. Keep in sync with
  * the call sites — the source ruler below asserts they still call the resolver.
  */
 const callSites: { name: string; call: (bag: Record<string, unknown>) => string | null }[] = [
@@ -154,7 +155,7 @@ test('the top-level data bag is read when notification.data has no link', () => 
 // --- Source ruler: no call site may spell the rule by hand again --------------
 
 test('every inbox mirror delegates the link to resolveDeeplink', () => {
-  const source = readFileSync(FUNCTION_PATH, 'utf8')
+  const source = FUNCTION_PATHS.map((path) => readFileSync(path, 'utf8')).join('\n')
 
   const declarations = source.match(/const deeplink\s*=[^;]*/g) ?? []
   assert.equal(

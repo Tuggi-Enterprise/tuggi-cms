@@ -44,6 +44,7 @@ import { answerLabel } from '@/components/admin/partner-proposals/format'
 import { normalizedTaxId } from '@/lib/partner-form/tax-id-key'
 import { isValidCnpj } from '@/lib/validation/cnpj'
 import { CLIENT_ADMIN_ONLY_FIELDS } from '@/lib/services/client-editable-fields'
+import { APP_SCHEMA_SKIP, appSchema } from './setup/app-schema'
 import { PUBLIC_PATH_PREFIXES, isPublicPath } from '@/lib/roles'
 
 const REPO_ROOT = resolve(import.meta.dirname, '../..')
@@ -429,12 +430,7 @@ test('DS-COPY-015: the quality nudge classifies and never blocks', () => {
  * para junto do SQL — as duas saídas foram consideradas em 31/08/2026 e as duas são maiores que
  * destravar o deploy.
  */
-const CNPJ_MIGRATION = resolve(
-  __dirname,
-  '../../../db-tuggiApp/supabase/migrations/20260819190000_cnpj_de_cliente_e_unico_no_banco.sql'
-)
-
-test('BR-B2B-028: a unicidade do CNPJ é do banco, e o CMS não a reimplementa', { skip: existsSync(CNPJ_MIGRATION) ? false : 'db-tuggiApp nao esta ao lado deste repositorio' }, () => {
+test('BR-B2B-028: a unicidade do CNPJ é do banco, e o CMS não a reimplementa', { skip: APP_SCHEMA_SKIP }, () => {
   // A GARANTIA MUDOU DE LUGAR EM 2026-08-19, e este teste é o que impede a volta.
   //
   // Até essa data ela morava em duas leituras de aplicação — `lookupTaxId`, na porta pública do
@@ -447,21 +443,14 @@ test('BR-B2B-028: a unicidade do CNPJ é do banco, e o CMS não a reimplementa',
   // Agora é `clients_tax_id_normalized_uk`, índice ÚNICO sobre a expressão normalizada
   // (migration `20260819190000`), provado contra o banco no dia: duas grafias do mesmo CNPJ
   // devolvem `unique_violation`.
-  const migration = readFileSync(CNPJ_MIGRATION, 'utf8')
-  assert.match(migration, /create unique index concurrently/i)
-  assert.match(migration, /clients_tax_id_normalized_uk/)
-  // A MESMA expressão de `normalizedTaxId` e de `cnpjLookupValues`. Um índice que normalizasse
-  // diferente deixaria a mesma empresa entrar duas vezes com duas grafias, que é o defeito que
-  // ele existe para fechar.
-  assert.match(migration, /upper\(regexp_replace\(tax_id::text, '\[\^0-9A-Za-z\]', '', 'g'\)\)/)
-  assert.match(migration, /where tax_id is not null/)
-
-  // E o `drop` do índice antigo, redundante, NÃO está no caminho do agente: é ação destrutiva,
-  // documentada e executada por gente (CLAUDE.md §3).
-  const dropLines = migration
-    .split('\n')
-    .filter((line) => /drop index/i.test(line) && !line.trimStart().startsWith('--'))
-  assert.deepEqual(dropLines, [], 'nenhum DROP fora de comentário nesta migration')
+  // #894: the dated migration was folded into the baseline `20261006120000`, so the fact is read
+  // from the app schema (tests/api/setup/app-schema.ts), not from a file that no longer exists.
+  // The same expression as `normalizedTaxId` and `cnpjLookupValues`: an index that normalised
+  // differently would let the same company in twice under two spellings.
+  assert.match(
+    appSchema(),
+    /CREATE UNIQUE INDEX clients_tax_id_normalized_uk ON partner\.clients USING btree \(upper\(regexp_replace\(\(tax_id\), '\[\^0-9A-Za-z\]', '', 'g'\)\)\) WHERE \(tax_id IS NOT NULL\);/
+  )
 })
 
 test('#404 / BR-B2B-028: a conferência diz por qual e-mail responder quando o CNPJ já é cliente', () => {

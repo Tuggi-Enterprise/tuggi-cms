@@ -1,22 +1,28 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, Suspense } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useSupabaseClient } from '@supabase/auth-helpers-react'
 import {
-  Smartphone, Search, RefreshCw, Filter, Crown,
-  TrendingUp, AlertCircle, ChevronDown,
-  Apple, Zap, User, Play, Plane, ArrowUpDown, ArrowUp, ArrowDown
+  Smartphone, Search, RefreshCw, Filter, AlertCircle, ChevronDown,
+  User, UserPlus, UserRound, Activity, ShoppingBag, CalendarClock, Headphones,
+  ArrowUpDown, ArrowUp, ArrowDown
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { StatCard, StatCardRow } from '@/components/ui/StatCard'
-import { SubscriptionBadge, ProviderIcon } from '@/components/ui/SubscriptionBadge'
 import { Button } from '@/components/ui/button'
 import { GrantCreditDialog } from '@/components/admin/credit/GrantCreditDialog'
 import type { GrantTarget } from '@/components/admin/credit/types'
-import { AppUserLink } from '@/components/dashboard/AppUserLink'
+import { AppUserDeepLink, AppUserLink } from '@/components/dashboard/AppUserLink'
 import { useCmsUser } from '@/lib/hooks/useCmsUser'
 import { appUserInitial } from '@/lib/format/user-identity'
-import { useTranslations } from 'next-intl'
+import { useLocale, useTranslations } from 'next-intl'
+import { APP_USER_PARAM, APP_USER_TAB_PARAM, appUserListHref, appUserTab } from '@/lib/users/app-user-href'
+import {
+  ACCESS_LEVELS, USER_KINDS, accessBadge, accessLevelOf, guestConversionRate, matchesAccessFilter,
+  purchasedShare, storeDetailKey, userKindFilterOf,
+  type AppUserStats,
+} from '@/lib/users/app-user-access'
 
 // ============================================================================
 // TYPES
@@ -47,13 +53,6 @@ interface AppUser {
   last_platform: string | null
   last_device_model: string | null
   last_app_version: string | null
-  subscription_tier_id: string | null
-  subscription_tier_name: string | null
-  subscription_tier_display_name: string | null
-  subscription_provider: string | null
-  subscription_start_date: string | null
-  subscription_end_date: string | null
-  is_premium: boolean
   login_count: number
   last_sign_in_at: string | null
   created_at: string
@@ -62,19 +61,13 @@ interface AppUser {
   total_km: number
   poi_visits_count: number
   last_trip_at: string | null
-}
-
-interface SubscriptionStats {
-  total_users: number
-  free_users: number
-  premium_users: number
-  premium_percentage: number
-  apple_subscriptions: number
-  google_subscriptions: number
-  stripe_subscriptions: number
-  tiers_breakdown: Array<{ tier_id: string; tier_name: string; count: number }>
-  new_subscriptions_7d: number
-  churned_7d: number
+  /** `free` | `purchased` | `until`, decided by the database (#979, contract Part 13). */
+  access_level: string | null
+  /** `app_store` | `play_store` | null; the newest real purchase, SANDBOX ignored. */
+  purchase_store: string | null
+  minutes_consumed: number
+  /** A guest (anonymous account), not a permanent one (BR-USUARIO-037, #1045). */
+  is_anonymous: boolean
 }
 
 type SortConfig = {
@@ -82,6 +75,47 @@ type SortConfig = {
   direction: 'asc' | 'desc'
 }
 
+
+/**
+ * The record opened from the address, `?user=<id>&tab=<tab>` (#976): the link an operator shares,
+ * and where the old Passaporte page `/admin/users/<id>` redirects. Closing takes the two drawer
+ * parameters off and keeps the rest. Its own component because `useSearchParams` needs a
+ * Suspense boundary, and the list should not wait on one.
+ */
+function DrawerFromAddress({ onUpdate }: { onUpdate: () => void }) {
+  const searchParams = useSearchParams()
+  const router = useRouter()
+  const locale = useLocale()
+  const userId = searchParams.get(APP_USER_PARAM)?.trim()
+  if (!userId) return null
+
+  return (
+    <AppUserDeepLink
+      userId={userId}
+      tab={appUserTab(searchParams.get(APP_USER_TAB_PARAM))}
+      onClose={() => router.replace(appUserListHref(new URLSearchParams(searchParams.toString()), locale), { scroll: false })}
+      onUpdate={onUpdate}
+    />
+  )
+}
+
+/** The access level badge, and for a purchase the store as a small detail under it (#979). */
+function AccessLevelCell({ level: raw, store }: { level: string | null; store: string | null }) {
+  const t = useTranslations('Pages.AppUsers.access')
+  const level = accessLevelOf(raw)
+  if (!level) return <span className="text-xs text-gray-400">{t('unknown')}</span>
+
+  const badge = accessBadge(level)
+  const storeKey = storeDetailKey(level, store)
+  return (
+    <div className="flex flex-col">
+      <span className={cn('w-fit whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-bold', badge.className)}>
+        {t(badge.labelKey)}
+      </span>
+      {storeKey && <span className="mt-1 text-xs text-gray-500">{t(storeKey)}</span>}
+    </div>
+  )
+}
 
 // ============================================================================
 // MAIN PAGE
@@ -92,7 +126,7 @@ export default function AppUsersPage() {
   const tCredit = useTranslations('Pages.AppUsers.credit')
   const supabase = useSupabaseClient()
   const [users, setUsers] = useState<AppUser[]>([])
-  const [subscriptionStats, setSubscriptionStats] = useState<SubscriptionStats | null>(null)
+  const [stats, setStats] = useState<AppUserStats | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -108,7 +142,8 @@ export default function AppUsersPage() {
   // Filters
   const [filterCountry, setFilterCountry] = useState<string>('')
   const [filterPlatform, setFilterPlatform] = useState<string>('')
-  const [filterSubscription, setFilterSubscription] = useState<string>('')
+  const [filterAccess, setFilterAccess] = useState<string>('')
+  const [filterKind, setFilterKind] = useState<string>('')
   const [showFilters, setShowFilters] = useState(false)
   
   // Sorting
@@ -123,33 +158,23 @@ export default function AppUsersPage() {
       setIsLoading(true)
       setError(null)
       
-      // Fetch users with the new detailed RPC
+      // The whole base, not a page of it: the search filters in the browser, so an account left
+      // out of this payload is an account the operator cannot find (#975). The RPC ends in
+      // `LIMIT limit_count`, and `LIMIT NULL` in Postgres means no limit. Move paging and search
+      // to the server once the base outgrows a single payload (BR-USUARIO-042, item 3).
       const { data, error } = await supabase
         .schema('core')
-        .rpc('dashboard_app_users_detailed', { 
-          limit_count: 200,
+        .rpc('dashboard_app_users_detailed', {
+          limit_count: null,
           filter_country: filterCountry || null,
-          filter_platform: filterPlatform || null
+          filter_platform: filterPlatform || null,
+          filter_kind: userKindFilterOf(filterKind),
         })
 
-      if (error) {
-        // Fallback to old RPC
-        const { data: fallbackData, error: fallbackError } = await supabase
-          .schema('core')
-          .rpc('dashboard_user_sessions', { limit_count: 200 })
-        
-        if (fallbackError) throw fallbackError
-        
-        setUsers((fallbackData || []).map((u: any) => ({
-          ...u,
-          user_id: u.user_id,
-          is_premium: false,
-          subscription_tier_name: null,
-          subscription_tier_display_name: null
-        })))
-        return
-      }
-      
+      // No fallback to another RPC: a list without `access_level` would show every tourist with
+      // no level at all, and an error the operator sees beats a column that quietly lies.
+      if (error) throw error
+
       setUsers(data || [])
     } catch (err) {
       console.error('Error fetching app users:', err)
@@ -157,28 +182,30 @@ export default function AppUsersPage() {
     } finally {
       setIsLoading(false)
     }
-  }, [supabase, filterCountry, filterPlatform])
+  }, [supabase, filterCountry, filterPlatform, filterKind])
 
-  // Fetch subscription stats
-  const fetchSubscriptionStats = useCallback(async () => {
-    try {
-      const { data, error } = await supabase
-        .schema('core')
-        .rpc('dashboard_subscription_stats')
+  // The big numbers. They exclude test accounts (`excluded_from_metrics`) and the list does not,
+  // so they are never recomputed from `users`: a missing row shows the skeleton, not a guess.
+  const fetchStats = useCallback(async () => {
+    const { data, error } = await supabase
+      .schema('core')
+      .rpc('dashboard_app_user_stats')
 
-      if (error) throw error
-      if (data && data.length > 0) {
-        setSubscriptionStats(data[0])
-      }
-    } catch (err) {
-      console.error('Error fetching subscription stats:', err)
+    if (error) {
+      console.error('Error fetching app user stats:', error.message)
+      return
     }
+    setStats(Array.isArray(data) && data.length > 0 ? data[0] : null)
   }, [supabase])
 
-  useEffect(() => {
+  const refreshAll = useCallback(() => {
     fetchUsers()
-    fetchSubscriptionStats()
-  }, [fetchUsers, fetchSubscriptionStats])
+    fetchStats()
+  }, [fetchUsers, fetchStats])
+
+  useEffect(() => {
+    refreshAll()
+  }, [refreshAll])
 
   const handleSort = (key: keyof AppUser) => {
     setSortConfig(current => ({
@@ -199,12 +226,7 @@ export default function AppUsersPage() {
       (user.email && user.email.toLowerCase().includes(searchQuery.toLowerCase())) ||
       (user.country && user.country.toLowerCase().includes(searchQuery.toLowerCase()))
     
-    const matchesSubscription = 
-      !filterSubscription ||
-      (filterSubscription === 'premium' && user.is_premium) ||
-      (filterSubscription === 'free' && !user.is_premium)
-    
-    return matchesSearch && matchesSubscription
+    return matchesSearch && matchesAccessFilter(user.access_level, filterAccess)
   })
 
   // Apply sorting
@@ -221,17 +243,6 @@ export default function AppUsersPage() {
     const comparison = aValue > bValue ? 1 : -1
     return sortConfig.direction === 'asc' ? comparison : -comparison
   })
-
-  // Stats from subscription stats or computed
-  const stats = subscriptionStats || {
-    total_users: users.length,
-    free_users: users.filter(u => !u.is_premium).length,
-    premium_users: users.filter(u => u.is_premium).length,
-    premium_percentage: users.length > 0 ? Math.round((users.filter(u => u.is_premium).length / users.length) * 100) : 0,
-    apple_subscriptions: 0,
-    google_subscriptions: 0,
-    stripe_subscriptions: 0
-  }
 
   // Selection follows the rows the filters left visible; nothing hidden is ever selected.
   const visibleIds = sortedUsers.map((user) => user.user_id)
@@ -256,7 +267,8 @@ export default function AppUsersPage() {
   const clearFilters = () => {
     setFilterCountry('')
     setFilterPlatform('')
-    setFilterSubscription('')
+    setFilterAccess('')
+    setFilterKind('')
     setSearchQuery('')
   }
   
@@ -297,7 +309,7 @@ export default function AppUsersPage() {
           </button>
           
           <button
-            onClick={() => { fetchUsers(); fetchSubscriptionStats(); }}
+            onClick={refreshAll}
             disabled={isLoading}
             className="p-2 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors disabled:opacity-50"
           >
@@ -306,41 +318,52 @@ export default function AppUsersPage() {
         </div>
       </div>
 
-      {/* Stats Cards */}
+      {/* Big numbers (#979). Read from `dashboard_app_user_stats`; the three levels add up to the total.
+          Every card counts accounts, and guests have their own card: the two are never summed
+          (BR-USUARIO-037, #1045). */}
       <StatCardRow columns={8} className="mb-6">
-        <StatCard label={t('stats.total')} value={stats.total_users} icon={Smartphone} color="#00A8E8" isLoading={isLoading} />
-        <StatCard label={t('stats.free')} value={stats.free_users} icon={User} color="#6B7280" isLoading={isLoading} />
-        <StatCard 
-          label={t('stats.premium')} 
-          value={stats.premium_users} 
-          icon={Crown} 
-          color="#F59E0B" 
-          subtitle={`${stats.premium_percentage}%`}
-          isLoading={isLoading}
+        <StatCard
+          label={t('stats.total')}
+          value={stats?.total_users ?? 0}
+          subtitle={stats ? t('stats.total_detail', { ios: stats.ios_users, android: stats.android_users }) : undefined}
+          icon={Smartphone}
+          color="#00A8E8"
+          isLoading={isLoading || !stats}
         />
-        <StatCard label={t('stats.apple')} value={stats.apple_subscriptions} icon={Apple} color="#000000" isLoading={isLoading} />
-        <StatCard label={t('stats.google')} value={stats.google_subscriptions} icon={Play} color="#34A853" isLoading={isLoading} />
-        <StatCard label={t('stats.stripe')} value={stats.stripe_subscriptions} icon={Zap} color="#635BFF" isLoading={isLoading} />
-        <StatCard 
-          label={t('stats.new_7d')} 
-          value={subscriptionStats?.new_subscriptions_7d || 0} 
-          icon={TrendingUp} 
-          color="#10B981" 
-          isLoading={isLoading}
+        <StatCard
+          label={t('stats.guests')}
+          value={stats?.total_guests ?? 0}
+          subtitle={stats ? t('stats.guests_detail', {
+            active: stats.active_guests_7d,
+            rate: guestConversionRate(stats),
+          }) : undefined}
+          icon={UserRound}
+          color="#64748B"
+          isLoading={isLoading || !stats}
         />
-        <StatCard 
-          label={t('stats.churn_7d')} 
-          value={subscriptionStats?.churned_7d || 0} 
-          icon={AlertCircle} 
-          color="#EF4444" 
-          isLoading={isLoading}
+        <StatCard label={t('stats.new_7d')} value={stats?.new_users_7d ?? 0} icon={UserPlus} color="#10B981" isLoading={isLoading || !stats} />
+        <StatCard label={t('stats.active_7d')} value={stats?.active_users_7d ?? 0} icon={Activity} color="#6366F1" isLoading={isLoading || !stats} />
+        <StatCard label={t('stats.free_only')} value={stats?.free_users ?? 0} icon={User} color="#6B7280" isLoading={isLoading || !stats} />
+        <StatCard
+          label={t('stats.purchased')}
+          value={stats?.purchased_users ?? 0}
+          subtitle={stats ? t('stats.purchased_detail', {
+            share: purchasedShare(stats),
+            appStore: stats.purchased_app_store_users,
+            playStore: stats.purchased_play_store_users,
+          }) : undefined}
+          icon={ShoppingBag}
+          color="#059669"
+          isLoading={isLoading || !stats}
         />
+        <StatCard label={t('stats.until')} value={stats?.until_users ?? 0} icon={CalendarClock} color="#F59E0B" isLoading={isLoading || !stats} />
+        <StatCard label={t('stats.consumed')} value={stats?.consumed_users ?? 0} icon={Headphones} color="#8B5CF6" isLoading={isLoading || !stats} />
       </StatCardRow>
 
       {/* Filters Panel */}
       {showFilters && (
         <div className="mb-6 p-4 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 animate-in slide-in-from-top-2">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
             <div>
               <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
                 {t('filters.country')}
@@ -372,16 +395,32 @@ export default function AppUsersPage() {
             </div>
             <div>
               <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
-                {t('filters.subscription')}
+                {t('filters.access')}
               </label>
               <select
-                value={filterSubscription}
-                onChange={(e) => setFilterSubscription(e.target.value)}
+                value={filterAccess}
+                onChange={(e) => setFilterAccess(e.target.value)}
                 className="w-full px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
               >
-                <option value="">{t('filters.all_subscriptions')}</option>
-                <option value="premium">Premium</option>
-                <option value="free">Free</option>
+                <option value="">{t('filters.all_access')}</option>
+                {ACCESS_LEVELS.map((level) => (
+                  <option key={level} value={level}>{t(`access.${accessBadge(level).labelKey}`)}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
+                {t('filters.kind')}
+              </label>
+              <select
+                value={filterKind}
+                onChange={(e) => setFilterKind(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+              >
+                <option value="">{t('filters.all_kinds')}</option>
+                {USER_KINDS.map((kind) => (
+                  <option key={kind} value={kind}>{t(`filters.kind_${kind}`)}</option>
+                ))}
               </select>
             </div>
             <div className="flex items-end">
@@ -408,6 +447,11 @@ export default function AppUsersPage() {
             className="w-full pl-10 pr-4 py-3 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-tuggi-blue focus:border-transparent"
           />
         </div>
+        {/* The count lives inside the search block: a bare <p> as a direct child of the page
+            rendered outside the content grid (operator, 2026-10-19). */}
+        <p className="mt-3 text-sm text-gray-500">
+          {t('table.results_info', { filtered: filteredUsers.length, total: users.length })}
+        </p>
       </div>
 
       {/* Error State */}
@@ -418,10 +462,6 @@ export default function AppUsersPage() {
         </div>
       )}
 
-      {/* Results count */}
-      <p className="text-sm text-gray-500 mb-4">
-        {t('table.results_info', { filtered: filteredUsers.length, total: users.length })}
-      </p>
 
       {/* Selection bar. The button carries the count — never "Confirmar", never "OK". */}
       {isAdmin && selectedVisibleIds.length > 0 && (
@@ -461,7 +501,7 @@ export default function AppUsersPage() {
                 >
                   {t('table.user')}
                 </th>
-                <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">{t('table.subscription')}</th>
+                <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">{t('table.access')}</th>
                 <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">{t('table.language')}</th>
                 <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">{t('table.timezone')}</th>
                 <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">{t('table.device')}</th>
@@ -493,7 +533,6 @@ export default function AppUsersPage() {
                     <SortIcon column="last_sign_in_at" />
                   </div>
                 </th>
-                <th className="px-6 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Passaporte</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
@@ -514,7 +553,7 @@ export default function AppUsersPage() {
                 ))
               ) : sortedUsers.length === 0 ? (
                 <tr>
-                  <td colSpan={isAdmin ? 11 : 10} className="px-6 py-12 text-center text-gray-500">
+                  <td colSpan={isAdmin ? 10 : 9} className="px-6 py-12 text-center text-gray-500">
                     {t('table.no_results')}
                   </td>
                 </tr>
@@ -544,16 +583,18 @@ export default function AppUsersPage() {
                           <AppUserLink
                             user={user}
                             className="block font-medium text-gray-900 dark:text-white truncate max-w-full"
-                            onUpdate={() => { fetchUsers(); fetchSubscriptionStats() }}
+                            onUpdate={refreshAll}
                           />
+                          {user.is_anonymous && (
+                            <span className="mt-1 inline-block px-2 py-0.5 rounded bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 text-xs font-bold">
+                              {t('table.guest_badge')}
+                            </span>
+                          )}
                         </div>
                       </div>
                     </td>
                     <td className="px-6 py-4">
-                      <div className="flex items-center gap-2">
-                        <SubscriptionBadge isPremium={user.is_premium} tierName={user.subscription_tier_display_name} />
-                        <ProviderIcon provider={user.subscription_provider} />
-                      </div>
+                      <AccessLevelCell level={user.access_level} store={user.purchase_store} />
                     </td>
                     <td className="px-6 py-4">
                       <span className="px-2 py-1 bg-gray-100 dark:bg-gray-800 rounded text-xs font-bold text-gray-600 dark:text-gray-400 uppercase">
@@ -600,16 +641,6 @@ export default function AppUsersPage() {
                         : t('modal.never')
                       }
                     </td>
-                    <td className="px-6 py-4 text-center">
-                      <button
-                        type="button"
-                        onClick={() => { window.location.href = `/admin/users/${user.user_id}` }}
-                        className="p-2 bg-orange-100 hover:bg-orange-200 text-orange-600 rounded-xl transition-all duration-300 hover:scale-110 shadow-sm"
-                        title="Ver Passaporte"
-                      >
-                        <Plane className="h-4 w-4" />
-                      </button>
-                    </td>
                   </tr>
                 ))
               )}
@@ -618,6 +649,10 @@ export default function AppUsersPage() {
         </div>
       </div>
 
+      <Suspense fallback={null}>
+        <DrawerFromAddress onUpdate={refreshAll} />
+      </Suspense>
+
       {/* Batch grant, from the selection. Same dialog as the individual grant. */}
       {batchOpen ? (
         <GrantCreditDialog
@@ -625,8 +660,7 @@ export default function AppUsersPage() {
           onClose={() => setBatchOpen(false)}
           onGranted={() => {
             setSelectedIds([])
-            fetchUsers()
-            fetchSubscriptionStats()
+            refreshAll()
           }}
         />
       ) : null}

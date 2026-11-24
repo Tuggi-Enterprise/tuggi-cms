@@ -32,6 +32,7 @@ import { logAuditEvent } from '@/lib/services/audit-service'
 import {
   createPassPrice,
   loadCommissionRates,
+  loadCommissionWindows,
   loadExcludedAccounts,
   loadPassPrices,
   loadRcEvents,
@@ -92,6 +93,16 @@ export const GET = withRateLimit(60, 60_000)(
     // verdade: o evento carrega o `app_user_id`, ao contrário do agregado que chega somado.
     const paid = rcEvents.filter((event) => !excluded.has(event.userId))
 
+    // BR-B2B-066 item 6 (#1139): the creator, influencer and driver of the app request count only
+    // the purchases made after the approval. Without the windows the commission would pay the
+    // purchases before it, so a failed read fails the strip like the three reads above.
+    const windows = await loadCommissionWindows(
+      paid.map((event) => event.partnerId).filter((id): id is string => typeof id === 'string')
+    )
+    if (windows === null) {
+      return NextResponse.json({ error: 'finance_unavailable' }, { status: 503 })
+    }
+
     return NextResponse.json({
       available: true,
       // `{ data, error }` por chave, como `/api/dashboard/entitlement`: uma RPC ausente não pode
@@ -107,7 +118,7 @@ export const GET = withRateLimit(60, 60_000)(
       // Quanto cada pessoa já pagou. As contas de teste saem daqui, que é onde o CMS alcança.
       topSpenders: spendByUser(paid).slice(0, SPENDER_LIMIT),
       // A comissão que cada parceiro tem a receber, sobre o LÍQUIDO — é o que o contrato promete.
-      commission: commissionByPartner(paid, rates),
+      commission: commissionByPartner(paid, rates, windows),
       excludedAppUsers: excluded.size,
       /** Verdadeiro sempre que há conta marcada: o agregado do banco ainda a inclui. */
       aggregateIncludesExcluded: excluded.size > 0,

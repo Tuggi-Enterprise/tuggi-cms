@@ -40,12 +40,12 @@ test('contract §2.3: toCampaignType always yields snake_case, and never an empt
 })
 
 /**
- * BR-IDIOMA-001 item 3 — the APP's interface catalogue is five: en, es, fr, it, pt. A push
- * lands in the phone's notification tray, which is app-interface surface, so this list is the
- * app's and NOT the newsletter's four (no `fr`) nor the twelve of the content catalogue.
+ * BR-IDIOMA-001 item 3 (#1073): the server push to the tourist has its own catalogue, six:
+ * de, en, es, fr, it, pt. It is not the app's interface list (five, no `de`), so a German phone
+ * gets the push in German and the app screen in English, by design.
  */
-test('BR-IDIOMA-001 item 3: the push composes in the five app-interface languages', () => {
-  assert.deepEqual([...PUSH_LANGUAGES].sort(), ['en', 'es', 'fr', 'it', 'pt'])
+test('BR-IDIOMA-001 item 3: the push composes in the six server-push languages, de included', () => {
+  assert.deepEqual([...PUSH_LANGUAGES].sort(), ['de', 'en', 'es', 'fr', 'it', 'pt'])
 })
 
 /**

@@ -204,6 +204,7 @@ function deps(asaas: ReturnType<typeof fakeAsaas>, db: ReturnType<typeof fakeDb>
     sentPayouts: async () => [],
     legacyOf: async () => ({ client_id: CLIENT, fee_ended_at: null }),
     legacyFeesEnded: async () => [],
+    legacyFreeMigrations: async () => [],
     userEmail: async () => 'ze@example.com',
     sendEmail: async (to: string, subject: string, text: string, opts: Record<string, unknown>) => {
       mails.push({ to, subject, text, opts })
@@ -259,6 +260,8 @@ test('#916 BR-B2B-060: cancel_legacy — the database first with the user JWT, t
   assert.equal(mails[0].to, 'ze@example.com')
   assert.equal(mails[0].subject, 'Seu plano mensal no Tuggi foi cancelado')
   assert.match(mails[0].text, /Seu plano termina em 20\/10\/2026, quando acabaria o mês já pago\. Depois disso não há nova cobrança nem taxa de saída\./)
+  // #1056 BR-B2B-019 items 3 and 6 (2026-10-29): the legacy plan also loses the photos with the story, and both come back
+  assert.match(mails[0].text, /Em 20\/10\/2026, a história e as fotos do seu local saem do app\. O local continua no mapa, sem custo, e as duas voltam/)
   assert.equal(mails[0].opts.fromName, 'Tuggi Locais')
   assert.equal(mails[0].opts.replyTo, 'suporte@tuggi.app')
   // design ajuste 2: no reason step in the legacy cancel, so the e-mail asks it
@@ -379,6 +382,14 @@ test('#916 (security): the paying legacy client migrates with no live legacy:<id
   assert.deepEqual(alerts[0].fields, { submission_id: SUBMISSION, client_id: CLIENT })
 })
 
+test('#995: the free legacy client that pays by card checks out; the database refuses migrated (TGP10 not_paying) and the operator is still told there is a story to validate', async () => {
+  const asaas = fakeAsaas([...checkoutRoutes(), subsByLegacyRef([])])
+  const db = fakeDb({ place_payment_checkout: { data: [checkoutRow] }, attach_place_subscription: { data: 'pending_payment' }, place_end_legacy_fee: { error: { code: 'TGP10', details: 'not_paying' } } })
+  const { d, alerts } = deps(asaas, db, { user: owner().rpc })
+  assert.equal((await pay.checkout(d, checkoutBody)).status, 200)
+  assert.deepEqual(alerts.map((a) => [a.what, a.fields]), [['legacy_migrated', { submission_id: SUBMISSION }]])
+})
+
 test('#916: refused card — the legacy fee is NOT ended (the client never stays without a plan)', async () => {
   const asaas = fakeAsaas([
     at('GET', '/subscriptions?', 200, { data: [] }),
@@ -437,6 +448,127 @@ test('#916: the sweep ends a legacy subscription still live after the database e
   assert.ok(!x.alerts.some((a) => a.what.includes('legacy')))
 })
 
+// #995: an acceptance with total_cents = 0 (100% voucher) has no checkout, so the sweep runs the same
+// endLegacyAfterMigration the checkout runs. Asaas keeps the legacy subscription live until its DELETE.
+function legacyAtAsaas(deleteStatus = 200) {
+  let deleted = false
+  const route: Route = (c) => {
+    if (c.method === 'GET' && c.path === `/subscriptions?externalReference=${encodeURIComponent(LEGACY_REF)}`) {
+      return { status: 200, body: { data: [{ ...legacySub, deleted }] } }
+    }
+    if (c.method === 'DELETE' && c.path === '/subscriptions/sub_legacy') {
+      deleted = true
+      return { status: deleteStatus, body: deleteStatus === 200 ? { deleted: true, id: 'sub_legacy' } : { errors: [{ code: 'not_found' }] } }
+    }
+    return undefined
+  }
+  return fakeAsaas([route])
+}
+
+test('#995: a paying legacy client that accepted with total 0 is migrated by the sweep: place_end_legacy_fee(migrated) first, then DELETE of legacy:<client_id> only', async () => {
+  const asaas = legacyAtAsaas()
+  const db = fakeDb({ place_end_legacy_fee: { data: CLIENT } })
+  // how many Asaas calls had happened when the database ended the fee
+  let asaasCallsAtEnd = -1
+  const admin = async (schema: string, fn: string, args: Record<string, unknown>) => {
+    if (fn === 'place_end_legacy_fee') asaasCallsAtEnd = asaas.calls.length
+    return db.rpc(schema, fn, args)
+  }
+  const { d, alerts } = deps(asaas, db, { admin, legacyFreeMigrations: async () => [SUBMISSION] })
+  const summary = await pay.runSweep(d)
+  assert.equal(summary.legacy_free_migrated, 1)
+  assert.deepEqual(db.calls.filter((c) => c.fn === 'place_end_legacy_fee'), [
+    { schema: 'partner', fn: 'place_end_legacy_fee', args: { p_submission_id: SUBMISSION, p_reason: 'migrated' } },
+  ])
+  assert.deepEqual(asaas.calls.filter((c) => c.method === 'DELETE').map((c) => c.path), ['/subscriptions/sub_legacy'])
+  // the database ends the fee before the legacy subscription is read or deleted at Asaas
+  assert.ok(asaasCallsAtEnd >= 0)
+  assert.ok(!asaas.calls.slice(0, asaasCallsAtEnd).some((c) => c.path.includes('legacy') || c.method === 'DELETE'))
+  assert.deepEqual(alerts.filter((a) => a.what.startsWith('legacy')).map((a) => [a.what, a.fields]), [['legacy_migrated', { submission_id: SUBMISSION }]])
+})
+
+test('#995: a free or courtesy legacy client that took the paid plan with a 100% voucher is skipped by the sweep every day: the database refuses migrated (TGP10 not_paying), no Asaas call, no alert', async () => {
+  const asaas = legacyAtAsaas()
+  const db = fakeDb({ place_end_legacy_fee: { error: { code: 'TGP10', details: 'not_paying' } } })
+  // legacy_fee_ended_at stays null, so the read brings it back on every run
+  const { d, alerts } = deps(asaas, db, { legacyFreeMigrations: async () => [SUBMISSION] })
+  for (let run = 0; run < 2; run++) {
+    const summary = await pay.runSweep(d)
+    assert.equal(summary.legacy_free_migrated, 0)
+  }
+  assert.deepEqual(db.calls.filter((c) => c.fn === 'place_end_legacy_fee').map((c) => c.args), [
+    { p_submission_id: SUBMISSION, p_reason: 'migrated' },
+    { p_submission_id: SUBMISSION, p_reason: 'migrated' },
+  ])
+  assert.deepEqual(asaas.calls, [])
+  assert.deepEqual(alerts, [])
+})
+
+test('#995: only not_paying is skipped: another refusal of migrated in the sweep (no_new_subscription) still reads Asaas and tells the operator', async () => {
+  const asaas = legacyAtAsaas()
+  const db = fakeDb({ place_end_legacy_fee: { error: { code: 'TGP10', details: 'no_new_subscription' } } })
+  const { d, alerts } = deps(asaas, db, { legacyFreeMigrations: async () => [SUBMISSION] })
+  assert.equal((await pay.runSweep(d)).legacy_free_migrated, 1)
+  assert.ok(asaas.calls.some((c) => c.path.includes('legacy')))
+  assert.deepEqual(alerts.filter((a) => a.what.startsWith('legacy')).map((a) => a.what), ['legacy_migrated'])
+})
+
+test('#995: a client that is not legacy (portal submission, 100% voucher) is never touched by the sweep; an empty list touches nothing', async () => {
+  for (const [list, legacyOf] of [
+    [[SUBMISSION], async () => null],
+    [[], async () => ({ client_id: CLIENT, fee_ended_at: null })],
+  ] as const) {
+    const asaas = legacyAtAsaas()
+    const db = fakeDb({ place_end_legacy_fee: { data: CLIENT } })
+    const { d, alerts } = deps(asaas, db, { legacyFreeMigrations: async () => list, legacyOf })
+    const summary = await pay.runSweep(d)
+    assert.equal(summary.legacy_free_migrated, list.length)
+    assert.ok(!db.calls.some((c) => c.fn === 'place_end_legacy_fee'))
+    assert.ok(!asaas.calls.some((c) => c.method === 'DELETE' || c.path.includes('legacy')))
+    assert.ok(!alerts.some((a) => a.what.includes('legacy')))
+  }
+})
+
+test('#995: a second run does not break: the fee already ended skips the database, the deleted subscription is not deleted again, and a DELETE answering 404 counts as done', async () => {
+  const asaas = legacyAtAsaas()
+  const db = fakeDb({ place_end_legacy_fee: { data: CLIENT } })
+  let ended: string | null = null
+  const { d, alerts } = deps(asaas, db, {
+    legacyFreeMigrations: async () => [SUBMISSION],
+    legacyOf: async () => ({ client_id: CLIENT, fee_ended_at: ended }),
+  })
+  await pay.runSweep(d)
+  ended = '2026-10-08T12:00:00Z'
+  const second = await pay.runSweep(d)
+  assert.equal(second.legacy_free_migrated, 1)
+  assert.equal(db.calls.filter((c) => c.fn === 'place_end_legacy_fee').length, 1)
+  assert.equal(asaas.calls.filter((c) => c.method === 'DELETE').length, 1)
+  assert.ok(!alerts.some((a) => a.what.endsWith('_failed') || a.what === 'legacy_subscription_not_found'))
+
+  // Asaas still lists it live but the DELETE answers 404 (already removed): done, no failure alert
+  const gone = legacyAtAsaas(404)
+  const x = deps(gone, fakeDb({ place_end_legacy_fee: { data: CLIENT } }), { legacyFreeMigrations: async () => [SUBMISSION] })
+  assert.equal((await pay.runSweep(x.d)).legacy_free_migrated, 1)
+  assert.deepEqual(x.alerts.filter((a) => a.what.startsWith('legacy') || a.what.startsWith('sweep_legacy')).map((a) => a.what), ['legacy_migrated'])
+})
+
+test('#995: Asaas down during the migration alerts and is retried by the ended-fee block of the same sweep; a read failure alerts and the sweep goes on', async () => {
+  const asaas = fakeAsaas([subsByLegacyRef([legacySub]), at('DELETE', '/subscriptions/sub_legacy', 503, {})])
+  const { d, alerts } = deps(asaas, fakeDb({ place_end_legacy_fee: { data: CLIENT } }), {
+    legacyFreeMigrations: async () => [SUBMISSION],
+    legacyFeesEnded: async () => [CLIENT],
+  })
+  const summary = await pay.runSweep(d)
+  assert.equal(summary.legacy_free_migrated, 1)
+  assert.deepEqual(alerts.filter((a) => a.what.includes('legacy')).map((a) => a.what), ['legacy_migration_end_failed', 'legacy_migrated', 'sweep_legacy_end_failed'])
+
+  const broken = deps(fakeAsaas([]), fakeDb({}), { legacyFreeMigrations: async () => { throw new Error('legacy free migrations read 500') } })
+  const s = await pay.runSweep(broken.d)
+  assert.equal(s.legacy_free_migrated, 'db_error')
+  assert.equal(s.legacy_ended, 0)
+  assert.deepEqual(broken.alerts.filter((a) => a.what.includes('legacy')).map((a) => a.what), ['sweep_legacy_free_migration_read_failed'])
+})
+
 // ─── payment: webhook ────────────────────────────────────────────────────────────────────────
 
 // #918 replaced the #916 discard: the legacy charge is recorded (details in edge-places-contract-subscription.test.ts).
@@ -492,4 +624,197 @@ test('#916 BR-B2B-047 item 1: a legacy mirror with no acceptance is no portal re
   assert.equal(isLegacyMirror({ legacy_client_id: CLIENT, place_acceptances: { id: 'acc' } }), false)
   assert.equal(isLegacyMirror({ legacy_client_id: null, place_acceptances: null }), false)
   assert.equal(isLegacyMirror({}), false)
+})
+
+// ─── #997: the account of every mirror without an owner, no e-mail and no link ────────────────
+
+const MIRROR_A = '11111111-aaaa-4aaa-8aaa-000000000001'
+const MIRROR_B = '11111111-aaaa-4aaa-8aaa-000000000002'
+const MIRROR_C = '11111111-aaaa-4aaa-8aaa-000000000003'
+const USER_NEW = '22222222-bbbb-4bbb-8bbb-000000000001'
+const USER_OLD = '22222222-bbbb-4bbb-8bbb-000000000002'
+const ACCOUNT = '33333333-cccc-4ccc-8ccc-000000000001'
+
+type Bound = { submissionId: string; userId: string }
+
+/**
+ * A fake Auth + database: `createUser` registers the e-mail, `bind` writes `account_id` on the
+ * mirror, and `rows()` is what the EF reads (mirrors with `account_id` null), so a second run sees
+ * the effect of the first.
+ */
+function accountWorld(opts: { existing?: Record<string, { id: string; confirmed: boolean }>; bindError?: (s: string) => unknown } = {}) {
+  const users = new Map<string, { id: string; confirmed: boolean }>(Object.entries(opts.existing ?? {}))
+  const mirrors = new Map<string, { email: string; account: string | null }>([
+    [MIRROR_A, { email: 'Ze@Bar.com.br ', account: null }],
+    [MIRROR_B, { email: 'sol@pousada.com', account: null }],
+  ])
+  const created: string[] = []
+  const bound: Bound[] = []
+  const pages: number[] = []
+  let n = 0
+  const listPage = async (page: number, perPage: number) => {
+    pages.push(page)
+    const all = [...users.entries()].map(([email, u]) => ({ id: u.id, email, email_confirmed_at: u.confirmed ? '2026-01-01T00:00:00Z' : null }))
+    return { users: all.slice((page - 1) * perPage, page * perPage) }
+  }
+  const deps = {
+    createUser: async (email: string) => {
+      if (users.has(email)) return access.portalUserOutcome(undefined, { code: 'email_exists', status: 422 })
+      const id = `22222222-bbbb-4bbb-8bbb-1${String(++n).padStart(11, '0')}`
+      users.set(email, { id, confirmed: true })
+      created.push(email)
+      return access.portalUserOutcome(id, null)
+    },
+    findUser: access.userFinder(listPage),
+    bind: async (submissionId: string, userId: string) => {
+      bound.push({ submissionId, userId })
+      const err = opts.bindError?.(submissionId)
+      if (err) return { data: null, error: err }
+      mirrors.get(submissionId)!.account = `${ACCOUNT.slice(0, -1)}${bound.length}`
+      return { data: mirrors.get(submissionId)!.account, error: null }
+    },
+  }
+  const rows = () => [...mirrors.entries()].filter(([, m]) => m.account === null).map(([id, m]) => ({ id, contact_email: m.email }))
+  return { deps, rows, users, created, bound, pages, mirrors }
+}
+
+test('#997: dry run lists the mirrors without an owner and creates no user and binds nothing', async () => {
+  const w = accountWorld()
+  const out = await access.runLegacyAccounts(w.deps, w.rows(), true)
+  assert.deepEqual(out, [
+    { submission_id: MIRROR_A, status: 'would_bind' },
+    { submission_id: MIRROR_B, status: 'would_bind' },
+  ])
+  assert.equal(w.created.length + w.bound.length + w.pages.length, 0)
+})
+
+test('#997: real run creates the user of contact_email (normalised) and binds it to THAT mirror; the answer carries ids and the account only', async () => {
+  const w = accountWorld()
+  const out = await access.runLegacyAccounts(w.deps, w.rows(), false)
+  assert.deepEqual(w.created, ['ze@bar.com.br', 'sol@pousada.com'])
+  assert.deepEqual(w.bound.map((b) => b.submissionId), [MIRROR_A, MIRROR_B])
+  assert.equal(w.bound[0].userId, w.users.get('ze@bar.com.br')!.id)
+  assert.deepEqual(out.map((r: { status: string }) => r.status), ['created', 'created'])
+  assert.equal(out[0].account_id, `${ACCOUNT.slice(0, -1)}1`)
+  // no PII in what the EF answers and logs
+  assert.doesNotMatch(JSON.stringify(out), /@|bar\.com|pousada/i)
+  // the user list is never read when every address is new
+  assert.equal(w.pages.length, 0)
+})
+
+test('#997: a second run reads no mirror and creates nothing (the bound mirror has account_id)', async () => {
+  const w = accountWorld()
+  await access.runLegacyAccounts(w.deps, w.rows(), false)
+  const created = w.created.length
+  const bound = w.bound.length
+  const second = await access.runLegacyAccounts(w.deps, w.rows(), false)
+  assert.deepEqual(second, [])
+  assert.equal(w.created.length, created)
+  assert.equal(w.bound.length, bound)
+})
+
+test('#997: an address that already has a confirmed user reuses that user (no second user)', async () => {
+  const w = accountWorld({ existing: { 'ze@bar.com.br': { id: USER_OLD, confirmed: true } } })
+  const out = await access.runLegacyAccounts(w.deps, w.rows(), false)
+  assert.deepEqual(out[0], { submission_id: MIRROR_A, status: 'reused', account_id: `${ACCOUNT.slice(0, -1)}1` })
+  assert.equal(w.bound[0].userId, USER_OLD)
+  assert.deepEqual(w.created, ['sol@pousada.com'])
+  assert.equal(out[1].status, 'created')
+})
+
+test('#997: a user created on a run whose bind failed is found and reused on the next run', async () => {
+  let fail = true
+  const w = accountWorld({ bindError: (s) => (s === MIRROR_A && fail ? { code: '08006', message: 'connection' } : null) })
+  const first = await access.runLegacyAccounts(w.deps, w.rows(), false)
+  assert.deepEqual(first[0], { submission_id: MIRROR_A, status: 'failed', code: '08006' })
+  fail = false
+  const second = await access.runLegacyAccounts(w.deps, w.rows(), false)
+  assert.deepEqual(second.map((r: { submission_id: string; status: string }) => [r.submission_id, r.status]), [[MIRROR_A, 'reused']])
+  assert.equal(w.created.filter((e) => e === 'ze@bar.com.br').length, 1)
+})
+
+test('#997: an existing user whose e-mail was never confirmed does not get the venue account', async () => {
+  const w = accountWorld({ existing: { 'ze@bar.com.br': { id: USER_OLD, confirmed: false } } })
+  const out = await access.runLegacyAccounts(w.deps, w.rows(), false)
+  assert.deepEqual(out[0], { submission_id: MIRROR_A, status: 'refused', code: 'user_unconfirmed' })
+  assert.ok(!w.bound.some((b) => b.userId === USER_OLD))
+  assert.equal(out[1].status, 'created')
+})
+
+test('#997: the database refusing the bind (e-mail differs, TGP10) counts as refused and never stops the batch; the message never leaks', async () => {
+  const w = accountWorld({
+    bindError: (s) => (s === MIRROR_A ? { code: 'TGP10', details: 'email_mismatch', message: 'ze@bar.com.br differs' } : null),
+  })
+  const out = await access.runLegacyAccounts(w.deps, w.rows(), false)
+  assert.deepEqual(out[0], { submission_id: MIRROR_A, status: 'refused', code: 'TGP10', detail: 'email_mismatch' })
+  assert.equal(out[1].status, 'created')
+  assert.equal(w.mirrors.get(MIRROR_A)!.account, null)
+  assert.doesNotMatch(JSON.stringify(out), /@/)
+})
+
+test('#997: a detail that is not a bare token is dropped; a throwing dependency fails that mirror only', async () => {
+  const w = accountWorld({ bindError: (s) => (s === MIRROR_A ? { code: 'TGP10', details: 'user ze@bar.com.br' } : null) })
+  const out = await access.runLegacyAccounts(w.deps, w.rows(), false)
+  assert.deepEqual(out[0], { submission_id: MIRROR_A, status: 'refused', code: 'TGP10' })
+
+  const boom = accountWorld()
+  boom.deps.createUser = async (email: string) => {
+    if (email.startsWith('ze')) throw new Error('ze@bar.com.br exploded')
+    return access.portalUserOutcome(USER_NEW, null)
+  }
+  const out2 = await access.runLegacyAccounts(boom.deps, boom.rows(), false)
+  assert.deepEqual(out2[0], { submission_id: MIRROR_A, status: 'failed', code: 'unexpected' })
+  assert.equal(out2[1].status, 'created')
+})
+
+test('#997: a mirror without a usable contact_email fails without touching Auth; an Auth error other than a taken e-mail fails', async () => {
+  const w = accountWorld()
+  const rows = [{ id: MIRROR_C, contact_email: '  ' }, ...w.rows()]
+  w.deps.createUser = async (email: string) => (email.startsWith('sol') ? access.portalUserOutcome(undefined, { code: 'over_request_rate_limit', status: 429 }) : access.portalUserOutcome(USER_NEW, null))
+  const out = await access.runLegacyAccounts(w.deps, rows, false)
+  assert.deepEqual(out[0], { submission_id: MIRROR_C, status: 'failed', code: 'no_email' })
+  assert.equal(out[1].status, 'created')
+  assert.deepEqual(out[2], { submission_id: MIRROR_B, status: 'failed', code: 'over_request_rate_limit' })
+})
+
+test('#997: portalUserOutcome reads GoTrue: no error is a new user, email_exists, user_already_exists and 422 are a taken address', () => {
+  assert.deepEqual(access.portalUserOutcome(USER_NEW.toUpperCase(), null), { kind: 'created', id: USER_NEW })
+  assert.deepEqual(access.portalUserOutcome('not-a-uuid', null), { kind: 'created', id: null })
+  assert.deepEqual(access.portalUserOutcome(undefined, { code: 'email_exists', status: 422 }), { kind: 'exists' })
+  assert.deepEqual(access.portalUserOutcome(undefined, { code: 'user_already_exists', status: 400 }), { kind: 'exists' })
+  assert.deepEqual(access.portalUserOutcome(undefined, { status: 422 }), { kind: 'exists' })
+  assert.deepEqual(access.portalUserOutcome(undefined, { status: 500 }), { kind: 'failed', code: 'http_500' })
+})
+
+test('#997: userFinder reads the user pages on demand, once for the whole run, and is case-blind', async () => {
+  const pages: number[] = []
+  const users = Array.from({ length: 2500 }, (_, i) => ({ id: `44444444-dddd-4ddd-8ddd-${String(i).padStart(12, '0')}`, email: `u${i}@x.test`, email_confirmed_at: '2026-01-01T00:00:00Z' }))
+  const find = access.userFinder(async (page: number, perPage: number) => {
+    pages.push(page)
+    return { users: users.slice((page - 1) * perPage, page * perPage) }
+  })
+  assert.equal((await find('U1500@X.TEST'))?.id, users[1500].id)
+  assert.deepEqual(pages, [1, 2])
+  assert.equal((await find('u10@x.test'))?.confirmed, true)
+  assert.deepEqual(pages, [1, 2])
+  assert.equal(await find('nobody@x.test'), null)
+  assert.deepEqual(pages, [1, 2, 3])
+  assert.equal(await find('again@x.test'), null)
+  assert.deepEqual(pages, [1, 2, 3])
+  const broken = access.userFinder(async () => ({ error: 'unexpected_failure' }))
+  await assert.rejects(broken('a@b.c'), /user_list/)
+})
+
+test('#997: the create_accounts wiring sends no e-mail and generates no link; only the machine key reaches it', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const src = await readFile(resolve(SHARED, '../places-legacy-access/index.ts'), 'utf8')
+  const body = src.slice(src.indexOf('async function createAccounts'), src.indexOf('Deno.serve'))
+  assert.ok(body.includes('place_bind_legacy_account') && body.includes('createPortalUser'))
+  assert.doesNotMatch(body, /sendEmail|generateLink|magicLink|issueAccessLink|accessLinkDeps|resend/i)
+  const serve = src.slice(src.indexOf('Deno.serve'))
+  assert.ok(serve.indexOf("auth.role !== 'service_role'") < serve.indexOf('createAccounts('))
+  const runtime = await readFile(resolve(SHARED, 'places-access-link-runtime.ts'), 'utf8')
+  const create = runtime.slice(runtime.indexOf('export async function createPortalUser'), runtime.indexOf('export function listUsersPage'))
+  assert.doesNotMatch(create, /generateLink|sendEmail|inviteUserByEmail/)
+  assert.match(create, /email_confirm: true, user_metadata: \{ signup_origin: PORTAL_SIGNUP_ORIGIN \}/)
 })

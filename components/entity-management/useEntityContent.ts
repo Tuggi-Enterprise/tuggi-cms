@@ -13,7 +13,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { getSupabaseClient } from '@/lib/core/supabase-client'
 import { useAuthenticatedFunctionCall } from '@/lib/hooks/useAuthenticatedFunctionCall'
-import { upsertPoiName, deleteDescription } from '@/lib/core/poi-descriptions-service'
+import { DESCRIPTION_COLUMNS, upsertPoiName, deleteDescription } from '@/lib/core/poi-descriptions-service'
 
 interface Options {
   entityId: string
@@ -123,12 +123,13 @@ export function useEntityContent(opts: Options): EntityContent {
     if (!id) return
     setIsLoading(true)
     try {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .schema('core')
         .from('attraction_descriptions')
-        .select('*')
+        .select(DESCRIPTION_COLUMNS)
         .eq('attraction_id', id)
         .order('updated_at', { ascending: false })
+      if (error) throw error
       const rows = data || []
       setDescriptions(rows)
       setTranslatedDescriptions(rows.filter((d: any) => d.audio_url))

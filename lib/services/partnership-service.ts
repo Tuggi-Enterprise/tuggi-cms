@@ -23,6 +23,15 @@
  * wrote down for the write side.
  */
 
+import {
+  APP_PARTNER_TYPES,
+  isApprovedAppPartnerWithoutPlace,
+  partnerBadgeOf,
+  partnerKindOf,
+  type PartnerBadge,
+  type PartnerKind,
+} from '@/lib/partnerships/partner-kind'
+import { loadGuideProfileFacts } from '@/lib/services/guide-profile-service'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getSupabaseService } from '@/lib/core/supabase-client'
 import { placeService, type PartnerPlaceRow } from '@/lib/core/place-service'
@@ -72,6 +81,8 @@ import type { ContractState, ContractStatus } from '@/lib/contract/status'
 import type { ContractTier } from '@/lib/contract/snapshot'
 import type { PortalAcceptanceFacts } from '@/lib/clients/partner-plan'
 import { PLAN_CHOICES, type PlanChoice } from '@/lib/partner-form/fields'
+import { assembleDirectoryRows, type PortalDirectoryRow } from '@/lib/clients/directory-rows'
+import { placesPortalOrigin } from '@/lib/partnerships/acceptance-link'
 
 /**
  * What a row with no client says about money: nothing, and `undeclared` is the honest reading of
@@ -110,11 +121,12 @@ const SUBMISSION_COLUMNS =
  * The columns of `partner.clients` the pipeline decides with. An allowlist, and a short one: the
  * fiscal record, the banking record, the team and the coupons stay on the client's own page
  * (DS-LAYOUT-006, 1st edge case) — copying three of them here "for convenience" is how the
- * second source of the same fact gets born.
+ * second source of the same fact gets born. `commission_starts_at` is here because the path is
+ * decided with it (#1139, `isApprovedAppPartnerWithoutPlace`), not to show it.
  */
 const CLIENT_COLUMNS =
   'id, name, company_name, city, state, country, client_type, tax_id, status, approved_at, approved_by, ' +
-  'created_at, monthly_fee_cents, is_courtesy, courtesy_reason, welcome_poi_id'
+  'created_at, monthly_fee_cents, is_courtesy, courtesy_reason, commission_starts_at, welcome_poi_id'
 
 interface SubmissionRow {
   id: string
@@ -157,6 +169,12 @@ export interface PipelineClient {
    * carried one, 10 pointed at a POI that was not the client's place.
    */
   welcomePoiId: string | null
+  /**
+   * #1139: the commission mark, written only by the approval of the app request (contract
+   * `parceiro-sem-local.md` §4.4). `null` = not approved by the request: the gate of BR-B2B-057
+   * still applies (`isApprovedAppPartnerWithoutPlace`).
+   */
+  commissionStartsAt: string | null
 }
 
 export interface PipelineContract {
@@ -245,6 +263,13 @@ export interface ClientDirectoryRow {
   /** `portal` for a row of `partner.place_submissions` (#812). Absent = the old form or a client. */
   origin?: 'form' | 'portal'
   /**
+   * `partnerKindOf` of a portal row (#936), or `referral_only` for the approved creator, influencer
+   * or driver of the app request (#1139). Absent = `place`.
+   */
+  partnerKind?: PartnerKind
+  /** "Agência", "Transfer" or "Guia" in the row (spec #936 §6). Absent or `null` = no badge. */
+  partnerBadge?: PartnerBadge | null
+  /**
    * The POI a portal submission created (`place_submissions.attraction_id`) — what the board's
    * `Publicado` publishes (#906). Absent on every other row: those publish from the record.
    */
@@ -261,6 +286,13 @@ export interface ClientDirectoryRow {
    * Empty for a row without a client: its gate is the promotion, which creates slug and code.
    */
   gateMissing: GateItem[]
+  /**
+   * A photo / the story the partner saved on `/status` without publishing
+   * (`place_change_requests.status = 'held'`, #998). The free tier's sign of being close to
+   * subscribing (#1000). Only a portal submission carries one; it reaches its client's row by fold.
+   */
+  hasHeldPhoto: boolean
+  hasHeldStory: boolean
 }
 
 export interface ClientDirectory {
@@ -341,14 +373,22 @@ async function loadDirectoryPayload(): Promise<DirectoryPayload> {
 }
 
 export async function loadClientDirectory(operator: SupabaseClient): Promise<ClientDirectory> {
-  const [payload, placeRows, portalSubmissions] = await Promise.all([
+  const [payload, placeRows, portalSubmissions, held, marks] = await Promise.all([
     loadDirectoryPayload(),
     loadAllPartnerPlaces(operator),
     loadPortalSubmissions(),
+    loadHeldChanges(),
+    loadAppPartnerMarks(),
   ])
 
   const submissions = payload.submissions
   const clients = indexClients(payload.clients, new Map<string, PipelineClient>())
+  // #1139: the mark decides whether the gate below holds an app partner, so it fails like the gate.
+  if (!marks) throw new Error('commission mark read failed')
+  for (const [clientId, startsAt] of marks) {
+    const client = clients.get(clientId)
+    if (client) client.commissionStartsAt = startsAt
+  }
 
   // BR-B2B-057: one read of the gate for every client. A board that cannot read it cannot place a
   // single card honestly, so a failed read fails the list instead of guessing.
@@ -394,6 +434,12 @@ export async function loadClientDirectory(operator: SupabaseClient): Promise<Cli
   }
 
   const portalFacts = await loadPortalFacts(portalSubmissions.map((row) => row.id))
+  // #936: the guide's state is its profile (`Publicado` = active and visible, BR-B2B-064 item 10).
+  const guideFacts = await loadGuideProfileFacts(
+    portalSubmissions
+      .filter((row) => row.client_id && partnerKindOf(row.answers) === 'guide')
+      .map((row) => row.client_id as string)
+  )
 
   const rows: ClientDirectoryRow[] = submissions.map((row) => {
     const clientId = row.promoted_client_id
@@ -469,22 +515,31 @@ export async function loadClientDirectory(operator: SupabaseClient): Promise<Cli
       triage: { approvedAt: client?.approvedAt ?? null, places: outcomes },
       discardReason: row.status === 'discarded' ? row.discard_reason : null,
       gateMissing: gateOf(client?.id ?? null),
+      hasHeldPhoto: false,
+      hasHeldStory: false,
     }
   })
 
   // The portal's submissions (#812). The row is the SUBMISSION until it is live; the client the
-  // approval created is found through the POI it links (`attraction_id` → `partner_client_id`),
-  // and claimed below so it does not show up a second time as a client nobody proposed.
+  // approval created is found through the POI it links (`attraction_id` → `partner_client_id`).
+  // Whether it stays a row or folds into its client's row is `assembleDirectoryRows`' call (#991).
   const clientOfPlace = new Map(placeRows.map((place) => [place.attractionId, place.partnerClientId]))
-  const portalClaimed: string[] = []
+  const portalRows: PortalDirectoryRow[] = []
   for (const row of portalSubmissions) {
     const answers = row.answers ?? {}
-    const clientId = row.attraction_id ? clientOfPlace.get(row.attraction_id) ?? null : null
-    if (clientId) portalClaimed.push(clientId)
+    const partnerKind = partnerKindOf(answers)
+    // #936: a partner without a place names its client in `client_id`; a place, through its POI.
+    // #916: a legacy mirror names it in `legacy_client_id` until #991's migration fills `client_id`.
+    const clientId =
+      row.client_id ??
+      row.legacy_client_id ??
+      (row.attraction_id ? clientOfPlace.get(row.attraction_id) ?? null : null)
     const client = clientId ? clients.get(clientId) ?? null : null
     const state = derivePipelineState({
       origin: 'portal',
       portalStatus: row.status,
+      partnerKind,
+      guideProfile: clientId ? guideFacts.get(clientId) ?? null : null,
       proposalStatus: 'submitted',
       conference: NO_CONFERENCE.conference,
       clientId,
@@ -492,51 +547,59 @@ export async function loadClientDirectory(operator: SupabaseClient): Promise<Cli
       placeCount: 0,
       publishedPlaceCount: 0,
     })
-    rows.push({
-      submissionId: row.id,
-      clientId,
-      state,
-      target: portalDetailTarget(state, { submissionId: row.id, clientId }),
-      name: answers.trade_name ?? client?.name ?? null,
-      taxId: answers.tax_id ?? null,
-      city: answers.city ?? null,
-      region: normalizeState('Brazil', answers.state, answers.city) ?? answers.state ?? null,
-      country: 'Brazil',
-      clientType: client?.clientType ?? null,
-      status: client?.status ?? null,
-      contract: 'none',
-      fee: client?.fee ?? NO_FEE,
-      contractTier: null,
-      planChoice: isPlanChoice(answers.plan_choice) ? answers.plan_choice : null,
-      duplicateCount: 0,
-      since: row.status_changed_at ?? row.submitted_at,
-      places: summarizePlaces([]),
-      // No triage clock: the portal's is the 2-business-day one of `validation-clock` (#812),
-      // and an empty place list keeps the 72-hour counter from ever counting this row.
-      triage: { approvedAt: null, places: [] },
-      discardReason: null,
-      origin: 'portal',
-      attractionId: row.attraction_id ?? null,
-      portalAcceptance: portalFacts.acceptances.get(row.id) ?? null,
-      liveAt: portalFacts.liveAt.get(row.id) ?? null,
-      gateMissing: gateOf(clientId),
+    portalRows.push({
+      legacy: Boolean(row.legacy_client_id),
+      row: {
+        submissionId: row.id,
+        clientId,
+        state,
+        target: portalDetailTarget(state, { submissionId: row.id, clientId }),
+        name: answers.trade_name ?? client?.name ?? null,
+        taxId: answers.tax_id ?? null,
+        city: answers.city ?? null,
+        region: normalizeState('Brazil', answers.state, answers.city) ?? answers.state ?? null,
+        country: 'Brazil',
+        clientType: client?.clientType ?? null,
+        status: client?.status ?? null,
+        contract: 'none',
+        fee: client?.fee ?? NO_FEE,
+        contractTier: null,
+        planChoice: isPlanChoice(answers.plan_choice) ? answers.plan_choice : null,
+        duplicateCount: 0,
+        since: row.status_changed_at ?? row.submitted_at,
+        places: summarizePlaces([]),
+        // No triage clock: the portal's is the 2-business-day one of `validation-clock` (#812),
+        // and an empty place list keeps the 72-hour counter from ever counting this row.
+        triage: { approvedAt: null, places: [] },
+        discardReason: null,
+        origin: 'portal',
+        partnerKind,
+        partnerBadge: partnerBadgeOf(answers),
+        attractionId: row.attraction_id ?? null,
+        portalAcceptance: portalFacts.acceptances.get(row.id) ?? null,
+        liveAt: portalFacts.liveAt.get(row.id) ?? null,
+        gateMissing: gateOf(clientId),
+        hasHeldPhoto: held.get(row.id)?.photo ?? false,
+        hasHeldStory: held.get(row.id)?.story ?? false,
+      },
     })
   }
 
   // The other half of the list: every client no proposal claims. The 10 that predate the form,
   // and every registration somebody typed by hand — invisible in the queue until now.
   const claimed = new Set(
-    submissions
-      .map((row) => row.promoted_client_id)
-      .filter((id): id is string => typeof id === 'string')
-      .concat(portalClaimed)
+    submissions.map((row) => row.promoted_client_id).filter((id): id is string => typeof id === 'string')
   )
 
+  const clientRows: ClientDirectoryRow[] = []
   for (const client of clients.values()) {
     if (claimed.has(client.id)) continue
     const { readiness, outcomes, contract } = partnershipOf(client)
+    // #1139: the approved creator, influencer or driver of the app request — no place, no gate.
+    const appPartner = isApprovedAppPartnerWithoutPlace(client, readiness.length)
+    const clientGate = appPartner ? [] : gateOf(client.id)
 
-    rows.push({
+    clientRows.push({
       submissionId: null,
       clientId: client.id,
       // A client that arrived without a proposal HAS a conference to read since 2026-08-21 —
@@ -546,11 +609,12 @@ export async function loadClientDirectory(operator: SupabaseClient): Promise<Cli
         proposalStatus: 'promoted',
         conference: (conferences.get(client.id) ?? NO_CONFERENCE).conference,
         clientId: client.id,
-        gateMissing: gateOf(client.id),
+        gateMissing: clientGate,
         placeCount: readiness.length,
         publishedPlaceCount: readiness.filter((item) => item.published).length,
         refusedPlaceCount: outcomes.filter(isRefusedAtTriage).length,
         uncommunicatedRefusal: hasUncommunicatedRefusal(outcomes),
+        appPartnerWithoutPlace: appPartner,
       }),
       // A registration nobody proposed still opens the record, and still through the one
       // composer: the second hand-built query string was the same defect as the first.
@@ -575,14 +639,41 @@ export async function loadClientDirectory(operator: SupabaseClient): Promise<Cli
       places: summarizePlaces(readiness),
       triage: { approvedAt: client.approvedAt, places: outcomes },
       discardReason: null,
-      gateMissing: gateOf(client.id),
+      gateMissing: clientGate,
+      ...(appPartner ? { partnerKind: 'referral_only' as const } : {}),
+      hasHeldPhoto: false,
+      hasHeldStory: false,
     })
   }
 
   // The caps are applied inside `cms_client_directory`, so whether they bit is its answer to
   // give. Recomputing it here from the lengths it returned would be the same arithmetic in two
   // places, disagreeing the first time one of the two limits changes.
-  return { rows, truncated: payload.truncated }
+  return { rows: assembleDirectoryRows(rows, clientRows, portalRows), truncated: payload.truncated }
+}
+
+/**
+ * The portal submission of a partner without a place (#936), linked by `client_id`. `null` for
+ * every other client, and when the read fails — the header then falls back to the place reading.
+ */
+async function loadNoPlaceSubmission(
+  clientId: string
+): Promise<{ status: PortalBoardStatus; kind: PartnerKind } | null> {
+  const { data, error } = await service()
+    .from('place_submissions')
+    .select('status, answers')
+    .eq('client_id', clientId)
+    .in('status', PORTAL_BOARD_STATUSES as unknown as string[])
+    .order('status_changed_at', { ascending: false })
+    .limit(1)
+  if (error) {
+    console.error('[partnerships] no-place submission read failed', error.code)
+    return null
+  }
+  const row = ((data ?? []) as { status: string; answers: PartnerAnswers | null }[])[0]
+  if (!row || !isPortalBoardStatus(row.status)) return null
+  const kind = partnerKindOf(row.answers)
+  return kind === 'place' ? null : { status: row.status, kind }
 }
 
 /**
@@ -598,6 +689,10 @@ interface PortalSubmissionRow {
   status: PortalBoardStatus
   answers: PartnerAnswers | null
   attraction_id: string | null
+  /** #936: the client of a partner without a place. */
+  client_id: string | null
+  /** #916: the client a legacy mirror was seeded for. */
+  legacy_client_id: string | null
   submitted_at: string | null
   status_changed_at: string | null
 }
@@ -611,7 +706,7 @@ interface PortalSubmissionRow {
 async function loadPortalSubmissions(): Promise<PortalSubmissionRow[]> {
   const { data, error } = await service()
     .from('place_submissions')
-    .select('id, status, answers, attraction_id, submitted_at, status_changed_at')
+    .select('id, status, answers, attraction_id, client_id, legacy_client_id, submitted_at, status_changed_at')
     .in('status', PORTAL_BOARD_STATUSES as unknown as string[])
     .order('status_changed_at', { ascending: false })
     .limit(DIRECTORY_SUBMISSION_CAP)
@@ -620,6 +715,36 @@ async function loadPortalSubmissions(): Promise<PortalSubmissionRow[]> {
     return []
   }
   return (data as PortalSubmissionRow[]).filter((row) => isPortalBoardStatus(row.status))
+}
+
+/** What a portal submission holds unpublished, per kind (#1000). */
+export interface HeldChanges {
+  photo: boolean
+  story: boolean
+}
+
+/**
+ * Every held change, per submission: ONE read, filtered by status and never by a list of ids, so
+ * it pays no URL ceiling and costs as many rows as there are held changes. `service_role`, because
+ * the table is granted to nobody else. A failed read only loses the badges, logged.
+ */
+async function loadHeldChanges(): Promise<Map<string, HeldChanges>> {
+  const held = new Map<string, HeldChanges>()
+  const { data, error } = await service()
+    .from('place_change_requests')
+    .select('submission_id, kind')
+    .eq('status', 'held')
+  if (error) {
+    console.error('[partnerships] held changes read failed:', error.code ?? 'no_code')
+    return held
+  }
+  for (const row of (data ?? []) as { submission_id: string; kind: string }[]) {
+    const entry = held.get(row.submission_id) ?? { photo: false, story: false }
+    if (row.kind === 'photo') entry.photo = true
+    if (row.kind === 'text') entry.story = true
+    held.set(row.submission_id, entry)
+  }
+  return held
 }
 
 interface PortalFacts {
@@ -779,6 +904,8 @@ export interface PartnershipPlace {
 }
 
 export interface PartnershipDetail {
+  /** #936: `guide` / `referral_only` when the client came from the portal without a place. Absent = `place`. */
+  partnerKind?: PartnerKind
   /** What the BR-B2B-057 gate still lacks for this client, in copy order. */
   gateMissing: GateItem[]
   state: PipelineState
@@ -830,6 +957,24 @@ export interface PartnershipDetail {
   welcomeDivergence: WelcomeDivergence | null
   /** The same facts the queue column reads, so the header and the row cannot disagree. */
   triage: TriageFacts
+  /** The client's portal submission, read by `client_id` or by its POI (#991). `null` or absent = none. */
+  portal?: PortalAccount | null
+}
+
+/**
+ * What the record's `Portal` block says (#991): the account that logs in, since when the place is
+ * live, the plan, and where the partner's `/status` is. The legacy mirror counts here (#916): it
+ * is how an old client reaches `/status`, even before it accepts anything.
+ */
+export interface PortalAccount {
+  submissionId: string
+  /** The access e-mail: the acceptance's, else the submission's `contact_email`. */
+  email: string | null
+  /** `min(created_at)` of the submission's `live` transitions, the date the directory reads. */
+  liveAt: string | null
+  /** The acceptance's plan, else the one the submission names. `null` = none declared. */
+  planChoice: PlanChoice | null
+  statusUrl: string
 }
 
 /** The welcome POI of a client that is not among that client's places. */
@@ -851,26 +996,30 @@ export async function loadPartnershipDetail(
   // Two rounds, not eight (#875): everything keyed by the client id goes in the first, and what
   // needs the places or the client row goes in the second. An absent client costs the first
   // round's reads, which is the rare case paying for the common one.
-  const [clients, contracts, places, submission, clientConference, gate] = await Promise.all([
+  const [clients, contracts, places, submission, clientConference, gate, noPlace] = await Promise.all([
     loadClients([clientId]),
     loadLiveContracts([clientId]),
     loadPartnerPlaces([clientId], operator),
     loadPromotedSubmission(clientId),
     getClientConference(clientId),
     loadAcceptanceGate([clientId]),
+    loadNoPlaceSubmission(clientId),
   ])
   const client = clients.get(clientId)
   if (!client) return null
   // BR-B2B-057: the state below depends on the gate, and a guess would be a wrong header.
   if (!gate) throw new Error('acceptance gate read failed')
-  const gateMissing = missingGateItems(gate.get(clientId))
 
   const contract = contracts.get(clientId) ?? null
   const readiness = (places.get(clientId) ?? []).map((row) =>
     buildPlaceReadiness(row, readinessContextOf(contract?.tier ?? null))
   )
+  // #1139: the partner of the app request owes nothing to the gate of BR-B2B-057 (its acceptance
+  // is the request's, and the creator's link is its @), the same reading as its board row.
+  const appPartnerWithoutPlace = isApprovedAppPartnerWithoutPlace(client, readiness.length)
+  const gateMissing = appPartnerWithoutPlace ? [] : missingGateItems(gate.get(clientId))
   const attractionIds = readiness.map((item) => item.place.attractionId)
-  const [trail, refusals, welcomeDivergence, conferenceByLabel, promotedByLabel, reviewedByLabel] =
+  const [trail, refusals, welcomeDivergence, conferenceByLabel, promotedByLabel, reviewedByLabel, portal] =
     await Promise.all([
       loadPublicationTrail(attractionIds),
       loadCurrentRefusals(attractionIds),
@@ -878,6 +1027,7 @@ export async function loadPartnershipDetail(
       clientConference.reviewedBy ? operatorLabel(clientConference.reviewedBy) : null,
       submission ? operatorLabel(submission.promoted_by) : null,
       submission ? operatorLabel(submission.reviewed_by) : null,
+      loadPortalAccount(clientId, attractionIds),
     ])
   // #909: the promotion names the approver on the form path; a client created directly has no
   // proposal, and `approveClient` wrote `approved_by`. One more lookup, and only for that case.
@@ -891,8 +1041,26 @@ export async function loadPartnershipDetail(
     refusal: refusals.get(item.place.attractionId) ?? null,
   }))
 
+  // #936: the partner without a place is read from its portal submission and its profile — the
+  // same derivation as its queue row, so the header and the row cannot disagree.
+  const noPlaceState = noPlace
+    ? derivePipelineState({
+        origin: 'portal',
+        portalStatus: noPlace.status,
+        partnerKind: noPlace.kind,
+        guideProfile: noPlace.kind === 'guide' ? ((await loadGuideProfileFacts([clientId])).get(clientId) ?? null) : null,
+        proposalStatus: 'submitted',
+        conference,
+        clientId,
+        gateMissing,
+        placeCount: 0,
+        publishedPlaceCount: 0,
+      })
+    : null
+
   return {
-    state: derivePipelineState({
+    partnerKind: noPlace?.kind ?? 'place',
+    state: noPlaceState ?? derivePipelineState({
       proposalStatus: submission?.status ?? 'promoted',
       conference,
       clientId,
@@ -901,6 +1069,7 @@ export async function loadPartnershipDetail(
       publishedPlaceCount: readiness.filter((item) => item.published).length,
       refusedPlaceCount: outcomes.filter(isRefusedAtTriage).length,
       uncommunicatedRefusal: hasUncommunicatedRefusal(outcomes),
+      appPartnerWithoutPlace,
     }),
     gateMissing,
     client,
@@ -930,6 +1099,63 @@ export async function loadPartnershipDetail(
     })),
     welcomeDivergence,
     triage: { approvedAt: client.approvedAt, places: outcomes },
+    portal,
+  }
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * The client's portal submission for the record's `Portal` block (#991): by `client_id`, by
+ * `legacy_client_id` (a mirror before #991's migration fills `client_id`) or by one of its POIs.
+ * The live one wins, else the latest. `null` when there is none, or when the read failed (logged):
+ * the block then does not render, and nothing else on the record depends on it.
+ */
+async function loadPortalAccount(clientId: string, attractionIds: string[]): Promise<PortalAccount | null> {
+  // The ids go into a PostgREST `or` filter: anything but a UUID never gets there.
+  if (!UUID.test(clientId)) return null
+  const filters = [`client_id.eq.${clientId}`, `legacy_client_id.eq.${clientId}`]
+  const placeIds = attractionIds.filter((id) => UUID.test(id))
+  if (placeIds.length > 0) filters.push(`attraction_id.in.(${placeIds.join(',')})`)
+
+  const { data, error } = await service()
+    .from('place_submissions')
+    .select('id, status, contact_email, plan_choice:answers->>plan_choice, place_acceptances(email, plan_choice)')
+    .or(filters.join(','))
+    .in('status', PORTAL_BOARD_STATUSES as unknown as string[])
+    .order('status_changed_at', { ascending: false })
+    .limit(10)
+  if (error) {
+    console.error('[partnerships] portal account read failed', error.code)
+    return null
+  }
+  const rows = (data ?? []) as unknown as {
+    id: string
+    status: string
+    contact_email: string | null
+    plan_choice: string | null
+    place_acceptances: { email: string | null; plan_choice: string | null } | { email: string | null; plan_choice: string | null }[] | null
+  }[]
+  const row = rows.find((candidate) => candidate.status === 'live') ?? rows[0]
+  if (!row) return null
+  const acceptance = Array.isArray(row.place_acceptances) ? row.place_acceptances[0] ?? null : row.place_acceptances
+
+  const live = await service()
+    .from('place_submission_transitions')
+    .select('created_at')
+    .eq('submission_id', row.id)
+    .eq('to_status', 'live')
+    .order('created_at', { ascending: true })
+    .limit(1)
+  if (live.error) console.error('[partnerships] portal live transition read failed', live.error.code)
+  const plan = acceptance?.plan_choice ?? row.plan_choice
+
+  return {
+    submissionId: row.id,
+    email: acceptance?.email || row.contact_email || null,
+    liveAt: ((live.data ?? []) as { created_at: string }[])[0]?.created_at ?? null,
+    planChoice: isPlanChoice(plan) ? plan : null,
+    statusUrl: `${placesPortalOrigin(process.env.PLACES_PORTAL_ORIGIN)}/status`,
   }
 }
 
@@ -1108,7 +1334,29 @@ function toRefusal(row: TriageRefusalRow): TriageRefusal {
   }
 }
 
-// ── The five reads ───────────────────────────────────────────────────────────────────────────
+// ── The reads ────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * #1139: `commission_starts_at` of the approved creators, influencers and drivers, the column
+ * `cms_client_directory` does not return. Read by type, never by a list of ids (the URL ceiling
+ * of `.in`), and only the marked ones kept. `null` = the read failed.
+ */
+async function loadAppPartnerMarks(): Promise<Map<string, string> | null> {
+  const { data, error } = await service()
+    .from('clients')
+    .select('id, commission_starts_at')
+    .in('client_type', [...APP_PARTNER_TYPES])
+    .eq('status', 'approved')
+  if (error || !data) {
+    console.error('[partnerships] commission mark read failed:', error?.code ?? 'no_data')
+    return null
+  }
+  const marks = new Map<string, string>()
+  for (const row of data as { id: string; commission_starts_at: string | null }[]) {
+    if (typeof row.commission_starts_at === 'string') marks.set(row.id, row.commission_starts_at)
+  }
+  return marks
+}
 
 async function loadClients(ids: string[]): Promise<Map<string, PipelineClient>> {
   const map = new Map<string, PipelineClient>()
@@ -1140,6 +1388,8 @@ function indexClients(
       approvedBy: (row.approved_by as string) ?? null,
       createdAt: (row.created_at as string) ?? null,
       welcomePoiId: (row.welcome_poi_id as string) ?? null,
+      // `cms_client_directory` does not return it: the board fills it from `loadAppPartnerMarks`.
+      commissionStartsAt: (row.commission_starts_at as string) ?? null,
       fee: {
         // `monthly_fee_cents` absent is an incomplete registration and is NOT zero —
         // BR-B2B-017, item 6. `?? null` and never `?? 0`.

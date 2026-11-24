@@ -54,6 +54,8 @@ export const HEAD_SOLO = HEAD.replace('top-7', 'top-0')
 export const HEAD_SOLO_NUM = `${HEAD_SOLO} text-right`
 export const CELL = 'px-3 py-2.5 text-sm text-gray-800 dark:text-gray-200 align-middle'
 export const NUM = `${CELL} text-right tabular-nums whitespace-nowrap`
+/** The cell of a 32 px icon button or link: no vertical padding, so the row stays at the 40 px of `CELL`. */
+export const ICON_CELL = CELL.replace('py-2.5', 'py-0')
 /**
  * A TINTA DO VALOR RECUADO — `text-gray-500`, e a primeira tentativa foi `text-gray-400`.
  *
@@ -66,6 +68,14 @@ export const NUM = `${CELL} text-right tabular-nums whitespace-nowrap`
 export const DIM = 'text-gray-500 dark:text-gray-400'
 /** Onde um grupo começa, e o único lugar onde a régua vertical aparece. */
 export const EDGE = 'border-l border-gray-200 dark:border-gray-800'
+/**
+ * The first column stuck to the left, for a table whose columns are months (#1094, Engagement).
+ * The background is opaque, not `/95` with blur as in `HEAD`: here the cell covers numbers that
+ * scroll under it, and the blur would let them show through. `border-r` is the only mark of the
+ * seam, as `EDGE` is on the vertical.
+ */
+export const ROW_HEAD =
+  'sticky left-0 z-10 bg-white dark:bg-gray-900 px-3 py-2.5 text-left align-middle border-r border-gray-200 dark:border-gray-800'
 
 export interface SortState<K extends string> {
   key: K
@@ -150,27 +160,55 @@ export function SortHead<K extends string>({
 export function DenseTableScroller({
   children,
   maxHeightClassName = 'max-h-[calc(100vh-19rem)]',
+  label,
+  startAtEnd = false,
+  leftFadeClassName = 'left-0',
 }: {
   children: ReactNode
   maxHeightClassName?: string
+  /**
+   * Names the scroll box and puts it in the tab order, so a keyboard can scroll a table with
+   * nothing focusable inside (axe `scrollable-region-focusable`, WCAG 2.1.1). Omit it when the
+   * rows already carry buttons or links: those take the focus and scroll the box.
+   */
+  label?: string
+  /** Opens scrolled to the right end: a table of months shows the latest ones first (#1094). */
+  startAtEnd?: boolean
+  /**
+   * Where the left fade sits: at the seam of a sticky first column, whose width only the caller
+   * knows (`left-32 md:left-60` in `MonthGrid`). Without a sticky column it stays at the edge.
+   */
+  leftFadeClassName?: string
 }) {
   const [more, setMore] = useState(false)
+  const [moreLeft, setMoreLeft] = useState(false)
 
   const update = useCallback((el: HTMLDivElement) => {
     setMore(el.scrollLeft + el.clientWidth < el.scrollWidth - 2)
+    setMoreLeft(el.scrollLeft > 2)
   }, [])
 
   const measure = useCallback(
     (el: HTMLDivElement | null) => {
-      if (el) update(el)
+      if (!el) return
+      if (startAtEnd) el.scrollLeft = el.scrollWidth
+      update(el)
     },
-    [update]
+    [update, startAtEnd]
   )
 
   return (
     <div className="relative">
       <div
         aria-hidden="true"
+        data-fade="left"
+        className={`pointer-events-none absolute inset-y-0 ${leftFadeClassName} z-30 w-12 bg-gradient-to-r from-white/95 to-transparent transition-opacity dark:from-gray-900/95 ${
+          moreLeft ? 'opacity-100' : 'opacity-0'
+        }`}
+      />
+      <div
+        aria-hidden="true"
+        data-fade="right"
         className={`pointer-events-none absolute inset-y-0 right-0 z-30 w-12 bg-gradient-to-l from-white/95 to-transparent transition-opacity dark:from-gray-900/95 ${
           more ? 'opacity-100' : 'opacity-0'
         }`}
@@ -178,6 +216,7 @@ export function DenseTableScroller({
       <div
         ref={measure}
         onScroll={(event) => update(event.currentTarget)}
+        {...(label ? { role: 'region', 'aria-label': label, tabIndex: 0 } : {})}
         className={`custom-scrollbar ${maxHeightClassName} overflow-auto`}
       >
         {children}
@@ -195,6 +234,7 @@ export function FilterChip({
   active,
   count,
   onClick,
+  disabled,
   children,
 }: {
   active: boolean
@@ -205,6 +245,8 @@ export function FilterChip({
    */
   count?: number
   onClick: () => void
+  /** Locks the filter while something on the page must not change under it (an open edit). */
+  disabled?: boolean
   children: ReactNode
 }) {
   return (
@@ -212,7 +254,8 @@ export function FilterChip({
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      className={`inline-flex min-h-[28px] items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
+      disabled={disabled}
+      className={`inline-flex min-h-[28px] items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
         active
           ? 'border-tuggi-blue/35 bg-tuggi-blue/10 text-primary-800 dark:text-tuggi-blue'
           : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300'
@@ -220,7 +263,7 @@ export function FilterChip({
     >
       {children}
       {count !== undefined && (
-        <span className={active ? 'opacity-70' : 'text-gray-500 dark:text-gray-400'}>{count}</span>
+        <span className={active ? 'font-normal' : 'text-gray-500 dark:text-gray-400'}>{count}</span>
       )}
     </button>
   )

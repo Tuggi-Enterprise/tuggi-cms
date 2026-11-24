@@ -29,6 +29,7 @@
  * locale, `Partnerships` overlaid in Portuguese by the tab's own provider.
  */
 
+import { stateMessageKey } from '@/lib/partnerships/pipeline'
 import { useMemo, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import Link from 'next/link'
@@ -43,6 +44,7 @@ import { formatDate } from '@/components/admin/partner-proposals/format'
 import { idleFor, placeLine, planLine, rowKey, whatIsMissing } from '@/components/admin/clients/board/row-text'
 import { derivePartnerPlan, paymentStance } from '@/lib/clients/partner-plan'
 import { PaymentStanceBadge } from '@/components/admin/clients/shared/PaymentStanceBadge'
+import { HeldBadges } from '@/components/admin/clients/shared/HeldBadges'
 import { deriveTriageStatus, type TriageStatus } from '@/lib/partnerships/triage'
 import { triageDeadlineText, triageText } from '@/components/admin/partnerships/triage-text'
 import {
@@ -342,6 +344,13 @@ export function ClientDirectory({
                                   {t('proposalBadge')}
                                 </span>
                               )}
+                              {/* #936: "Agência", "Transfer" or "Guia", read from the category (spec §6). */}
+                              {row.partnerBadge ? (
+                                <span className="mt-1 mr-1 inline-block rounded-full border border-gray-400 px-2 py-0.5 text-xs text-gray-900 dark:text-gray-200">
+                                  {t(`partnerBadges.${row.partnerBadge}`)}
+                                </span>
+                              ) : null}
+                              <HeldBadges row={row} />
                               {row.duplicateCount > 0 && (
                                 <span className="mt-1 inline-block rounded-full border border-secondary-700 px-2 py-0.5 text-xs text-gray-900 dark:text-gray-200">
                                   {p('queue.duplicateBadge', { count: row.duplicateCount })}
@@ -350,7 +359,7 @@ export function ClientDirectory({
                             </td>
                             <td className="px-4 py-4 text-gray-800 dark:text-gray-300">{placeLine(row)}</td>
                             <td className="px-4 py-4 font-medium text-gray-900 dark:text-white">
-                              {p(`states.${row.state}`)}
+                              {p(`states.${stateMessageKey(row.state, row.partnerKind)}`)}
                             </td>
                             {/*
                               THE BADGE AND THE VALUE, in that order, and both of them.

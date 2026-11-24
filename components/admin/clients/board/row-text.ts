@@ -12,6 +12,7 @@
  * than looked up here.
  */
 
+import { stateMessageKey } from '@/lib/partnerships/pipeline'
 import type { useTranslations } from 'next-intl'
 import { daysUntil } from '@/lib/partner-form/regularity'
 import { derivePartnerPlan, type PartnerPlan } from '@/lib/clients/partner-plan'
@@ -24,9 +25,18 @@ import type { ClientDirectoryRow } from '@/lib/services/partnership-service'
 
 type Translator = ReturnType<typeof useTranslations>
 
-/** A row is a client, or a proposal that is not one yet — one of the two ids is always there. */
+/**
+ * The React key of a row, unique across the list (#991): the source and the id of that source.
+ *
+ * It used to be `clientId ?? submissionId`, so the proposal row and the portal row of one client
+ * carried the same key and React kept rows of an earlier search on screen ("office" still showed
+ * Ancho&Faca). `assembleDirectoryRows` gives each client one row now, but the key does not lean on
+ * that: a proposal and a portal submission can never share a key, nor two submissions.
+ */
 export function rowKey(row: ClientDirectoryRow): string {
-  return row.clientId ?? row.submissionId ?? ''
+  if (row.origin === 'portal') return `portal:${row.submissionId ?? ''}`
+  if (row.submissionId) return `proposal:${row.submissionId}`
+  return `client:${row.clientId ?? ''}`
 }
 
 export function placeLine(row: ClientDirectoryRow): string {
@@ -70,7 +80,7 @@ export function whatIsMissing(row: ClientDirectoryRow, p: Translator): string {
   // place counts below have nothing to say about it.
   if (row.state === 'published' && row.liveAt) return p('queue.liveSince', { date: formatDate(row.liveAt) })
 
-  if (PLACE_IS_THE_WORK.indexOf(row.state) < 0) return p(`nextSteps.${row.state}`)
+  if (PLACE_IS_THE_WORK.indexOf(row.state) < 0) return p(`nextSteps.${stateMessageKey(row.state, row.partnerKind)}`)
 
   const parts: string[] = []
   if (row.places.total > 1) {
@@ -186,7 +196,7 @@ export function stateUnlessColumnSaysIt(
   c: Translator
 ): string | null {
   const states = COLUMN_STATES[column] ?? []
-  const label = p(`states.${row.state}`)
+  const label = p(`states.${stateMessageKey(row.state, row.partnerKind)}`)
   // Two conditions, both of data: the column hosts a single state, AND the label is the same
   // text. Either one failing gives the line back to the card.
   if (states.length === 1 && label === c(`columns.${column}`)) return null

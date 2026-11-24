@@ -29,7 +29,7 @@ interface GoogleMapComponentProps {
     title: string
     description?: string
     color?: string
-    /** Marca o usuário como ativo agora — pin maior, cor de destaque e animação (pulse). */
+    /** Marks the user as live now: bigger pin and bounce. Keeps `color` when given, else green. */
     active?: boolean
     /**
      * Deixa o pino ser arrastado. Padrão `false`: quase todo mapa aqui MOSTRA posição, e um pino
@@ -253,7 +253,9 @@ const MapComponent: React.FC<Omit<GoogleMapComponentProps, 'height' | 'className
 
     // Ícone (data-URI SVG) para o estado atual do marcador.
     const buildIcon = (isActive: boolean, color?: string): google.maps.Icon => {
-      const markerColor = isActive ? '#10B981' : (color || '#FF6F00')
+      // The caller's colour wins for an active pin too: the live pins of #1266 tell the guide
+      // state by colour. Green stays the default for an active pin that brings none.
+      const markerColor = color || (isActive ? '#10B981' : '#FF6F00')
       const activeSvg = `
         <svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
           <circle cx="16" cy="16" r="13" fill="${markerColor}" fill-opacity="0.25"/>

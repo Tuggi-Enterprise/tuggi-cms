@@ -1,0 +1,114 @@
+[
+ {
+  "name": "Agenda municipal (Ayuntamiento de Málaga)",
+  "adapter": "file",
+  "base_url": "https://datosabiertos.malaga.eu",
+  "city": "Málaga",
+  "state": "Andalucía",
+  "country": "Spain",
+  "timezone": "Europe/Madrid",
+  "credit": "Informações: Ayuntamiento de Málaga (malaga.eu)",
+  "config": {
+   "version": 1,
+   "language": "es-es",
+   "fetch": {
+    "url": "https://datosabiertos.malaga.eu/recursos/cultura/agenda/2026.csv",
+    "format": "csv",
+    "csv": {
+     "separator": ",",
+     "date_format": "DD/MM/YYYY"
+    }
+   },
+   "fields": {
+    "external_id": "ID_ACTIVIDAD",
+    "name": "NOMBRE",
+    "description": "DESCRIPCION",
+    "starts_at": {
+     "date": "F_INICIO"
+    },
+    "ends_at": {
+     "date": "F_FIN"
+    },
+    "address": [
+     {
+      "join": [
+       "EQP_DESCRIPCION",
+       "EQP_NOMBRECALLE"
+      ],
+      "sep": ", "
+     },
+     "OTROS_LUGARES"
+    ],
+    "url": "DIRECCION_WEB",
+    "category": {
+     "join": [
+      "ESPECIALIDAD",
+      "CATEGORIA"
+     ],
+     "sep": ";"
+    }
+   },
+   "category": {
+    "rules": [
+     [
+      "festival",
+      "festival"
+     ],
+     [
+      "fiestas populares",
+      "festival"
+     ],
+     [
+      "musica",
+      "music"
+     ],
+     [
+      "concierto",
+      "music"
+     ],
+     [
+      "teatro",
+      "theatre"
+     ],
+     [
+      "espectaculo",
+      "theatre"
+     ],
+     [
+      "danza",
+      "theatre"
+     ],
+     [
+      "exposicion",
+      "exhibition"
+     ],
+     [
+      "museo",
+      "exhibition"
+     ],
+     [
+      "deporte",
+      "sports"
+     ],
+     [
+      "congreso",
+      "conference"
+     ],
+     [
+      "conferencia",
+      "conference"
+     ],
+     [
+      "feria",
+      "fair"
+     ],
+     [
+      "infantil",
+      "kids"
+     ]
+    ],
+    "default": "other"
+   }
+  }
+ }
+]

@@ -3,7 +3,8 @@
 import { Scale, Landmark, Percent, CreditCard } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import type { Client } from '@/types/clients'
-import { taxConfigFor, usesBankingIBAN } from '@/components/admin/clients/shared/countries'
+import { taxConfigOfClient, usesBankingIBAN } from '@/components/admin/clients/shared/countries'
+import { isAppPartnerType } from '@/lib/partnerships/partner-kind'
 import { EditField } from '@/components/admin/clients/shared/EditField'
 import { SectionHeader } from '@/components/admin/clients/shared/SectionHeader'
 import { formatDate, formatFee } from '@/lib/contract/snapshot'
@@ -42,7 +43,10 @@ export function FiscalPaymentsTab({ client, edited, updateField, canEdit, client
   const t = useTranslations('Clients.fiscal')
   const isEditing = canEdit
   const currentCountry = String(edited.country ?? client?.country ?? '')
-  const taxConfig = taxConfigFor(currentCountry)
+  const clientType = edited.client_type ?? client?.client_type ?? null
+  // #1139: the app partner's document is a CPF or a CNPJ, named by the document and not the country.
+  const taxConfig = taxConfigOfClient(clientType, currentCountry, edited.tax_id ?? client?.tax_id ?? null)
+  const appPartner = isAppPartnerType(clientType)
   const showIBAN = usesBankingIBAN(currentCountry)
   /**
    * No fallback. Painting 20% into a field nobody filled in is the presumed value
@@ -234,7 +238,7 @@ export function FiscalPaymentsTab({ client, edited, updateField, canEdit, client
               onChange={(val) => updateField('tax_id', val)}
               placeholder={taxConfig.placeholder}
             />
-            {currentCountry ? null : <p className="text-[10px] text-gray-400 mt-1">{t('fields.taxIdSelectCountry')}</p>}
+            {currentCountry || appPartner ? null : <p className="text-[10px] text-gray-400 mt-1">{t('fields.taxIdSelectCountry')}</p>}
           </div>
           <EditField
             label={t('fields.legalRepName')}

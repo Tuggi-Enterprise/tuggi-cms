@@ -50,6 +50,11 @@ export const DRAFT_RPCS = [
   'client_acceptance_link_get',
   'client_acceptance_link_terms',
   'client_acceptance_link_accept',
+  // #1138: the acceptance of a partner request sent from the app (`parceiro-sem-local.md` §3), on
+  // the same page `/aceite/[token]` and behind the same boundary.
+  'partner_request_link_get',
+  'partner_request_link_terms',
+  'partner_request_link_accept',
 ] as const;
 export type DraftRpc = (typeof DRAFT_RPCS)[number];
 
@@ -132,15 +137,23 @@ export function portalOrigin(raw: string | undefined): string {
 
 export type AcceptParams = { termsVersion: string; termsSha256: string; sticker: boolean; display: boolean; social: boolean; marketing: boolean };
 
-export function parseAccept(v: unknown): AcceptParams | null {
+/** The version and the hash of the terms as displayed (BR-B2B-047 item 2). Shape only: the database compares. */
+export function parseTermsRef(v: unknown): { termsVersion: string; termsSha256: string } | null {
   const a = obj(v);
-  const k = obj(a?.activation_commitment);
-  if (!a || !k) return null;
+  if (!a) return null;
   if (typeof a.terms_version !== 'string' || !TERMS_VERSION.test(a.terms_version)) return null;
   if (typeof a.terms_sha256 !== 'string' || !HEX64.test(a.terms_sha256.toLowerCase())) return null;
+  return { termsVersion: a.terms_version, termsSha256: a.terms_sha256.toLowerCase() };
+}
+
+export function parseAccept(v: unknown): AcceptParams | null {
+  const ref = parseTermsRef(v);
+  const a = obj(v);
+  const k = obj(a?.activation_commitment);
+  if (!ref || !a || !k) return null;
   if (typeof k.sticker !== 'boolean' || typeof k.display !== 'boolean' || typeof k.social !== 'boolean') return null;
   if (typeof a.marketing_consent !== 'boolean') return null;
-  return { termsVersion: a.terms_version, termsSha256: a.terms_sha256.toLowerCase(), sticker: k.sticker, display: k.display, social: k.social, marketing: a.marketing_consent };
+  return { ...ref, sticker: k.sticker, display: k.display, social: k.social, marketing: a.marketing_consent };
 }
 
 /**
@@ -314,7 +327,8 @@ export function rpcFailure(e: RpcError): Result {
     case 'TGP31':
     case 'TGP32':
     case 'TGP33':
-      // #872: already accepted / paid plan by link not yet / no terms for the partner type.
+      // #872: already accepted / paid plan by link not yet / no terms for the partner type (and,
+      // #1138, no approved terms without a place v2 for an app request yet).
       return { status: 409, body: { error: 'conflict', detail: e.code.toLowerCase() } };
     case '42501':
       return { status: 403, body: { error: 'forbidden', ...(d ? { detail: d } : {}) } };
@@ -348,7 +362,42 @@ export function parseSigner(v: unknown): Record<string, string> | null {
 /** #872: what the page of the link may read of `client_acceptance_link_get` — a fixed list of keys. */
 const LINK_GET_KEYS = ['state', 'accepted_at', 'expires_at', 'plan_choice', 'trade_name', 'legal_name', 'tax_id', 'email', 'representative_name', 'representative_role'];
 
+/**
+ * #1138: what the page may read of `partner_request_link_get` (`parceiro-sem-local.md` §3.2). The
+ * documents, the phone and the e-mail go to the Worker, which masks them before the browser.
+ */
+const APP_REQUEST_GET_KEYS = ['state', 'accepted_at', 'expires_at', 'partner_type', 'document_type', 'document', 'full_name', 'legal_name', 'representative_cpf', 'whatsapp', 'contact_email'];
+
 const firstRow = (data: unknown): Record<string, unknown> | null => obj(Array.isArray(data) ? data[0] : data);
+
+/** A `jsonb` page state reduced to a fixed list of keys. No `state` → `502`. */
+function pickState(data: unknown, keys: string[]): Result {
+  const row = obj(data);
+  if (!row || typeof row.state !== 'string') return { status: 502, body: { error: 'unavailable' } };
+  return { status: 200, body: Object.fromEntries(keys.filter((k) => row[k] !== undefined).map((k) => [k, row[k]])) };
+}
+
+/** A `TABLE(terms_version, body_html, sha256)` answer → the page's terms. */
+function termsResult(data: unknown): Result {
+  const row = firstRow(data);
+  return row ? { status: 200, body: { terms_version: row.terms_version, body_html: row.body_html, sha256: row.sha256 } } : { status: 502, body: { error: 'unavailable' } };
+}
+
+/** A `TABLE(acceptance_id, accepted_at, already_accepted)` answer → the page's answer. */
+function acceptedResult(data: unknown): Result {
+  const row = firstRow(data);
+  return row && typeof row.accepted_at === 'string'
+    ? { status: 200, body: { accepted_at: row.accepted_at, already_accepted: row.already_accepted === true } }
+    : { status: 502, body: { error: 'unavailable' } };
+}
+
+/** The evidence of THIS request the Worker forwards (BR-B2B-047 item 2): the field that fails, or `null`. */
+const badEvidence = (b: Record<string, unknown>): Result | null =>
+  typeof b.ip !== 'string' || !IP.test(b.ip)
+    ? bad('ip')
+    : typeof b.user_agent !== 'string' || !b.user_agent || b.user_agent.length > USER_AGENT_MAX
+      ? bad('user_agent')
+      : null;
 
 async function call(deps: Deps, fn: DraftRpc, args: Record<string, unknown>): Promise<{ ok: true; data: unknown } | { ok: false; result: Result }> {
   const { data, error } = await deps.rpc(fn, args);
@@ -605,19 +654,14 @@ export async function handle(deps: Deps, raw: unknown, jwt: string): Promise<Res
       // #872 (BR-B2B-056 item 7): `invalid` | `accepted` (date only) | `open`. `token_sha256` is the
       // sha256 of the LINK token, computed by the Worker; the raw token never comes here.
       const r = await call(deps, 'client_acceptance_link_get', { p_token_sha256: token });
-      if (!r.ok) return r.result;
-      const row = obj(r.data);
-      if (!row || typeof row.state !== 'string') return { status: 502, body: { error: 'unavailable' } };
-      return { status: 200, body: Object.fromEntries(LINK_GET_KEYS.filter((k) => row[k] !== undefined).map((k) => [k, row[k]])) };
+      return r.ok ? pickState(r.data, LINK_GET_KEYS) : r.result;
     }
     case 'acceptance_terms': {
       // #872: the terms filled with the client record and the signer — asked again when the signer changes.
       const signer = parseSigner(b.signer);
       if (!signer) return bad('signer');
       const r = await call(deps, 'client_acceptance_link_terms', { p_token_sha256: token, p_signer: signer });
-      if (!r.ok) return r.result;
-      const row = firstRow(r.data);
-      return row ? { status: 200, body: { terms_version: row.terms_version, body_html: row.body_html, sha256: row.sha256 } } : { status: 502, body: { error: 'unavailable' } };
+      return r.ok ? termsResult(r.data) : r.result;
     }
     case 'acceptance_accept': {
       // #872 (BR-B2B-047 items 2 to 7, BR-B2B-056): the same evidence as `submit`; a used link
@@ -626,8 +670,8 @@ export async function handle(deps: Deps, raw: unknown, jwt: string): Promise<Res
       if (!signer) return bad('signer');
       const p = parseAccept(b.accept);
       if (!p) return bad('accept');
-      if (typeof b.ip !== 'string' || !IP.test(b.ip)) return bad('ip');
-      if (typeof b.user_agent !== 'string' || !b.user_agent || b.user_agent.length > USER_AGENT_MAX) return bad('user_agent');
+      const ev = badEvidence(b);
+      if (ev) return ev;
       const r = await call(deps, 'client_acceptance_link_accept', {
         p_token_sha256: token,
         p_signer: signer,
@@ -638,11 +682,34 @@ export async function handle(deps: Deps, raw: unknown, jwt: string): Promise<Res
         p_activation_commitment: { sticker: p.sticker, display: p.display, social: p.social },
         p_marketing_consent: p.marketing,
       });
-      if (!r.ok) return r.result;
-      const row = firstRow(r.data);
-      return row && typeof row.accepted_at === 'string'
-        ? { status: 200, body: { accepted_at: row.accepted_at, already_accepted: row.already_accepted === true } }
-        : { status: 502, body: { error: 'unavailable' } };
+      return r.ok ? acceptedResult(r.data) : r.result;
+    }
+    case 'app_request_get': {
+      // #1138 (BR-B2B-066 item 5.c): `invalid` | `accepted` (date only) | `open` with the request.
+      const r = await call(deps, 'partner_request_link_get', { p_token_sha256: token });
+      return r.ok ? pickState(r.data, APP_REQUEST_GET_KEYS) : r.result;
+    }
+    case 'app_request_terms': {
+      // #1138: the terms without a place, v2 on, filled with the request. `TGP33` until the operator
+      // approves the text → `409 conflict tgp33`: no text, no acceptance (BR-B2B-066 item 5.d).
+      const r = await call(deps, 'partner_request_link_terms', { p_token_sha256: token });
+      return r.ok ? termsResult(r.data) : r.result;
+    }
+    case 'app_request_accept': {
+      // #1138 (BR-B2B-066 item 5.c, BR-B2B-047 item 2): clickwrap with no signer, no kit and no
+      // publicity consent; the data of the terms are the request's. A used link answers the first acceptance.
+      const ref = parseTermsRef(b.accept);
+      if (!ref) return bad('accept');
+      const ev = badEvidence(b);
+      if (ev) return ev;
+      const r = await call(deps, 'partner_request_link_accept', {
+        p_token_sha256: token,
+        p_terms_version: ref.termsVersion,
+        p_terms_sha256: ref.termsSha256,
+        p_ip: b.ip,
+        p_user_agent: b.user_agent,
+      });
+      return r.ok ? acceptedResult(r.data) : r.result;
     }
     case 'claim': {
       if (typeof b.claim_token !== 'string' || !CLAIM_TOKEN.test(b.claim_token)) return bad('claim_token');

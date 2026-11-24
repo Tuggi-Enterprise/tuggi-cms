@@ -2,7 +2,7 @@
 
 import { ReactNode } from 'react'
 import { Link } from '@/navigation'
-import { ArrowRight, LucideIcon } from 'lucide-react'
+import { ArrowRight, Info, LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 // ============================================================================
@@ -48,6 +48,13 @@ interface SectionHeaderProps {
   /** Conteúdo extra à direita (ex.: badge "realtime"), substitui o link se passado. */
   right?: ReactNode
   className?: string
+  /** The definition of what the card counts, behind an info mark next to the title (native tooltip and screen reader). */
+  hint?: string
+  /**
+   * Heading level. `h3` by default, as every dashboard card has rendered so far; a page whose cards
+   * sit right under the `h1` passes `h2` (axe `heading-order`), as `CardTitle` of `card.tsx` does.
+   */
+  as?: 'h2' | 'h3'
 }
 
 export function SectionHeader({
@@ -58,14 +65,21 @@ export function SectionHeader({
   linkLabel = 'ver detalhes',
   right,
   className,
+  hint,
+  as: Heading = 'h3',
 }: SectionHeaderProps) {
   return (
     <div className={cn('flex items-center justify-between mb-4', className)}>
       <div className="flex items-center gap-2 min-w-0">
-        {Icon && <Icon className="h-4 w-4 shrink-0" style={{ color: iconColor }} />}
-        <h3 className="text-xs font-black uppercase tracking-widest text-gray-700 dark:text-gray-300 truncate">
+        {Icon && <Icon className="h-4 w-4 shrink-0" style={{ color: iconColor }} aria-hidden="true" />}
+        <Heading className="text-xs font-black uppercase tracking-widest text-gray-700 dark:text-gray-300 truncate">
           {title}
-        </h3>
+        </Heading>
+        {hint && (
+          <span role="img" aria-label={hint} title={hint} className="shrink-0 cursor-help text-gray-400">
+            <Info className="h-3.5 w-3.5" aria-hidden="true" />
+          </span>
+        )}
       </div>
 
       {right ? (
@@ -73,7 +87,7 @@ export function SectionHeader({
       ) : href ? (
         <Link
           href={href}
-          className="group flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-gray-400 hover:text-tuggi-blue transition-colors shrink-0"
+          className="group flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-gray-500 dark:text-gray-400 hover:text-primary-800 dark:hover:text-tuggi-blue transition-colors shrink-0"
         >
           {linkLabel}
           <ArrowRight className="h-3 w-3 transition-transform group-hover:translate-x-0.5" />

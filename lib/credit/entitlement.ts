@@ -28,12 +28,13 @@ export const ENTITLEMENT_STATES = ['unlimited', 'metered', 'free'] as const
 export type EntitlementState = (typeof ENTITLEMENT_STATES)[number]
 
 /**
- * The six doors through which balance or term enters an account (BR-MONETIZACAO-047) —
- * what the ledger writes in `source`, and what `last_grant_source` answers. A source
- * outside this list is new data from the database, and the screen prints the raw value
- * instead of inventing a label for it.
+ * The doors through which balance or term enters an account (BR-MONETIZACAO-047) — what the
+ * ledger writes in `source`, and what `last_grant_source` answers. `referral` and `mission` are
+ * earned hours (BR-MONETIZACAO-047 table, BR-MONETIZACAO-032 door 5); the list missed them and
+ * the screens printed the raw value (#978). A source outside this list is new data from the
+ * database, and the screen prints the raw value instead of inventing a label for it.
  */
-export const GRANT_SOURCES = ['purchase', 'welcome', 'coupon', 'cms', 'partner', 'transfer'] as const
+export const GRANT_SOURCES = ['purchase', 'welcome', 'coupon', 'cms', 'partner', 'transfer', 'referral', 'mission'] as const
 
 export type GrantSource = (typeof GRANT_SOURCES)[number]
 
@@ -47,6 +48,19 @@ export type GrantSource = (typeof GRANT_SOURCES)[number]
  */
 export function grantOrigin(source: string | null | undefined): 'purchase' | 'grant' {
   return source === 'purchase' ? 'purchase' : 'grant'
+}
+
+/**
+ * Which mission paid a `mission` grant, read from its `source_ref`, or `null`.
+ *
+ * The ledger writes one grant per mission and period, `mission:<user_id>:<mission_id>:<period_key>`,
+ * and that string is the idempotency key. Several missions settled in one transaction share the
+ * same `granted_at`, so without this line six different grants read as one grant written six
+ * times (#978). The user id is dropped: the record already names the tourist.
+ */
+export function missionOf(sourceRef: string | null | undefined): string | null {
+  const match = /^mission:[0-9a-f-]{36}:([^:]+):(.+)$/i.exec(sourceRef ?? '')
+  return match ? `${match[1]} · ${match[2]}` : null
 }
 
 /** Ascending order of comfort. It is the order the report's filter is drawn in. */

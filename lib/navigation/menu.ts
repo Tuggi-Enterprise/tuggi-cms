@@ -56,24 +56,33 @@
 
 import {
   Activity,
+  BadgeCheck,
+  Banknote,
   BarChart3,
   Bell,
+  BellRing,
+  CalendarClock,
   CalendarDays,
   Coins,
   Database,
   Gift,
   Hourglass,
+  Inbox,
   Handshake,
   LayoutDashboard,
   Mail,
   Map,
+  Megaphone,
   MapPin,
   Network,
   Package,
   Route,
   Smartphone,
+  Share2,
+  ShieldAlert,
   Store,
   Target,
+  ThumbsDown,
   Trophy,
   Flag,
   Upload,
@@ -160,7 +169,10 @@ function catalogue(): { basic: NavEntry[]; modules: NavEntry[] } {
               item('/dashboard/reports/catalog', 'catalog', Database),
               item('/dashboard/reports/geography', 'geography', MapPin),
               item('/dashboard/reports/acquisition', 'acquisition', BarChart3),
+              // From install to purchase, by month (#1068): read right after where they came from.
               item('/dashboard/reports/engagement', 'engagement', Activity),
+              // Gross revenue of the store purchases, month by month (#1157): read right after conversion.
+              item('/dashboard/reports/revenue', 'revenue', Banknote),
               // "Base de Usuários" e não "Usuários": é RELATÓRIO. O rótulo antigo era o mesmo
               // literal de outros dois destinos — o dropdown de topo e `/admin/users` — e a
               // barra não mostra o pai quando o painel está fechado.
@@ -170,6 +182,9 @@ function catalogue(): { basic: NavEntry[]; modules: NavEntry[] } {
               item('/dashboard/reports/ranking', 'ranking', Trophy),
               // Quem iniciou, está em andamento e concluiu cada roteiro (#794).
               item('/dashboard/reports/route-progress', 'route_progress', Flag),
+              // Who received and who opened each push (#1051). `Bell`, not the `BellRing` of
+              // the weekly push: one configures, the other reads.
+              item('/dashboard/reports/push', 'push_results', Bell),
             ],
           },
         ],
@@ -189,9 +204,13 @@ function catalogue(): { basic: NavEntry[]; modules: NavEntry[] } {
               item('/events', 'events', CalendarDays),
               item('/places', 'places', Store),
               item('/routes', 'custom_routes', Route),
+              // The approval of user route versions (#1106, BR-ROTA-006 item 3): admin, under /admin.
+              item('/admin/route-review', 'route_review', Inbox),
               // Direções e avisos: os clipes que não pertencem a nenhum POI. Saiu de `Admin`
               // porque é conteúdo, não administração — o comentário antigo já dizia isso.
               item('/dashboard/system-audio', 'system_audio', Volume2),
+              // Os votos dos turistas nas histórias (#950, BR-CONTEUDO-009 item 5): o que corrigir no texto.
+              item('/admin/story-feedback', 'story_feedback', ThumbsDown),
             ],
           },
           {
@@ -221,6 +240,8 @@ function catalogue(): { basic: NavEntry[]; modules: NavEntry[] } {
               item(CLIENT_DIRECTORY_PATH, 'partnerships', Handshake),
               item('/admin/materials', 'materials', Package),
               item('/admin/coupons', 'coupons', Gift),
+              // The Tuggi do parceiro (#1257): logos to approve, the brand term, the switches, the package prices.
+              item('/admin/partner-brand', 'partner_brand', BadgeCheck),
             ],
           },
         ],
@@ -233,6 +254,14 @@ function catalogue(): { basic: NavEntry[]; modules: NavEntry[] } {
             items: [
               item('/dashboard/marketing/newsletter', 'newsletter', Mail),
               item('/dashboard/marketing/notifications', 'notifications', Bell),
+              // The weekly push (#1047), next to the one-off push, where the operator looks for push.
+              item('/admin/weekly-push', 'weekly_push', BellRing),
+              // The planned trip and its reminder (#1233): panel, switches, numbers, secrets and sends.
+              item('/admin/trip-reminder', 'trip_reminder', CalendarClock),
+              // The campaigns of the app (#1192): carousel, launch sheet and Explore card, on and off without a release.
+              item('/admin/app-campaigns', 'app_campaigns', Megaphone),
+              // The social analytics (#1059): our posts, the competitors and the Instagram funnel.
+              item('/admin/social', 'social', Share2),
             ],
           },
         ],
@@ -252,6 +281,8 @@ function catalogue(): { basic: NavEntry[]; modules: NavEntry[] } {
               // consolidação das duas não for decidida.
               item('/admin/users', 'cms_team', UserCog),
               item('/users/app', 'app_users', Smartphone),
+              // The moderation of display name, @ and bio (#1144, BR-USUARIO-051 item 5): reports and filter lists.
+              item('/admin/public-names', 'public_names', ShieldAlert),
               item('/admin/audit-logs', 'audit_logs', Activity),
               // Os números das horas concedidas (#855): escrita só por `drive.set_reward_setting`.
               item('/admin/reward-settings', 'reward_settings', Hourglass),

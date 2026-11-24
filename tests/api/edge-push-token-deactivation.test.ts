@@ -56,7 +56,12 @@ const MODULE_PATH = resolve(
   import.meta.dirname,
   '../../supabase/functions/_shared/fcm-errors.ts'
 )
+/** The send loop of `firebase-push-notification`, shared with `weekly-local-push` since #1046. */
 const FUNCTION_PATH = resolve(
+  import.meta.dirname,
+  '../../supabase/functions/_shared/push-send.ts'
+)
+const ROUTE_PATH = resolve(
   import.meta.dirname,
   '../../supabase/functions/firebase-push-notification/index.ts'
 )
@@ -550,9 +555,11 @@ test('the send loop can stop itself when FCM keeps rejecting the payload', () =>
   assert.match(source, /FCM_PAYLOAD_REJECTED/, 'the aborted send returns no typed error')
   assert.match(
     source,
-    /status:\s*400,[\s\S]{0,200}?Content-Type/,
+    /status:\s*400,[\s\S]{0,200}?FCM_PAYLOAD_REJECTED/,
     'the aborted send no longer answers with a non-2xx'
   )
+  // The route answers HTTP with the status the sender chose, never a fixed 200.
+  assert.match(readFileSync(ROUTE_PATH, 'utf8'), /status:\s*answer\.status/, '/send no longer passes the status on')
 })
 
 test('the loud INVALID_ARGUMENT log carries the requestId and only 8 chars of the token', () => {

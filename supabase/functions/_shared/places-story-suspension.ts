@@ -1,169 +1,160 @@
-// _shared/places-story-suspension.ts — the paid description follows the payment (#889, épico #876).
+// _shared/places-story-suspension.ts — the paid content follows the payment (#889, #1055).
 //
-// BR-B2B-019: when the partner stops paying, the description comes off and the place is the name
-// again (items 1 and 3); paying again brings it back from the same input, with no new screening
-// (item 6); nothing of it reaches the tourist (item 7). The operator's exception
-// (`partner_description_exception_*`, migration `20260826_02`) wins over all of it.
+// BR-B2B-019: when the paid plan of a place ends, the story AND the photos come off at the end of
+// the period already paid and the app says only the name (items 1, 3 and 7); story and photos are
+// kept, and they come back by themselves when the partner pays again (item 6). It holds for the
+// Experiência plan of the portal and for the pre-portal plan alike (BR-B2B-060, BR-B2B-044). The
+// operator's exception (`partner_description_exception_*`) wins over all of it.
 //
-// ONE SOURCE OF "IS IT PAID?": `partner.place_story_entitled(submission_id)` — the function the
-// payment contract names as the single answer (`docs/contracts/places-pagamento.md` §2). It already
-// folds cancellation (renewal off → ends at `paid_through`) and dunning (past due → ends at
-// `paid_through` + `place_renewal_grace_days()`). No day count lives here.
+// THE DATABASE DECIDES, THIS MODULE CALLS (#1055). One list and two atomic actions, all
+// `service_role`, all in `db-tuggiApp` migration `20261029120100`:
+//  · `partner.place_paid_content_places()` → every place whose paid right is `paid` or `ended`
+//    (`partner.place_paid_content_state`: portal entitlement with its grace, running pre-portal fee,
+//    or the month already paid of an ended one) and whether its archive is open;
+//  · `partner.place_suspend_paid_content(attraction)` → keeps every description row, `image_url`
+//    and every `core.attraction_image` row in `core.attraction_content_archive`, then leaves the
+//    base row with the name only, no other language, no photo;
+//  · `partner.place_restore_paid_content(attraction)` → puts the kept content back (a text written
+//    in between wins) and closes the archive; it also restores the places #889 suspended before the
+//    archive existed. No day count, no exception check and no row write lives here.
 //
-// RECONCILIATION, NOT EVENTS: the daily sweep compares, for every place that ever had a paid
-// portal subscription, what the payment says with what the description row carries, and moves the
-// row only when they disagree. Idempotent by construction, and a failure is retried the next day.
+// WHAT IS LEFT TO THIS MODULE:
+//  · the voiced files under `master_audio/{attraction_id}/` named `{attraction_id}-*.mp3` — listed,
+//    then removed by exact path, never a bucket, never a prefix delete. After `suspended` always;
+//    after `restored` only when the text came back (`text_restored`): a text written in between
+//    may be voiced, and its files are not ours to remove;
+//  · `core.app_poi_read_build` after `suspended` and `restored` (best effort; the backstop cron
+//    covers a failure).
 //
-// WHAT IT TOUCHES, AND THE FILTER ON EACH:
-//  · the base row (`pt-br`, `male`) of `core.attraction_descriptions` — ONLY by a conditional
-//    UPDATE on `generation_meta.kind`: suspend moves `partner_story_script` → `partner_name_only`,
-//    restore moves `partner_name_only` → `partner_story_script`. A catalogue description, an
-//    operator's edit or a `[PROCESSING]` row carries another kind and is never matched;
-//  · every OTHER row of that `attraction_id` (translations, other voice) — `DELETE` filtered by
-//    `attraction_id` AND (language ≠ base OR gender ≠ base);
-//  · the files under `master_audio/{attraction_id}/` named `{attraction_id}-*.mp3` — listed, then
-//    removed by exact path. Never a bucket, never a prefix delete.
-// The partner's input (`answers.story_script`, `answers`) is read, never written: the description is
-// suspended, not deleted (BR-B2B-019, 1st edge case).
+// RECONCILIATION, NOT EVENTS: every run walks the whole list; both actions answer a no-op outcome
+// when there is nothing to do. Each place is independent: an error (a 23503 from a trigger point
+// that points at a translation included) alerts and the run goes on to the next place; tomorrow's
+// run tries again.
 //
-// TWINS, ON PURPOSE AND NAMED: the CMS writes these same two rows from the operator's session —
-// `core.cms_apply_name_only_description` (SQL) and `applyPartnerPlaceDescription`
-// (`lib/services/place-description-policy-service.ts`). Both gate on the operator's JWT, and the
-// sweep has none; this module is their `service_role` twin. Change one, change the other.
+// TWINS, ON PURPOSE AND NAMED: the name-only row the suspension writes is the row of
+// `core.cms_apply_name_only_description`, and the story row the restore writes for a #889 place is
+// the row of `applyPartnerPlaceDescription` (`lib/services/place-description-policy-service.ts`).
+// Since #1055 both twins are SQL, inside the two functions above. Change one, change the other.
 //
 // Import-free, every effect injected: the CMS tests load it under Node.
 
-/** `BASE_LANGUAGE` / `BASE_GENDER` of `place-description-policy-service.ts`. */
-export const BASE_LANGUAGE = 'pt-br';
-export const BASE_GENDER = 'male';
-/** `generation_meta.kind` values — the same strings the CMS writes. */
-export const PARTNER_STORY_SCRIPT_KIND = 'partner_story_script';
-export const PARTNER_NAME_ONLY_KIND = 'partner_name_only';
-
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** One portal submission whose subscription was paid at least once, with the place it became. */
-export type StoryPlace = { submissionId: string; attractionId: string; story: string | null };
+/** One row of `partner.place_paid_content_places()`. */
+export type PaidContentPlace = { attractionId: string; state: 'paid' | 'ended'; archived: boolean };
 
-export type BaseRow = {
-  description: string;
-  audio_url: null;
-  updated_at: string;
-  verification_status: 'approved';
-  generation_meta: { kind: string };
-  facts_pack_json?: unknown[];
-};
+/** `outcome` of `partner.place_suspend_paid_content`. */
+export const SUSPEND_OUTCOMES = ['suspended', 'already_suspended', 'not_ended', 'exception', 'no_name', 'processing'] as const;
+export type SuspendOutcome = (typeof SUSPEND_OUTCOMES)[number];
+
+/** `outcome` of `partner.place_restore_paid_content`. */
+export const RESTORE_OUTCOMES = ['restored', 'nothing_archived', 'not_paid', 'exception'] as const;
+export type RestoreOutcome = (typeof RESTORE_OUTCOMES)[number];
+export type RestoreResult = { outcome: RestoreOutcome; textRestored: boolean; imagesRestored: number };
 
 export type SuspensionDeps = {
-  /** Submissions with `attraction_id` whose subscription left `pending_payment` at least once. Throws on error. */
-  storyPlaces: () => Promise<StoryPlace[]>;
-  /** `partner.place_story_entitled(submission_id)`. Throws on error — never "false" by accident. */
-  entitled: (submissionId: string) => Promise<boolean>;
-  /** `core.attractions` name and whether the operator's exception is set; `null` when the place is gone. */
-  placeFacts: (attractionId: string) => Promise<{ name: string; hasException: boolean } | null>;
-  /** `generation_meta->>kind` of the base row; `null` when there is no base row. Throws on error. */
-  baseKind: (attractionId: string) => Promise<string | null>;
-  /** Deletes the non-base rows and the voiced files of THIS attraction (filters above). Throws on error. */
-  removeVoicedCopies: (attractionId: string) => Promise<void>;
-  /** Conditional UPDATE of the base row where its kind is `fromKind`; true when a row changed. Throws on error. */
-  writeBase: (attractionId: string, fromKind: string, row: BaseRow) => Promise<boolean>;
+  /** `partner.place_paid_content_places()`. Throws on error. */
+  places: () => Promise<PaidContentPlace[]>;
+  /** `partner.place_suspend_paid_content`. Throws on error (with the SQLSTATE in the message). */
+  suspend: (attractionId: string) => Promise<SuspendOutcome>;
+  /** `partner.place_restore_paid_content`. Throws on error (with the SQLSTATE in the message). */
+  restore: (attractionId: string) => Promise<RestoreResult>;
+  /** Removes `master_audio/{id}/{id}-*.mp3` of THIS place by exact path. Throws on error. */
+  removeVoicedFiles: (attractionId: string) => Promise<void>;
   /** `core.app_poi_read_build` for the place — best effort, never throws. */
   rebuildReadModel: (attractionId: string) => Promise<void>;
   /** Ids and outcomes only. */
   alert: (what: string, fields: Record<string, string | number | null | undefined>) => Promise<void>;
-  now: () => Date;
 };
 
-export type SuspensionSummary = { suspended: number; restored: number; exception: number; failed: number };
+/** `waiting`: `processing` (generate-description holds the row) — the next run takes it. */
+export type SuspensionSummary = {
+  suspended: number;
+  restored: number;
+  exception: number;
+  waiting: number;
+  failed: number;
+};
 
-/** Same row `cms_apply_name_only_description` inserts. */
-export function nameOnlyRow(name: string, now: Date): BaseRow {
-  return {
-    description: name,
-    audio_url: null,
-    facts_pack_json: [],
-    updated_at: now.toISOString(),
-    verification_status: 'approved',
-    generation_meta: { kind: PARTNER_NAME_ONLY_KIND },
-  };
-}
-
-/** Same row `applyPartnerPlaceDescription` writes. */
-export function storyRow(story: string, now: Date): BaseRow {
-  return {
-    description: story,
-    audio_url: null,
-    updated_at: now.toISOString(),
-    verification_status: 'approved',
-    generation_meta: { kind: PARTNER_STORY_SCRIPT_KIND },
-  };
-}
-
-/** BR-B2B-019 items 1, 3, 6 and 7, for every portal place. Each place is independent: one failure alerts and the rest go on. */
+/** BR-B2B-019 items 1, 3, 6 and 7, for every place with a paid plan. One failure alerts and the rest go on. */
 export async function reconcilePartnerStories(deps: SuspensionDeps): Promise<SuspensionSummary> {
-  const summary: SuspensionSummary = { suspended: 0, restored: 0, exception: 0, failed: 0 };
+  const summary: SuspensionSummary = { suspended: 0, restored: 0, exception: 0, waiting: 0, failed: 0 };
 
-  const byPlace = new Map<string, StoryPlace[]>();
-  for (const p of await deps.storyPlaces()) {
-    if (!UUID.test(p.attractionId) || !UUID.test(p.submissionId)) continue;
-    byPlace.set(p.attractionId, [...(byPlace.get(p.attractionId) ?? []), p]);
-  }
-
-  for (const [attractionId, submissions] of byPlace) {
+  for (const place of await deps.places()) {
+    if (!UUID.test(place.attractionId)) continue;
+    // An ended place with its archive open was suspended on an earlier run: nothing to call.
+    if (place.state === 'ended' && place.archived) continue;
     try {
-      const outcome = await reconcilePlace(deps, attractionId, submissions);
-      if (outcome !== 'none') summary[outcome]++;
+      const counted = place.state === 'ended' ? await suspendPlace(deps, place.attractionId) : await restorePlace(deps, place.attractionId);
+      if (counted) summary[counted]++;
     } catch (e) {
       summary.failed++;
-      try { await deps.alert('story_suspension_failed', { attraction_id: attractionId, error: e instanceof Error ? e.message.slice(0, 200) : 'unknown' }); } catch { // a failed alert must not stop the loop (security review #889, R4)
-      }
+      await safeAlert(deps, 'story_suspension_failed', {
+        attraction_id: place.attractionId,
+        state: place.state,
+        error: e instanceof Error ? e.message.slice(0, 200) : 'unknown',
+      });
     }
   }
   return summary;
 }
 
-async function reconcilePlace(
-  deps: SuspensionDeps,
-  attractionId: string,
-  submissions: StoryPlace[],
-): Promise<'suspended' | 'restored' | 'exception' | 'none'> {
-  // Two submissions on one place: the place is paid while ANY of them is (BR-B2B-019 item 4 — the
-  // reach is that place's paid description, and a live payment keeps it).
-  let paying: StoryPlace | null = null;
-  for (const s of submissions) {
-    if (await deps.entitled(s.submissionId)) {
-      paying = s;
-      break;
-    }
+async function suspendPlace(deps: SuspensionDeps, attractionId: string): Promise<keyof SuspensionSummary | null> {
+  const outcome = await deps.suspend(attractionId);
+  switch (outcome) {
+    case 'suspended':
+      // The rows are already off (one transaction); the files go after, and a failure here is
+      // alerted: no row points at them any more, and the restore of the text removes them again.
+      await removeFilesOrAlert(deps, attractionId, outcome);
+      await deps.rebuildReadModel(attractionId);
+      return 'suspended';
+    case 'exception':
+      return 'exception';
+    case 'processing':
+      return 'waiting';
+    case 'no_name':
+      // Without a name there is nothing to leave on the place; it never resolves alone.
+      await safeAlert(deps, 'story_suspension_no_name', { attraction_id: attractionId });
+      return 'failed';
+    case 'already_suspended':
+    case 'not_ended':
+      return null;
   }
+}
 
-  const facts = await deps.placeFacts(attractionId);
-  if (!facts) return 'none';
-  if (facts.hasException) return 'exception';
-
-  const kind = await deps.baseKind(attractionId);
-
-  if (!paying && kind === PARTNER_STORY_SCRIPT_KIND) {
-    const name = facts.name.trim();
-    if (!name) return 'none';
-    // Copies first: if the base write then fails, the base still says `partner_story_script` and
-    // tomorrow's run redoes both. The other order would leave voiced copies behind for good.
-    await deps.removeVoicedCopies(attractionId);
-    if (!(await deps.writeBase(attractionId, PARTNER_STORY_SCRIPT_KIND, nameOnlyRow(name, deps.now())))) return 'none';
-    await deps.rebuildReadModel(attractionId);
-    return 'suspended';
+async function restorePlace(deps: SuspensionDeps, attractionId: string): Promise<keyof SuspensionSummary | null> {
+  const r = await deps.restore(attractionId);
+  switch (r.outcome) {
+    case 'restored':
+      // The name's voiced files would contradict the text that came back.
+      if (r.textRestored) await removeFilesOrAlert(deps, attractionId, r.outcome);
+      await deps.rebuildReadModel(attractionId);
+      return 'restored';
+    case 'exception':
+      return 'exception';
+    case 'nothing_archived':
+    case 'not_paid':
+      return null;
   }
+}
 
-  if (paying && kind === PARTNER_NAME_ONLY_KIND) {
-    const story = (paying.story ?? '').trim();
-    // No text: the studio produces it (BR-B2B-011 gate 2 is a person), as on approval.
-    if (!story) return 'none';
-    // The name's voiced copies would now contradict the restored text.
-    await deps.removeVoicedCopies(attractionId);
-    if (!(await deps.writeBase(attractionId, PARTNER_NAME_ONLY_KIND, storyRow(story, deps.now())))) return 'none';
-    await deps.rebuildReadModel(attractionId);
-    return 'restored';
+async function removeFilesOrAlert(deps: SuspensionDeps, attractionId: string, outcome: string): Promise<void> {
+  try {
+    await deps.removeVoicedFiles(attractionId);
+  } catch (e) {
+    await safeAlert(deps, 'story_suspension_files_failed', {
+      attraction_id: attractionId,
+      outcome,
+      error: e instanceof Error ? e.message.slice(0, 200) : 'unknown',
+    });
   }
+}
 
-  return 'none';
+// A failed alert must not stop the loop (security review #889, R4).
+async function safeAlert(deps: SuspensionDeps, what: string, fields: Record<string, string | number | null | undefined>): Promise<void> {
+  try {
+    await deps.alert(what, fields);
+  } catch {
+    // swallowed on purpose: the loop is the product, the alert is the net
+  }
 }

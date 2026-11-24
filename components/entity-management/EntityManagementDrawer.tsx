@@ -48,6 +48,8 @@ interface Props {
    * sem nenhum botão para gravar, e a marca se perderia ao fechar.
    */
   sidebarFooter?: React.ReactNode
+  /** Read-only content under the description tab. Events show the credit of the source there (#1082). */
+  descriptionFooter?: React.ReactNode
   onClose: () => void
   onSave: () => void
   invalidate: () => void
@@ -57,7 +59,7 @@ interface Props {
 export function EntityManagementDrawer({
   isOpen, isEdit, entityId, name, coordinates, canEdit,
   loading = false, saving = false, title, HeaderIcon,
-  venueLinked = false, venueName, sidebarFooter, initialTab,
+  venueLinked = false, venueName, sidebarFooter, descriptionFooter, initialTab,
   onClose, onSave, invalidate, children,
 }: Props) {
   const t = useTranslations('Modals.POIDetails')
@@ -161,7 +163,10 @@ export function EntityManagementDrawer({
               )
             )}
             {activeTab === 'description' && (
-              <POIModalProvider value={ctx}><DescriptionTab /></POIModalProvider>
+              <>
+                <POIModalProvider value={ctx}><DescriptionTab /></POIModalProvider>
+                {descriptionFooter && <div className="px-8 pb-8">{descriptionFooter}</div>}
+              </>
             )}
             {activeTab === 'narration-audio' && (
               <POIModalProvider value={ctx}><NarrationAudioTab /></POIModalProvider>

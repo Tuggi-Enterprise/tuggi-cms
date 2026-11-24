@@ -19,6 +19,7 @@ import { fetchDashboardRoute, type RpcResult } from '@/lib/api/dashboard-fetch'
 import { nameMatchFilter } from '@/lib/shared/name-search'
 import { optionalMinutes } from '@/lib/format/duration'
 import { ENTITLEMENT_STATES } from '@/lib/credit/entitlement'
+import { userAnalyticsCountsOf } from '@/lib/users/app-user-access'
 import type { EntitlementState, GrantSource } from '@/lib/credit/entitlement'
 
 // The entitlement vocabulary is owned by `lib/credit/entitlement.ts`; it is re-exported
@@ -52,27 +53,6 @@ export type { EntitlementState, GrantSource }
 // TIPOS
 // ============================================================================
 
-/**
- * One row of the "expiring in 30 days" queue of the Overview, from
- * `core.dashboard_user_analytics().upcoming_expirations`.
- *
- * It used to be declared inside `UpcomingExpirationsCard` **and** here, inline: the same
- * payload described twice, and the two only agreed by luck (CLAUDE.md §6). The row types of
- * this file are the owner; the card imports it.
- *
- * `nickname` is optional because the RPC does not select it yet — the queue is served by an
- * old function, and until `data` adds the column every row falls back to the truncated
- * `user_id` (**BR-USUARIO-042** item 2). `full_name` and `email` are gone from the type on
- * purpose: nothing on the screen may read them, and the payload still carrying them is
- * phase 2, not this one.
- */
-export interface UpcomingExpiration {
-  user_id: string
-  nickname?: string | null
-  tier_name: string
-  end_date: string
-}
-
 export interface DashboardStats {
   // POI Inventory
   totalPOIs: number
@@ -88,9 +68,15 @@ export interface DashboardStats {
   contentCoverage: number
   citiesCovered: number
   
-  // User Analytics
+  // User Analytics. total_users and active_users_30d count everyone who uses the app, account and
+  // guest together (BR-USUARIO-037, amendment of 2026-11-02, #1067).
   totalUsers: number
   activeUsers30d: number
+  totalGuests: number
+  activeGuests30d: number
+  guestsConverted: number
+  /** Whole percent of guests that became an account; `guestConversionRate`. */
+  guestConversionRate: number
   totalTrips: number
   totalKmDriven: number
   totalPOIVisits: number
@@ -98,7 +84,6 @@ export interface DashboardStats {
   avgTripDuration: string
   tripsByPlatform: Array<{ platform: string; count: number }>
   totalPremiumUsers: number
-  upcomingExpirations: UpcomingExpiration[]
 
   // Temporal Data (últimos 30 dias - rolling window)
   mauHistory: Array<{ date: string; count: number }>
@@ -182,6 +167,10 @@ export const EMPTY_DASHBOARD_STATS: DashboardStats = {
   citiesCovered: 0,
   totalUsers: 0,
   activeUsers30d: 0,
+  totalGuests: 0,
+  activeGuests30d: 0,
+  guestsConverted: 0,
+  guestConversionRate: 0,
   totalTrips: 0,
   totalKmDriven: 0,
   totalPOIVisits: 0,
@@ -189,7 +178,6 @@ export const EMPTY_DASHBOARD_STATS: DashboardStats = {
   avgTripDuration: '0 min',
   tripsByPlatform: [],
   totalPremiumUsers: 0,
-  upcomingExpirations: [],
   mauHistory: [],
   userGrowth: [],
   cityDistribution: [],
@@ -254,6 +242,25 @@ export interface HeatmapPoint {
   lat: number
   lng: number
   weight: number
+}
+
+/**
+ * One person on the live map, as `core.dashboard_realtime_activity` returns it (#1266).
+ *
+ * `guide_on`, `entitlement_state` and `balance_minutes` are optional while the RPC does not
+ * return them: the migration of #1266 is applied by the operator, and a row without them is
+ * drawn as "location only" by `livePinState` (`lib/dashboard/live-pin.ts`). The state comes
+ * already resolved by `drive.get_entitlement`, BR-MONETIZACAO-046; nothing here recomputes it.
+ */
+export interface RealtimeActiveUser {
+  user_id: string
+  nickname?: string | null
+  lat: number
+  lng: number
+  timestamp: string
+  guide_on?: boolean | null
+  entitlement_state?: EntitlementState | null
+  balance_minutes?: number | null
 }
 
 export interface UserLocationPin {
@@ -410,6 +417,8 @@ export interface AppUserDetailed {
   total_km: number
   poi_visits_count: number
   last_trip_at: string | null
+  /** Guest (anonymous account) or permanent account; last column since #1045. */
+  is_anonymous: boolean
 }
 
 /** One line of the subscription timeline of `core.dashboard_user_detail`. */
@@ -628,8 +637,7 @@ class DashboardService {
         citiesCovered: cityStats.length,
         
         // User Analytics
-        totalUsers: Number(userAnalytics.total_users || 0),
-        activeUsers30d: Number(userAnalytics.active_users_30d || 0),
+        ...userAnalyticsCountsOf(userAnalytics),
         totalTrips: Number(userAnalytics.total_trips || 0),
         totalKmDriven: Math.round(Number(userAnalytics.total_km_driven || 0)),
         totalPOIVisits: Number(userAnalytics.total_poi_visits || 0),
@@ -637,7 +645,6 @@ class DashboardService {
         avgTripDuration: userAnalytics.avg_trip_duration || '0 min',
         tripsByPlatform: userAnalytics.trips_by_platform || [],
         totalPremiumUsers: Number(userAnalytics.total_premium_users || 0),
-        upcomingExpirations: userAnalytics.upcoming_expirations || [],
         
         // Temporal Data (já vem em ordem ASC do SQL)
         mauHistory: userAnalytics.mau_history || [],
@@ -1230,7 +1237,7 @@ class DashboardService {
   static async getRealtimeActivity(windowSeconds = 120): Promise<{
     success: boolean;
     data?: {
-      active_users: Array<{ user_id: string; lat: number; lng: number; timestamp: string }>;
+      active_users: RealtimeActiveUser[];
       // `visit_source` é opcional enquanto `core.dashboard_realtime_activity` não
       // devolver a coluna — SQL pendente em docs/dev/radar-visit-source.md. O cartão
       // omite o selo de engajamento no que chegar sem ela.

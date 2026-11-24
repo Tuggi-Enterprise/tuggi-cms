@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { RouteService } from '@/lib/services/route-service'
+import { RouteService, RouteWriteError } from '@/lib/services/route-service'
 import { withAuth } from '@/lib/auth-middleware'
+import { getSupabaseService } from '@/lib/core/supabase-client'
 import { storedLineToLatLngs } from '@/lib/services/routing/route-geometry'
 import { parseRouteOwnership } from '@/lib/routes/route-ownership'
+import { classifyPublicationError, isUserRoute, parseRoutePublication } from '@/lib/routes/route-publication'
 
 /**
  * PORTÃO (#780): `withAuth({ roles: ['admin', 'client'] })` nos três métodos. Quem chama é o editor
@@ -12,6 +14,26 @@ import { parseRouteOwnership } from '@/lib/routes/route-ownership'
  * cookie sem revalidar o JWT.
  */
 type Params = { id: string }
+
+/** Nickname of the owner and start of the source trip of a user route; empty for a CMS route. */
+async function readOwner(route: Record<string, unknown>): Promise<{ owner_nickname?: string | null; source_trip_started_at?: string | null }> {
+  if (!isUserRoute(route)) return {}
+  const service = getSupabaseService()
+  const ownerId = typeof route.owner_user_id === 'string' ? route.owner_user_id : null
+  const tripId = typeof route.source_trip_session_id === 'string' ? route.source_trip_session_id : null
+  const [profile, trip] = await Promise.all([
+    ownerId
+      ? service.schema('drive').from('profiles').select('nickname').eq('id', ownerId).maybeSingle()
+      : Promise.resolve({ data: null }),
+    tripId
+      ? service.schema('drive').from('trip_sessions').select('start_time').eq('id', tripId).maybeSingle()
+      : Promise.resolve({ data: null }),
+  ])
+  return {
+    owner_nickname: (profile.data as { nickname?: string } | null)?.nickname ?? null,
+    source_trip_started_at: (trip.data as { start_time?: string } | null)?.start_time ?? null,
+  }
+}
 
 /**
  * GET /api/routes/[id]
@@ -31,8 +53,13 @@ export const GET = withAuth<Params>({ roles: ['admin', 'client'] }, async (_requ
       )
     }
 
+    // #945: who published a user route and from which trip (spec 8.2, "Owner"). BR-USUARIO-042:
+    // the nickname only. Read with service_role because drive.* is not readable by the CMS JWT;
+    // `get_custom_route` already proved this caller may see the route.
+    const owner = await readOwner(route as unknown as Record<string, unknown>)
+
     // #790: the editor draws and keeps the stored line; it must not rebuild it from the stops.
-    return NextResponse.json({ route: { ...route, geometry_coords: storedLineToLatLngs(route.geometry) } })
+    return NextResponse.json({ route: { ...route, ...owner, geometry_coords: storedLineToLatLngs(route.geometry) } })
   } catch (error) {
     console.error('GET /api/routes/[id] error:', error)
     return NextResponse.json(
@@ -67,6 +94,12 @@ export const PUT = withAuth<Params>({ roles: ['admin', 'client'] }, async (reque
       return NextResponse.json({ error: ownership.error }, { status: 400 })
     }
 
+    // #945: visibility, slug, validity (BR-ROTA-003/004/005). Absent keys keep the column.
+    const publication = parseRoutePublication(body)
+    if ('error' in publication) {
+      return NextResponse.json({ error: publication.error, code: publication.error }, { status: 400 })
+    }
+
     // Get the authenticated user ID
     const userId = auth.user.id
 
@@ -84,7 +117,8 @@ export const PUT = withAuth<Params>({ roles: ['admin', 'client'] }, async (reque
       road_conditions: body.road_conditions,
       resources: body.resources,
       photogenic_rating: body.photogenic_rating,
-      stops_count: body.stops_count
+      stops_count: body.stops_count,
+      publication: Object.keys(publication.params).length > 0 ? publication.params : undefined,
     }, userId)
 
     // Persist extra fields not handled by RouteService
@@ -108,7 +142,12 @@ export const PUT = withAuth<Params>({ roles: ['admin', 'client'] }, async (reque
     return NextResponse.json({ route })
   } catch (error) {
     console.error('PUT /api/routes/[id] error:', error)
-    
+
+    const code = error instanceof RouteWriteError ? classifyPublicationError(error.dbError) : null
+    if (code) {
+      return NextResponse.json({ error: code, code }, { status: code === 'route_removed_by_author' ? 409 : 400 })
+    }
+
     if ((error as Error).message === 'Route not found') {
       return NextResponse.json(
         { error: 'Route not found' },

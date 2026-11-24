@@ -127,8 +127,10 @@ test('the public prefix is a whole segment — a lookalike path is not public', 
   }
 })
 
-test('the four pages that were already public stay public', async () => {
-  assert.deepEqual([...PUBLIC_EXACT_PATHS], ['/login', '/client-signup', '/debug', '/unauthorized'])
+test('the exact public pages stay public', async () => {
+  // `/set-password` joined in #941: the invited person reaches it from the e-mail with no CMS
+  // session yet, and the session itself arrives in the URL hash the proxy never sees.
+  assert.deepEqual([...PUBLIC_EXACT_PATHS], ['/login', '/set-password', '/client-signup', '/debug', '/unauthorized'])
   for (const path of PUBLIC_EXACT_PATHS) {
     if (path === '/login') continue // handled below: an anonymous visitor is already there
     const answer = await visit(`/pt${path}`)

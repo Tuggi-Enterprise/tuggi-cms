@@ -34,6 +34,7 @@ import {
 } from '@/lib/clients/directory-filter'
 import { PIPELINE_STATES, TERMINAL_STATES, type PipelineState } from '@/lib/partnerships/pipeline'
 import type { GateItem } from '@/lib/partnerships/acceptance-gate'
+import { hasNoPlace } from '@/lib/partnerships/partner-kind'
 import type { ClientDirectoryRow } from '@/lib/services/partnership-service'
 
 /**
@@ -61,7 +62,10 @@ export const COLUMN_STATES: Record<BoardColumnId, PipelineState[]> = {
   conference: ['proposal_received', 'in_conference', 'in_validation', 'changes_requested'],
   awaiting_acceptance: ['awaiting_acceptance'],
   curation: ['place_in_curation', 'approved_awaiting_narration'],
-  published: ['published'],
+  // #936: the partner without a place ends here too — the guide out of the app and the transfer
+  // with only a QR are terminal, nothing more is due (BR-B2B-057 as amended on 2026-10-16). #1179:
+  // so is the published guide the curator has not listed (BR-B2B-064 item 10).
+  published: ['published', 'published_unlisted', 'hidden_from_app', 'referral_only'],
 }
 
 /** The states outside the board, reached by `Ver os encerrados na tabela`. */
@@ -153,6 +157,12 @@ export type BoardAct =
    */
   | 'publish_portal_place'
   /**
+   * `POST …/validation/{submissionId} {action:'publish_guide'}` for an approved guide whose profile
+   * did not reach the app (#936, BR-B2B-064 item 10): copies the photo, publishes the profile and
+   * moves the submission to `live`. No fee, no POI.
+   */
+  | 'publish_guide_profile'
+  /**
    * `POST …/acceptance-link {send:false}` and the clipboard (BR-B2B-056, #872). Never produced by
    * `planTransition`: it is the gate line's own button, and it moves no card.
    */
@@ -216,6 +226,13 @@ export function planTransition(
 
   if (row.origin === 'portal') return planPortalTransition(row, from, to)
 
+  // #1139, BR-B2B-066 item 2: the creator, influencer and driver of the app request have no
+  // place. Creating one, the `no_place` refusal and the gate of BR-B2B-057 are the place path,
+  // and none of them applies: the record is finished at the approval, in the record's hands.
+  if (row.partnerKind && hasNoPlace(row.partnerKind)) {
+    return indexOfColumn(to) < indexOfColumn(from) ? { kind: 'backwards' } : { kind: 'blocked', reason: 'not_closable' }
+  }
+
   const fromIndex = indexOfColumn(from)
   const toIndex = indexOfColumn(to)
   if (toIndex < fromIndex) return { kind: 'backwards' }
@@ -272,6 +289,12 @@ function planPortalTransition(
   }
   // #906: `Publicado` for an approved submission is the publication itself. Only this state;
   // every other portal drop keeps refusing.
+  if (from === 'curation' && to === 'published' && row.state === 'approved_awaiting_narration' && row.partnerKind === 'guide') {
+    const gated = gateBlock(row, 'publish_guide_profile')
+    if (gated) return gated
+    if (!row.submissionId) return { kind: 'blocked', reason: 'no_submission' }
+    return { kind: 'act', act: 'publish_guide_profile' }
+  }
   if (from === 'curation' && to === 'published' && row.state === 'approved_awaiting_narration') {
     const gated = gateBlock(row, 'publish_portal_place')
     if (gated) return gated

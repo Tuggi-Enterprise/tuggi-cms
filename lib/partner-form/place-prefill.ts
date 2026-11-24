@@ -42,6 +42,7 @@
  *    tier's narration; turning them into a description is exactly what starts BR-B2B-018.
  */
 
+import { hasNoPlace, partnerKindOf } from '@/lib/partnerships/partner-kind'
 import { PARTNER_CATEGORIES } from './fields'
 import { normalizeLocation } from '@/lib/shared/location-normalize'
 import { joinAddress } from './promotion'
@@ -74,6 +75,12 @@ export const PLACE_TYPE_BY_CATEGORY: Readonly<Record<PartnerCategory, PlaceType 
   // A gym or studio is a service; the catalogue has no narrower type (`PLACE_TYPES`).
   fitness_center: 'service',
   other: 'other',
+  // BR-B2B-054 item 5: agency and transfer WITH an address are a service. The tour guide has no
+  // place (BR-B2B-064), and neither has the transfer without one (BR-B2B-065): `buildPlacePrefill`
+  // answers `null` for both, through `partnerKindOf`, and the caller skips.
+  travel_agency: 'service',
+  transfer: 'service',
+  tour_guide: null,
 }
 
 /**
@@ -102,11 +109,15 @@ export const PLACE_PREFILL_COLUMNS = [
 
 export type PlacePrefillColumn = (typeof PLACE_PREFILL_COLUMNS)[number]
 
+/** BR-B2B-061 item 1: `core.place_details.signature_item` holds up to 80 characters. */
+export const SIGNATURE_ITEM_MAX = 80
+
 /** Columns of `core.place_details` this prefill may write. The offers are BR-B2B-053. */
 export const PLACE_PREFILL_DETAIL_COLUMNS = [
   'app_benefit',
   'subscriber_benefit',
   'price_range',
+  'signature_item',
   'has_wifi',
   'has_outdoor_seating',
   'accepts_reservations',
@@ -261,6 +272,8 @@ function text(value: unknown): string {
  * fato da superfície — mas entra no PADRÃO DO CATÁLOGO (`Brazil`), não como a sigla.
  */
 export function buildPlacePrefill(answers: PartnerAnswers): PlacePrefill | null {
+  // A partner without an address has no place to prefill (BR-B2B-064 item 3, BR-B2B-065 item 3).
+  if (hasNoPlace(partnerKindOf(answers))) return null
   const name = text(answers.trade_name)
   const city = text(answers.city)
   if (!name || !city) return null
@@ -301,6 +314,10 @@ export function buildPlacePrefill(answers: PartnerAnswers): PlacePrefill | null 
   }
   const price = Number(text(answers.price_range))
   if (Number.isInteger(price) && price >= 1 && price <= 4) details.price_range = price
+  // #931 · BR-B2B-061 item 1: the signature item, as the partner wrote it, up to 80 characters.
+  // Longer is dropped, not cut: the portal caps it now, and a cut sentence is an invented one.
+  const signature = text(answers.signature_item)
+  if (signature && signature.length <= SIGNATURE_ITEM_MAX) details.signature_item = signature
 
   // `subtypes` has no column of its own (contract §8.1 names none): they go to `tags`, with the
   // amenities that are tags too.

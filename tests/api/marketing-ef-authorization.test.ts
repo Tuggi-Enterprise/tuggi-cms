@@ -32,6 +32,8 @@ const FN = (name: string) =>
 
 const newsletter = FN('send-newsletter/index.ts')
 const push = FN('firebase-push-notification/index.ts')
+/** What `/send` runs, shared with `weekly-local-push` since #1046: the log and the FCM payload live here. */
+const pushSender = FN('_shared/push-send.ts')
 const webhook = FN('resend-webhook/index.ts')
 const middleware = FN('_shared/auth-middleware.ts')
 const orchestrator = FN('daily-gamification-orchestrator/index.ts')
@@ -152,10 +154,14 @@ test('Gmail bulk-sender: BOTH unsubscribe headers go out, not just one', () => {
   // https://support.google.com/a/answer/81126 — a sender doing 5,000 messages a day must
   // "support one-click unsubscribe", which is `List-Unsubscribe` AND
   // `List-Unsubscribe-Post: List-Unsubscribe=One-Click` (RFC 2369 + RFC 8058).
-  assert.match(newsletter, /'List-Unsubscribe': `<\$\{oneClickUrl\}>`/)
-  assert.match(newsletter, /'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click'/)
+  // #957: the pair moved to `_shared/unsubscribe-link.ts`, shared with `send-transactional`.
+  const unsubscribe = FN('_shared/unsubscribe-link.ts')
+  assert.match(unsubscribe, /'List-Unsubscribe': `<\$\{oneClickUrl\}>`/)
+  assert.match(unsubscribe, /'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click'/)
   // And they travel together: one function composes the pair, so a caller cannot send half.
-  const pairs = [...newsletter.matchAll(/'List-Unsubscribe':/g)].length
+  const pairs = [newsletter, unsubscribe, FN('send-transactional/index.ts')]
+    .map((source) => [...source.matchAll(/'List-Unsubscribe':/g)].length)
+    .reduce((a, b) => a + b, 0)
   assert.equal(pairs, 1, 'the header pair is spelled out more than once and will drift')
   // EVERY send site carries it, and the count is not a literal on purpose: `/ranking` (#747) was
   // the third one, and a hard-coded `2` would have turned a correct new sender into a red test
@@ -267,20 +273,20 @@ test('an Italian reader with no name is not greeted in English', () => {
 test('the push log persists the counts and the segment it actually used', () => {
   // `stats.success`/`stats.failure` were counted token by token and went to console.log; the
   // audience `filters` were dropped, so the history showed "All Users" for every broadcast.
-  assert.match(push, /success_count: stats\?\.success/)
-  assert.match(push, /failure_count: stats\?\.failure/)
-  assert.match(push, /recipient_count:/)
-  assert.match(push, /audience_filters:/)
+  assert.match(pushSender, /success_count: stats\?\.success/)
+  assert.match(pushSender, /failure_count: stats\?\.failure/)
+  assert.match(pushSender, /recipient_count:/)
+  assert.match(pushSender, /audience_filters:/)
   // The columns are the `data` agent's migration (§2): until it runs, the insert must not lose
   // the log row that exists today.
-  assert.match(push, /PGRST204/, 'a missing column would drop the log entirely')
+  assert.match(pushSender, /PGRST204/, 'a missing column would drop the log entirely')
 })
 
 test('the push data map is coerced to strings before it reaches FCM', () => {
   // FCM `data` is map<string,string>. A number in there is INVALID_ARGUMENT for EVERY token —
   // the failure `shouldAbortForBadPayload` exists to stop — and the CMS composer now writes
   // `data.type` alongside whatever the operator typed.
-  assert.match(push, /data: stringifyData\(notification\.data\)/)
+  assert.match(pushSender, /data: stringifyData\(notification\.data\)/)
 })
 
 // --- The daily window is not an anonymous trigger (#747) ----------------------

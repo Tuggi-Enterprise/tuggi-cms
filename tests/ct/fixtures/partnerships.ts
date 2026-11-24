@@ -63,6 +63,8 @@ export function queueRow(overrides: Partial<ClientDirectoryRow> = {}): ClientDir
     triage: { approvedAt: null, places: [] },
     discardReason: null,
     gateMissing: [],
+    hasHeldPhoto: false,
+    hasHeldStory: false,
     ...overrides,
   }
 }
@@ -245,6 +247,7 @@ function client(overrides: Partial<PipelineClient> & { id: string; fee: PartnerF
     country: null,
     clientType: null,
     welcomePoiId: null,
+    commissionStartsAt: null,
     taxId: null,
     status: 'active',
     approvedAt: null,

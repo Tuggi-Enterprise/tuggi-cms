@@ -19,6 +19,13 @@ export function isClient(role?: string | null): boolean {
   return role === ROLE_CLIENT
 }
 
+/**
+ * Shortest password the CMS accepts when an admin creates a user or sets one (#969). The user
+ * form validates against it in the browser and the PATCH of `/api/admin/users/[userId]` again on
+ * the server, so the two cannot drift.
+ */
+export const CMS_PASSWORD_MIN_LENGTH = 6
+
 // ── The public surface of the CMS ──────────────────────────────────────────────────────
 //
 // SSOT for "which pages are served without a CMS session". `proxy.ts` reads it and states
@@ -39,7 +46,7 @@ export function isClient(role?: string | null): boolean {
 // longer described together.
 
 /** Paths served without a session, matched WHOLE. */
-export const PUBLIC_EXACT_PATHS = ['/login', '/client-signup', '/debug', '/unauthorized'] as const
+export const PUBLIC_EXACT_PATHS = ['/login', '/set-password', '/client-signup', '/debug', '/unauthorized'] as const
 
 /**
  * Paths public from the segment on — `/contrato`, because the credential is the next segment.

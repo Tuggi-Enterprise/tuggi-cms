@@ -1,0 +1,264 @@
+[
+ {
+  "id": 44050,
+  "date": "2026-11-03T07:46:30",
+  "modified": "2026-11-03T07:46:31",
+  "slug": "contacao-de-historia-e-concerto",
+  "status": "publish",
+  "type": "evento",
+  "link": "https://destinopoa.com.br/evento/contacao-de-historia-e-concerto/",
+  "title": {
+   "rendered": "Contação de história e concerto"
+  },
+  "content": {
+   "rendered": "\n<p><strong>Aliança Francesa Porto Alegre apresenta seu&nbsp;<em>Conjunto de Cordas na Feira do Livro de Porto Alegre</em></strong></p>\n\n\n\n<p><strong><br><br></strong>Até o dia&nbsp;<strong>15 de novembro</strong>,&nbsp;<strong>a Aliança Francesa Porto Alegre estará na 72ª Feira do Livro de Porto Alegre, transformando o estande em espaço multiuso para leitura e atividades culturais.</strong>&nbsp;Entre as novidades deste ano está uma coleção de obras francófonas em português disponíveis para leitura no local, como forma de aproximação cultural aos leitores gaúchos.&nbsp;</p>\n\n\n\n<p>&#8220;O francês é mais do que um idioma; é uma conexão com a música, o cinema, a literatura e novas experiências culturais. Acreditamos no diálogo entre as culturas como caminho para valorizar a diversidade, aproximar os povos e construir um mundo de maior compreensão e respeito mútuo&#8221;, diz Joseph Abado.</p>\n\n\n\n<h2 class=\"wp-block-heading\"><strong>Contação de história e concerto</strong></h2>\n\n\n\n<p><strong>No dia 7 de novembro (sábado), às 16h30, no Porto das Histórias Sulgás<br>Rosane Castro promove a leitura de &#8220;Histórias que vêm de longe&#8221;.&nbsp;</strong>Ao reunir histórias de diferentes territórios e tradições, a escritora convida as crianças a embarcarem em uma viagem pelo imaginário de povos que têm o francês como língua de expressão e comunicação.&nbsp;</p>\n\n\n\n<p>Rosane tem uma vasta relação com o universo infantil. Tem treze livros publicados, entre eles &#8220;Choveu no Quintal&#8221; (2025). Inspirada nas enchentes que marcaram o Rio Grande do Sul, a obra aborda, de forma lúdica e sensível, sobre a força da natureza, solidariedade e a importância do cuidado com o meio ambiente. Ela também é idealizadora e coordenadora do Encontro Nacional de Contadores de Histórias &#8220;Ao Pé do Ouvido&#8221;.</p>\n\n\n\n<p><strong>No dia 8 (domingo), às 18h, no Teatro Carlos Urbim Petrobrás, a AFPOA apresenta o Conjunto de Cordas Aliança Francesa, formado por sete músicos da Orquestra Jovem da OSPA:&nbsp;</strong>Bibiana Turchiello, Felipe Abel e Victor Rosin (violinos), Eliézer Braga e Giovani Leal (violas), Isadora Gehres (violoncelo) e Ezequiel de Paula (contrabaixo).&nbsp;</p>\n\n\n\n<p>O repertório reúne canções que transitam entre trilhas sonoras do cinema e a cena pop contemporânea, privilegiando sucessos francófonos que conquistaram grande público também no Brasil. Entre elas estão &#8220;Le Festin&#8221;, do filme Ratatouille, interpretada por Camille, &#8220;Amour plastique&#8221;, do duo Videoclub, &#8220;Balance ton quoi&#8221;, da cantora belga Angèle, e &#8220;Dernière danse&#8221;, de Indila. O programa inclui, ainda, outros temas como &#8220;Le long de la route&#8221;, de Zaz, e &#8220;Je vole&#8221;, interpretada por Louane no filme &#8220;La Famille Bélier&#8221;, compondo um panorama da vitalidade e da diversidade da música francófona atual.</p>\n\n\n\n<p>Foto: Rosane Castro</p>\n",
+   "protected": false
+  },
+  "featured_media": 44051,
+  "categoria-de-evento": [
+   844,
+   108
+  ],
+  "acf": {
+   "categorias_do_evento": [
+    108,
+    844
+   ],
+   "entradas_ingressos": "nahora",
+   "link_para_compra_reserva": "",
+   "tem_bilheteria_na_hora": false,
+   "local_do_evento": "preencher",
+   "lugar_cadastrado": null,
+   "nome_do_local_evento": "Feira do Livro de Porto Alegre",
+   "endereco_evento": " Praca Da Alfandega - Centro Histórico, Porto Alegre - RS",
+   "informacoes_adicionais_local": "",
+   "data_do_evento": "20261107",
+   "data_de_termino": "20261108",
+   "horario_de_inicio": "",
+   "horario_de_termino": "",
+   "organizador_do_evento": "preencher",
+   "selecione_um_organizador_cadastrado": null,
+   "nome_do_organizador": ""
+  },
+  "_embedded": {
+   "wp:featuredmedia": [
+    {
+     "id": 44051,
+     "source_url": "https://destinopoa.com.br/wp-content/uploads/2026/11/Conjunto-de-Cordas-AFPOA-Foto-Rosane-Castro1.webp",
+     "alt_text": "",
+     "caption": {
+      "rendered": ""
+     }
+    }
+   ],
+   "wp:term": [
+    [
+     {
+      "id": 844,
+      "name": "Concerto",
+      "slug": "concerto",
+      "taxonomy": "categoria-de-evento"
+     },
+     {
+      "id": 108,
+      "name": "Cultural",
+      "slug": "cultural",
+      "taxonomy": "categoria-de-evento"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": 44040,
+  "date": "2026-10-31T10:14:20",
+  "modified": "2026-10-31T10:14:21",
+  "slug": "agenda-novembro-hard-rock-cafe-porto-alegre",
+  "status": "publish",
+  "type": "evento",
+  "link": "https://destinopoa.com.br/evento/agenda-novembro-hard-rock-cafe-porto-alegre/",
+  "title": {
+   "rendered": "Agenda Novembro &#8211; Hard Rock Cafe Porto Alegre"
+  },
+  "content": {
+   "rendered": "\n<p><strong>01/11 (Domingo) </strong>&#8211; 16h e 19h: Tributo a Tim Maia com Jorjão Master e Banda<br>Curta a noite com muito groove e soul! Jorjão e Banda homenageiam os maiores sucessos de Tim Maia em um tributo trazendo toda a força desse ícone da música brasileira. Prepare-se para cantar e dançar do começo ao fim! Para que todos consigam aproveitar a noite, o Hard Rock Cafe Porto Alegre traz a modalidade &#8220;double session&#8221;, com duas sessões de show. Prepare-se para uma noite inesquecível!<br><br><strong>02/11 (Segunda-feira)</strong> &#8211; 20h: Especial Seattle com The Tex Three<br>O evento perfeito para os fãs de grunge: The Tex Three se apresenta num especial Seattle, berço das maiores bandas do rock alternativo. O repertório conta com Nirvana, Pearl Jam, Alice in Chains e muito mais. Venha curtir esse espetáculo!<br><br><strong>04/11 (Quarta-feira)</strong> &#8211; 20h: Rock Gaúcho com Jacques Maciel e Rica Sabadini<br>Uma celebração da música gaúcha e dos grandes clássicos do rock feito no Rio Grande do Sul! Jacques Maciel e Rica Sabadini se encontram no palco para uma apresentação especial, reunindo sucessos que marcaram a história do rock gaúcho.<br><strong><br>06/11 (Sexta-feira) </strong>&#8211; 21h: Tributo a Sinatra com Sinatra 1915 Tribute<br>Uma noite de elegância, nostalgia e grandes clássicos da música internacional! Sinatra 1915 Tribute homenageia Frank Sinatra em um espetáculo especial, revisitando os sucessos que eternizaram a voz e o talento de um dos maiores ícones da história da música.</p>\n\n\n\n<p><br><strong>08/11 (Domingo) </strong>&#8211; 18h: Tributo a Djavan com Dida Larruscain<br>Uma celebração à obra de um dos maiores nomes da música popular brasileira! Dida Larruscain apresenta um tributo especial a Djavan, revisitando grandes sucessos de sua carreira em uma noite repleta de poesia, ritmo e emoção.<br><strong><br>09/11 (Segunda-feira) &#8211;</strong> 20h: Tributo a Bon Jovi com Icona Rock<br>Icona Rock apresenta um tributo ao Bon Jovi com hinos do hard rock em uma performance cheia de energia. Guitarras fortes e refrões marcantes dominam o palco. Não perca!<br><br><strong>12/11 (Quinta-feira) &#8211;</strong> 20h: Tributo a U2 com Nacional Kid<br>Tributo ao U2 com Nacional Kid chega com uma apresentação recriando a força dos maiores hinos da banda irlandesa em um show cheio de energia e presença de palco. Não fique de fora!<br><strong><br>13/11 (Sexta-feira) &#8211; </strong>21h: Tributo a Coldplay com 70&#8217;s Show<br>Um bom Pop Rock sempre é bem-vindo! 70&#8217;s Show traz os melhores hits do Coldplay, viva a energia incrível das músicas da banda. Prepare-se para a emoção!<br><br><strong>14/11 (Sábado)</strong> &#8211; 18h30: Tributo a Oasis com Songbirds<br>Songbirds apresenta um tributo ao Oasis com os grandes clássicos do britpop em uma performance cheia de atitude e guitarras marcantes. Um repertório que convida o público a cantar junto sem esforço. Imperdível!<br><br><strong>15/11 (Domingo) &#8211; </strong>18h: Tributo a Marisa Monte com Adriana Deffenti<br>Uma homenagem à trajetória e à sensibilidade musical de Marisa Monte! Adriana Deffenti sobe ao palco para interpretar grandes sucessos da cantora, em um espetáculo especial que celebra sua poesia, personalidade e contribuição à música brasileira.<br><br><strong>16/11 (Segunda-feira) </strong>&#8211; 20h: Tributo a Pearl Jam com The Tex Three<br>Os fãs do grunge não podem faltar! The Tex Three homenageia o Pearl Jam, relembrando as batidas marcantes e letras que tocaram a alma de muitos. Uma noite para reviver os grandes clássicos!<br><br><strong>19/11 (Quinta-feira) </strong>&#8211; 20h: Tributo a Elton John com 70&#8217;s Show<br>70&#8217;s Show traz uma homenagem envolvente a um dos maiores nomes da música mundial, em um espetáculo que promete encantar do começo ao fim. Os melhores hits de Elton John!<br><br><strong>20/11 (Sexta-feira)</strong> &#8211; 18h30 e 21h30: Tributo a Elvis com Johnny Grace<br>Volte no tempo com o Rei do Rock! Johnny Grace traz de forma única Elvis Presley para o palco, prometendo uma noite cheia de glamour e grandes sucessos. Para que todos consigam aproveitar a noite, o Hard Rock Cafe Porto Alegre traz a modalidade &#8220;double session&#8221;, com duas sessões de show. Prepare-se para uma noite inesquecível!<br><br><strong>21/11 (Sábado) &#8211;</strong> 18h30 e 21h30: Tributo a Madonna com New Wave 80<br>Uma celebração à rainha do pop! New Wave 80 traz o tributo a Madonna numa noite para dançar e celebrar as melhores músicas da cantora! Para que todos consigam aproveitar a noite, o Hard Rock Cafe Porto Alegre traz a modalidade &#8220;double session&#8221;, com duas sessões de show. Prepare-se para uma noite inesquecível!<br><br><strong>22/11 (Domingo) &#8211;</strong> 18h: Tributo a Charlie Brown Jr com Jaeger e Banda<br>Reviva a mistura de rock e rap que fez história! Jaeger e banda homenageiam o Charlie Brown Jr., trazendo hits que refletem a liberdade e a autenticidade da juventude nos anos 90.<br><br><strong>23/11 (Segunda-feira) &#8211; </strong>20h: Respire Rock com Humberto Gessinger<br>Uma noite especial que une música e conscientização! Humberto Gessinger apresenta o espetáculo Respire Rock, celebrando grandes sucessos de sua trajetória e do rock nacional, em uma ação especial em parceria com o Instituto Peito Aberto, promovendo informação e conscientização sobre a saúde e o bem-estar.</p>\n\n\n\n<p><br><strong>26/11 (Quinta-feira)</strong> &#8211; 20h: Freddie Verso: Tributo a Freddie Mercury com Lord Krony<br>Uma celebração ao ícone da música! Freddie Verso traz ao palco as músicas inesquecíveis de Freddie Mercury, prometendo um show dramático e memorável que vai deixar todos aplaudindo de pé! </p>\n\n\n\n<p><br><strong>27/11 (Sexta-feira) </strong>&#8211; 21h: Tributo a Abba com Mamma Mia!<br>Os inesquecíveis sucessos do ABBA voltam aos palcos em um espetáculo repleto de brilho, nostalgia e muita música. Com o tributo Mamma Mia, o público é convidado a cantar e dançar ao som de clássicos que atravessaram gerações em uma apresentação envolvente e cheia de charme.<br><br><strong>28/11 (Sábado) </strong>&#8211; 18h: Tributo a Green Day com Packers<br>Os grandes clássicos do Green Day ganham vida em um show eletrizante com Antonio Pack. Prepare-se para cantar sucessos que marcaram gerações em uma apresentação repleta de atitude, energia e a essência do punk rock. Garanta seu lugar e viva essa experiência!<br><br><strong>29/11 (Domingo)</strong> &#8211; 16h e 19h: Tributo a Legião Urbana com Jaeger e Banda<br>Um mergulho nas letras geniais de uma das maiores bandas do rock brasileiro! Jaeger e banda apresentam um espetáculo revisitando clássicos do Legião Urbana, não dá pra perder! Para que todos consigam aproveitar a noite, o Hard Rock Cafe Porto Alegre traz a modalidade &#8220;double session&#8221;, com duas sessões de show. Prepare-se para uma noite inesquecível!<br><br><strong>30/11 (Segunda-feira)</strong> &#8211; 20h: Tributo a AC/DC com Volts<br>Prepare-se para uma noite de muito rock e energia! A banda Volts apresenta um tributo especial ao AC/DC, revisitando os grandes clássicos de uma das maiores bandas da história do rock, em um show eletrizante e cheio de atitude.</p>\n\n\n\n<p>Imagem: Divulgação </p>\n",
+   "protected": false
+  },
+  "featured_media": 44041,
+  "categoria-de-evento": [
+   129
+  ],
+  "acf": {
+   "categorias_do_evento": [
+    129
+   ],
+   "entradas_ingressos": "pago",
+   "link_para_compra_reserva": "https://ingressos.hrcportoalegre.com.br/produtos",
+   "tem_bilheteria_na_hora": false,
+   "local_do_evento": "cadastrado",
+   "lugar_cadastrado": [
+    24258
+   ],
+   "nome_do_local_evento": "",
+   "endereco_evento": "",
+   "informacoes_adicionais_local": "",
+   "data_do_evento": "20261101",
+   "data_de_termino": "20261130",
+   "horario_de_inicio": "",
+   "horario_de_termino": "",
+   "organizador_do_evento": "cadastrado",
+   "selecione_um_organizador_cadastrado": [
+    23394
+   ],
+   "nome_do_organizador": ""
+  },
+  "_embedded": {
+   "wp:featuredmedia": [
+    {
+     "id": 44041,
+     "source_url": "https://destinopoa.com.br/wp-content/uploads/2026/10/Captura-de-Tela-2026-10-31-as-10.13.08.webp",
+     "alt_text": "",
+     "caption": {
+      "rendered": ""
+     }
+    }
+   ],
+   "wp:term": [
+    [
+     {
+      "id": 129,
+      "name": "Show de música",
+      "slug": "show-de-musica",
+      "taxonomy": "categoria-de-evento"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": 35034,
+  "date": "2026-03-03T10:31:27",
+  "modified": "2026-03-03T10:31:29",
+  "slug": "zeca-alcione-aragao-o-maior-encontro-do-samba-poa",
+  "status": "publish",
+  "type": "evento",
+  "link": "https://destinopoa.com.br/evento/zeca-alcione-aragao-o-maior-encontro-do-samba-poa/",
+  "title": {
+   "rendered": "ZECA &amp; ALCIONE &amp; ARAGÃO: O MAIOR ENCONTRO DO SAMBA &#8211; POA"
+  },
+  "content": {
+   "rendered": "\n<p>Prepare o coração e o pandeiro, porque Porto Alegre vai ser a capital mundial do samba! O Estádio Beira-Rio será palco de um encontro histórico que promete ser o maior evento do gênero em 2026.</p>\n\n\n\n<p>Porto Alegre se prepara para receber um espetáculo sem precedentes: o encontro de três pilares da música brasileira em um único palco. Zeca Pagodinho, Alcione e Jorge Aragão unem forças para uma noite que transborda emoção, história e, claro, muito samba no pé. </p>\n",
+   "protected": false
+  },
+  "featured_media": 35035,
+  "categoria-de-evento": [
+   129
+  ],
+  "acf": {
+   "categorias_do_evento": [
+    129
+   ],
+   "entradas_ingressos": "pago",
+   "link_para_compra_reserva": "https://www.eventim.com.br/event/zeca-alcione-aragao-o-maior-encontro-do-samba-estadio-beira-rio-21307778/?affiliate=J3R&utm_source=search&utm_medium=cpc&utm_campaign=30e_search_samba-poa_conversao&gad_source=1&gad_campaignid=23539342520&gbraid=0AAAABCzRf5KyDv5ekQ4VuCc1YkH6Zrb7v&gclid=CjwKCAiAqprNBhB6EiwAMe3yhro_wdoVI5Db-Pd-K9PCjSGGua423oRzpptFNk2MqVi3rxy3Frr3kxoCuc0QAvD_BwE",
+   "tem_bilheteria_na_hora": false,
+   "local_do_evento": "cadastrado",
+   "lugar_cadastrado": [
+    3843
+   ],
+   "nome_do_local_evento": "",
+   "endereco_evento": "",
+   "informacoes_adicionais_local": "",
+   "data_do_evento": "20261114",
+   "data_de_termino": "20261114",
+   "horario_de_inicio": "20:00:00",
+   "horario_de_termino": "",
+   "organizador_do_evento": "preencher",
+   "selecione_um_organizador_cadastrado": null,
+   "nome_do_organizador": ""
+  },
+  "_embedded": {
+   "wp:featuredmedia": [
+    {
+     "id": 35035,
+     "source_url": "https://destinopoa.com.br/wp-content/uploads/2026/03/SnapInsta.to_629752346_18618180721060946_7054772749775670781_n.webp",
+     "alt_text": "",
+     "caption": {
+      "rendered": ""
+     }
+    }
+   ],
+   "wp:term": [
+    [
+     {
+      "id": 129,
+      "name": "Show de música",
+      "slug": "show-de-musica",
+      "taxonomy": "categoria-de-evento"
+     }
+    ]
+   ]
+  }
+ },
+ {
+  "id": 44019,
+  "date": "2026-10-31T09:22:27",
+  "modified": "2026-10-31T09:22:29",
+  "slug": "teach-me-as-a-drag-halloween-edition",
+  "status": "publish",
+  "type": "evento",
+  "link": "https://destinopoa.com.br/evento/teach-me-as-a-drag-halloween-edition/",
+  "title": {
+   "rendered": "Teach me as a Drag &#8211; Halloween Edition"
+  },
+  "content": {
+   "rendered": "\n<p><strong>Workroom une inglês e arte drag em noite de conversação temática de Halloween</strong></p>\n\n\n\n<p><em>Segunda edição do Teach Me As a Drag ocorre no dia 02/11 e aposta em brincadeiras temáticas para estimular a prática do idioma</em>.</p>\n\n\n\n<p>Praticar inglês pode ir muito além da sala de aula. Em Porto Alegre, a <strong>Workroom</strong>, espaço cultural e de entretenimento LGBTQIAPN+ da Capital,<strong> </strong>aposta em uma combinação de conversação, arte drag e entretenimento para transformar o aprendizado do idioma em uma experiência de socialização. No dia 2 de novembro, segunda-feira, a partir das 17h, o espaço promove a segunda edição do <strong>Teach Me As a Drag</strong>, desta vez com temática de Halloween, brincadeiras especiais e um convite para que o público entre no clima da data e compareça fantasiado.</p>\n\n\n\n<p>Criado para aproximar o inglês de situações reais de comunicação, o projeto transforma o bar em um ambiente de imersão no idioma. Cardápio, atendimento e atividades fazem parte da experiência, que reúne jogos, desafios e dinâmicas de conversação adaptados a diferentes níveis de conhecimento. A proposta é que os participantes pratiquem a língua de forma espontânea, conheçam novas pessoas e se divirtam sem a pressão de uma aula tradicional. Na edição de Halloween, o universo das fantasias, dos personagens e do sobrenatural inspira brincadeiras pensadas especialmente para a ocasião. A temática também abre espaço para explorar o vocabulário em inglês de maneira criativa, com a participação do público como parte central da experiência.</p>\n\n\n\n<p>O Teach Me As a Drag é conduzido pelas professoras Mariana Alves, que dá vida à drag <strong>Donnatela Calabouço</strong>, e Maria Eduarda Moysés, a Mrs Calabouço. A presença das artistas reforça a proposta de unir ensino, performance e cultura LGBTQIAPN+ em um formato que estimula a participação e torna a conversação mais acessível. A ideia surgiu a partir da experiência de Guilherme Galvão, um dos sócios da Workroom, durante um intercâmbio em Dublin, na Irlanda. Na cidade, ele conheceu encontros organizados para que estrangeiros praticassem o idioma local em ambientes de convivência. A partir dessa referência, imaginou uma adaptação que combinasse a prática do inglês com a identidade artística e acolhedora da Workroom.</p>\n\n\n\n<p>O projeto convida cada participante a explorar o inglês que já conhece e a experimentar novas possibilidades de comunicação. A proposta é criar um ambiente no qual errar faça parte do aprendizado e em que pessoas com diferentes níveis de conhecimento possam interagir, participar das atividades e se sentir à vontade. A participação é<strong> gratuita, mediante preenchimento de <a href=\"https://forms.gle/k1KaRCDMsf9o2BSD6\" target=\"_blank\" rel=\"noreferrer noopener\">formulário</a>.</strong></p>\n\n\n\n<h2 class=\"wp-block-heading\"><strong>Teach me as a Drag &#8211; Halloween Edition</strong></h2>\n\n\n\n<p><strong>Data: </strong>02/11 (segunda-feira)</p>\n\n\n\n<p><strong>Local: </strong>Workroom (R. Vicente da Fontoura, 1619)&nbsp;</p>\n\n\n\n<p><strong>Horário: </strong>A partir das 17h</p>\n\n\n\n<p><em>*Atividade gratuita</em>&#8212;</p>\n\n\n\n<p>Foto: Duda Moysés</p>\n",
+   "protected": false
+  },
+  "featured_media": 44020,
+  "categoria-de-evento": [
+   848
+  ],
+  "acf": {
+   "categorias_do_evento": [
+    848
+   ],
+   "entradas_ingressos": "gratuito",
+   "link_para_compra_reserva": "",
+   "tem_bilheteria_na_hora": false,
+   "local_do_evento": "preencher",
+   "lugar_cadastrado": null,
+   "nome_do_local_evento": " Workroom",
+   "endereco_evento": "R. Vicente da Fontoura, 1619",
+   "informacoes_adicionais_local": "",
+   "data_do_evento": "20261102",
+   "data_de_termino": "20261102",
+   "horario_de_inicio": "",
+   "horario_de_termino": "",
+   "organizador_do_evento": "preencher",
+   "selecione_um_organizador_cadastrado": null,
+   "nome_do_organizador": " Workroom "
+  },
+  "_embedded": {
+   "wp:featuredmedia": [
+    {
+     "id": 44020,
+     "source_url": "https://destinopoa.com.br/wp-content/uploads/2026/10/Teach-me-as-a-Drag-CrA©dito-Duda-MoysA©s-3.webp",
+     "alt_text": "",
+     "caption": {
+      "rendered": ""
+     }
+    }
+   ],
+   "wp:term": [
+    [
+     {
+      "id": 848,
+      "name": "Oficinas",
+      "slug": "oficinas",
+      "taxonomy": "categoria-de-evento"
+     }
+    ]
+   ]
+  }
+ }
+]

@@ -1,0 +1,354 @@
+[
+ {
+  "spaces": [],
+  "occurrences": [
+   {
+    "id": 9298,
+    "rule": {
+     "spaceId": "6972",
+     "startsAt": "19:00",
+     "duration": 120,
+     "endsAt": "21:00",
+     "frequency": "weekly",
+     "startsOn": "2024-02-20",
+     "until": "2026-12-17",
+     "day": {
+      "2": "on",
+      "4": "on"
+     },
+     "description": "Toda ter e qui de 6 de agosto a 10 de dezembro de 2026 às 18:30",
+     "price": "É gratuita."
+    },
+    "space": {
+     "id": 6972,
+     "location": {
+      "latitude": "-3.7787176",
+      "longitude": "-38.5125324"
+     },
+     "name": "Projeto Ginga MARABAIANO",
+     "En_Municipio": "Fortaleza",
+     "endereco": "Rua dos Antares s/n, CITS AEROLÂNDIA, Aerolândia, Fortaleza, undefined, CE, 60850-410"
+    }
+   }
+  ],
+  "occurrencesReadable": [],
+  "id": 11109,
+  "name": "Projeto GINGA MARABAIANO",
+  "shortDescription": "Projeto Ginga MARABAIANO: Sob coordenação do Contramestre Popeye e supervisão dos Mestres Jair, Inácio, Relações e Neguinho, o Projeto Ginga MARABAIANO promove a Capoeira como instrumento de inclusão social, desenvolvimento físico e valorização cultural. Por meio da integração entre movimentos, música e tradição, a iniciativa oferece um ambiente acessível a todas as idades, incentivando disciplina, cooperação e respeito mútuo. A proposta reafirma o compromisso com a preservação da cultura afro-brasileira e a promoção da cidadania por meio da Capoeira.",
+  "@files:avatar": {
+   "url": "https://mapacultural.secult.ce.gov.br/files/event/11109/blob..png"
+  },
+  "terms": {
+   "tag": [],
+   "linguagem": [
+    "Esporte",
+    "Ação Educativa",
+    "Dança"
+   ]
+  },
+  "singleUrl": "https://mapacultural.secult.ce.gov.br/evento/11109/"
+ },
+ {
+  "spaces": [],
+  "occurrences": [
+   {
+    "id": 18877,
+    "rule": {
+     "spaceId": "7732",
+     "startsOn": "2026-12-09",
+     "until": "2026-12-09",
+     "startsAt": "00:00",
+     "duration": 0,
+     "frequency": "once",
+     "description": "Quarta-feira, 09 de dezembro",
+     "price": "Gratuito",
+     "endsAt": "00:00"
+    },
+    "space": {
+     "id": 7732,
+     "location": {
+      "latitude": "-3.7269001",
+      "longitude": "-38.5296251"
+     },
+     "name": "Teatro",
+     "endereco": "Rua Senador Pompeu, , Centro, Fortaleza, undefined, CE, 60025-000",
+     "En_Municipio": "Fortaleza"
+    }
+   }
+  ],
+  "occurrencesReadable": [],
+  "id": 20998,
+  "name": "Escolas de dança ADECE",
+  "shortDescription": "Escolas de dança ADECE",
+  "@files:avatar": {
+   "url": "https://mapacultural.secult.ce.gov.br/files/event/20998/Z7t8rXgqoDa0w5huLWiYmmYyYwpnlRbA9bf3WDOX.png"
+  },
+  "terms": {
+   "tag": [],
+   "linguagem": [
+    "Dança"
+   ]
+  },
+  "singleUrl": "https://mapacultural.secult.ce.gov.br/evento/20998/"
+ },
+ {
+  "spaces": [],
+  "occurrences": [
+   {
+    "id": 19124,
+    "rule": {
+     "spaceId": "425",
+     "startsOn": "2026-11-08",
+     "until": "2026-11-08",
+     "startsAt": "16:00",
+     "duration": 240,
+     "frequency": "once",
+     "description": "Domingo, 08 de novembro das 16h até 20h",
+     "price": "Gratuito",
+     "endsAt": "20:00"
+    },
+    "space": {
+     "id": 425,
+     "location": {
+      "latitude": "-3.72281585137137",
+      "longitude": "-38.520040512085"
+     },
+     "name": "Arena Dragão do Mar",
+     "endereco": "Rua Dragão do Mar , 81 , Praia de Iracema, 60060-390, FORTALEZA, CE",
+     "En_Municipio": "FORTALEZA"
+    }
+   }
+  ],
+  "occurrencesReadable": [],
+  "id": 21238,
+  "name": "Feira Fuxico no Dragão",
+  "shortDescription": "Uma feirinha que apresenta o trabalho de designers e artesãos da cidade, reunindo expositores de produtos criativos de moda e acessórios, artesanato, decoração e cordel.",
+  "@files:avatar": {
+   "url": "https://mapacultural.secult.ce.gov.br/files/event/21238/r5WeLORMwDrHHY1Bs7CipD8MuKSnvHeJhOWPLOTP.jpg"
+  },
+  "terms": {
+   "tag": [],
+   "linguagem": []
+  },
+  "singleUrl": "https://mapacultural.secult.ce.gov.br/evento/21238/"
+ },
+ {
+  "spaces": [],
+  "occurrences": [
+   {
+    "id": 9603,
+    "rule": {
+     "spaceId": "3349",
+     "startsAt": "18:00",
+     "duration": 180,
+     "endsAt": "21:00",
+     "frequency": "once",
+     "startsOn": "2027-01-06",
+     "until": "",
+     "description": "Dia 6 de janeiro de 2027 às 18:00",
+     "price": "Gratuito"
+    },
+    "space": {
+     "id": 3349,
+     "location": {
+      "latitude": "-7.094334349534542",
+      "longitude": "-40.04782676696777"
+     },
+     "name": "Museu Orgânico Casa do Mestre Antônio Luiz",
+     "En_Municipio": "Potengi",
+     "endereco": null
+    }
+   }
+  ],
+  "occurrencesReadable": [],
+  "id": 11654,
+  "name": "6 de Janeiro, Dia de Reis",
+  "shortDescription": "Celebração do Dia de Reis Casa do Mestre Antônio Luiz, realizado sempre no dia 6 de janeiro, data oficial da manifestação",
+  "@files:avatar": {
+   "url": "https://mapacultural.secult.ce.gov.br/files/event/11654/blob.-2.png"
+  },
+  "terms": {
+   "tag": [],
+   "linguagem": [
+    "Cultura Tradicional"
+   ]
+  },
+  "singleUrl": "https://mapacultural.secult.ce.gov.br/evento/11654/"
+ },
+ {
+  "spaces": [],
+  "occurrences": [
+   {
+    "id": 19189,
+    "rule": {
+     "startsOn": "2026-11-06",
+     "until": "2026-11-06",
+     "startsAt": "19:00",
+     "duration": 60,
+     "frequency": "once",
+     "description": "Sexta-feira, 06 de novembro das 19h até 20h. Mensal no o 6º, o 7º, o 13º e o 14º do mês, começando de sexta-feira, 06 de novembro, até sábado, 05 de dezembro",
+     "price": "Pago",
+     "endsAt": "20:00"
+    },
+    "space": {
+     "id": 5859,
+     "location": {
+      "latitude": "-3.72180946832379",
+      "longitude": "-38.5211133956909"
+     },
+     "name": "Teatro B. de Paiva",
+     "endereco": "Rua Boris, 90 c , Praia de Iracema, 60060-390, Fortaleza, CE",
+     "En_Municipio": null
+    }
+   }
+  ],
+  "occurrencesReadable": [],
+  "id": 21322,
+  "name": "Gato Preto",
+  "shortDescription": "Gato Preto aborda um personagem (uma figura? Uma alegoria? Um homem? Uma coisa? Um artista?) em seu processo de degeneração psíquica, num percurso que vai da empatia ao crime. Bêbado, boêmio, violento, maldito, enreda-se numa trama vertiginosa com seu gato, acabando por cegá-lo e enforcá-lo. Seu estado maníaco se transforma em ódio a tudo e a todos, comprometendo o próprio ambiente doméstico. Depois de uma malfadada ocultação de cadáver, o protagonista (essa figura, essa alegoria, esse homem, essa coisa, esse artista) é condenado ele mesmo à morte, dessa vez pela mão midiática do Estado.",
+  "@files:avatar": {
+   "url": "https://mapacultural.secult.ce.gov.br/files/event/21322/wEB1w4XAlhE3UmHnC6vmnA0gKgOLEeclWM1wog9G.jpg"
+  },
+  "terms": {
+   "tag": [],
+   "linguagem": [
+    "Teatro"
+   ]
+  },
+  "singleUrl": "https://mapacultural.secult.ce.gov.br/evento/21322/"
+ },
+ {
+  "spaces": [],
+  "occurrences": [
+   {
+    "id": 19348,
+    "rule": {
+     "spaceId": "5912",
+     "startsOn": "2026-11-03",
+     "until": "2026-11-03",
+     "startsAt": "15:30",
+     "duration": 90,
+     "frequency": "once",
+     "description": "Terça-feira, 03 de novembro das 15h30 até 17h",
+     "price": "Gratuito",
+     "endsAt": "17:00"
+    },
+    "space": {
+     "id": 5912,
+     "location": {
+      "latitude": "-3.7215927",
+      "longitude": "-38.5265147"
+     },
+     "name": "Espaço Multiuso",
+     "endereco": "Avenida Presidente Castelo Branco, 255 , Moura Brasil, 60010-000, Fortaleza, CE",
+     "En_Municipio": null
+    }
+   },
+   {
+    "id": 19349,
+    "rule": {
+     "spaceId": "5325",
+     "startsOn": "2026-11-03",
+     "until": "2026-11-03",
+     "startsAt": "15:30",
+     "duration": 90,
+     "frequency": "once",
+     "description": "Terça-feira, 03 de novembro das 15h30 até 17h",
+     "price": "Gratuito",
+     "endsAt": "17:00"
+    },
+    "space": {
+     "id": 5325,
+     "location": {
+      "latitude": "-3.7215927",
+      "longitude": "-38.5265147"
+     },
+     "name": "Biblioteca Pública Estadual do Ceará (Bece)",
+     "endereco": "Avenida Presidente Castelo Branco, 255 , Moura Brasil, 60010-000, Fortaleza, CE",
+     "En_Municipio": "Fortaleza"
+    }
+   }
+  ],
+  "occurrencesReadable": [],
+  "id": 21530,
+  "name": "Coral da Bece",
+  "shortDescription": "Coral da BECE | Regência: Apá Silvino\n\nO Coral da BECE é um espaço dedicado à prática do canto coletivo, à expressão artística e à convivência por meio da música. Sob a regência de Apá Silvino, os encontros estimulam a musicalidade, a escuta, a sensibilidade e a integração entre os participantes, fortalecendo o papel da biblioteca como espaço de acesso à cultura e de formação artística.\n\nQuando: todas as terças-feiras, das 15h30 às 17h.",
+  "@files:avatar": {
+   "url": "https://mapacultural.secult.ce.gov.br/files/event/21530/8uHlnf8FIqXv3X40awbpgFzxv2FWu9cyVfP2Rghg.jpg"
+  },
+  "terms": {
+   "tag": [],
+   "linguagem": [
+    "Música"
+   ]
+  },
+  "singleUrl": "https://mapacultural.secult.ce.gov.br/evento/21530/"
+ },
+ {
+  "spaces": [],
+  "occurrences": [
+   {
+    "id": 19274,
+    "rule": {
+     "spaceId": "5889",
+     "startsOn": "2026-11-18",
+     "until": "2026-11-18",
+     "startsAt": "18:00",
+     "duration": 120,
+     "frequency": "once",
+     "description": "Quarta-feira, 18 de novembro das 18h até 20h",
+     "price": "Gratuito",
+     "endsAt": "20:00"
+    },
+    "space": {
+     "id": 5889,
+     "location": {
+      "latitude": "-3.727786",
+      "longitude": "-38.53170638631867"
+     },
+     "name": "Praça Mestre Pedro Boca Rica",
+     "endereco": "Rua Liberato Barroso, Praça Theatro José de Alencar, Centro, Fortaleza, undefined, CE, 60030-160",
+     "En_Municipio": "Fortaleza"
+    }
+   },
+   {
+    "id": 19275,
+    "rule": {
+     "spaceId": "5952",
+     "startsOn": "2026-11-18",
+     "until": "2026-11-18",
+     "startsAt": "18:00",
+     "duration": 120,
+     "frequency": "once",
+     "description": "Quarta-feira, 18 de novembro das 18h até 20h",
+     "price": "Gratuito",
+     "endsAt": "20:00"
+    },
+    "space": {
+     "id": 5952,
+     "location": {
+      "latitude": "-3.727786",
+      "longitude": "-38.53170638631867"
+     },
+     "name": "Galeria Ramos Cotoco",
+     "endereco": "Rua Liberato Barroso, Praça Theatro José de Alencar, Centro, Fortaleza, undefined, CE, 60030-160",
+     "En_Municipio": "Fortaleza"
+    }
+   }
+  ],
+  "occurrencesReadable": [],
+  "id": 21444,
+  "name": "ABERTURA | “Um trem chamado Ferrão: trabalho, futebol e paixão”",
+  "shortDescription": "A exposição conta com fotografias ampliadas, reproduções documentais, textos curatoriais, camisas, troféus, flâmulas, objetos históricos e materiais gráficos relacionados à memória do Ferroviário Atlético Clube e à sua origem ferroviária. A distribuição é organizada em núcleos temáticos e cronológicos ao longo das paredes e do espaço central da galeria. Programação que integra o projeto \"Theatro de Portas Abertas\".",
+  "@files:avatar": {
+   "url": "https://mapacultural.secult.ce.gov.br/files/event/21444/ikWabs7APOLfzOP2phf4I8pZJq4XKpuGB6uKSoX8.jpg"
+  },
+  "terms": {
+   "tag": [],
+   "linguagem": [
+    "Exposição"
+   ]
+  },
+  "singleUrl": "https://mapacultural.secult.ce.gov.br/evento/21444/"
+ }
+]

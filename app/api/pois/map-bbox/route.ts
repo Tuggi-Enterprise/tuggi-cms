@@ -2,7 +2,7 @@
  * GET /api/pois/map-bbox
  *
  * Retorna POIs dentro de um bounding box para exibição no mapa.
- * Usado pelo RouteEditor para mostrar POIs do Tuggi ao longo da rota.
+ * Usado pelo RouteEditorModal para mostrar POIs do Tuggi ao longo da rota.
  *
  * ## Estratégia de distribuição geográfica (Grade 4×4)
  *

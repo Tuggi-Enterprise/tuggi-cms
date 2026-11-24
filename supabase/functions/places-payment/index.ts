@@ -28,12 +28,52 @@
 // #916: the client from before the portal. `cancel_legacy_quote` answers { ends_on } and
 // `cancel_legacy` ends the legacy fee with no exit fee, { result: 'canceled', ends_on }; `ends_on`
 // is 'YYYY-MM-DD' (the next day 20, a month already paid) or null (it ended today).
+//
+// #1054: the support's cancel, from the CMS server (`app/api/admin/clients/[clientId]/plan-cancel`).
+// `x-cms-job-secret` (`CMS_JOB_SECRET`, the secret the CMS and these functions already share; the
+// portal's Worker does not hold it) AND the CMS admin's access token in `Authorization: Bearer`,
+// validated here (`validateAuthHeader`, role `admin` of `core.cms_users`) and again by the database.
+// Body { action: 'support_cancel_quote' | 'support_cancel', client_id, attraction_id, expected_fee_cents }.
+// The operator id is the token's, never the body's.
 
 import { isPlacesSecret, PLACES_SECRET_HEADER } from '../_shared/places-secret.ts';
 import { isDraftSecret } from '../_shared/places-draft-secret.ts';
 import { DRAFT_SECRET_HEADER } from '../_shared/places-portal-draft.ts';
-import { cancelLegacy, cancelQuote, cancelRenewal, checkout, confirmPixKey, checkoutPix, draftCheckout, draftCheckoutPix, legacyCancelQuote, requestRefund, withdraw, type PortalDeps } from '../_shared/places-payment.ts';
-import { asaasFromEnv, baseDeps, json, userDeps } from '../_shared/places-payment-runtime.ts';
+import { cancelLegacy, cancelQuote, cancelRenewal, checkout, confirmPixKey, checkoutPix, draftCheckout, draftCheckoutPix, legacyCancelQuote, requestRefund, supportCancel, supportCancelQuote, supportOperator, withdraw, type PortalDeps } from '../_shared/places-payment.ts';
+import { asaasFromEnv, baseDeps, json, supportDeps, userDeps } from '../_shared/places-payment-runtime.ts';
+import { CMS_JOB_SECRET_HEADER } from '../_shared/places-payout.ts';
+import { constantTimeEqual } from '../_shared/constant-time.ts';
+import { validateAuthHeader } from '../_shared/auth-middleware.ts';
+
+/** The support's cancel (#1054). The secret is checked before the token and the body. */
+async function supportPayment(req: Request): Promise<Response> {
+  const expected = (Deno.env.get('CMS_JOB_SECRET') ?? '').trim();
+  const provided = (req.headers.get(CMS_JOB_SECRET_HEADER) ?? '').trim();
+  const secretOk = expected.length > 0 && provided.length > 0 && constantTimeEqual(provided, expected);
+  const operator = supportOperator(secretOk, secretOk ? await validateAuthHeader(req) : { valid: false });
+  if (typeof operator !== 'string') return json(operator.status, operator.body);
+
+  let body: Record<string, unknown>;
+  try {
+    body = (await req.json()) as Record<string, unknown>;
+  } catch {
+    return json(400, { error: 'invalid_body' });
+  }
+  if (body.action !== 'support_cancel_quote' && body.action !== 'support_cancel') return json(400, { error: 'invalid', field: 'action' });
+  const asaas = asaasFromEnv();
+  if (!asaas) {
+    console.error('[places-payment] ASAAS_BASE_URL or ASAAS_API_KEY is not set');
+    return json(503, { error: 'unavailable' });
+  }
+  try {
+    const r = body.action === 'support_cancel_quote' ? await supportCancelQuote(baseDeps(asaas), body) : await supportCancel(supportDeps(asaas, operator), body);
+    console.log('[places-payment] support', String(body.action), r.status);
+    return json(r.status, r.body);
+  } catch (e) {
+    console.error('[places-payment] support failed', e instanceof Error ? e.message.slice(0, 200) : 'unknown');
+    return json(502, { error: 'unavailable' });
+  }
+}
 
 /** The cookie's checkout (#863). The secret is checked before the body is read. */
 async function draftPayment(req: Request): Promise<Response> {
@@ -65,6 +105,7 @@ async function draftPayment(req: Request): Promise<Response> {
 Deno.serve(async (req: Request) => {
   if (req.method !== 'POST') return json(405, { error: 'method_not_allowed' });
   if (req.headers.has(DRAFT_SECRET_HEADER)) return draftPayment(req);
+  if (req.headers.has(CMS_JOB_SECRET_HEADER)) return supportPayment(req);
   if (!isPlacesSecret(req.headers.get(PLACES_SECRET_HEADER))) return json(401, { error: 'unauthorized' });
   const jwt = (req.headers.get('authorization') ?? '').replace(/^Bearer\s+/i, '').trim();
   if (!jwt) return json(401, { error: 'relogin' });

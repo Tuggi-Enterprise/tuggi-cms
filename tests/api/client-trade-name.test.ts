@@ -1,22 +1,22 @@
 /**
- * Nome fantasia e razão social — qual coluna é qual, dito uma vez e provado nas quatro pontas.
+ * Trade name and legal name: which column holds which, said once and proven at the four ends.
  *
- * O DEFEITO, relatado pelo operador em 2026-08-26 e medido no cliente `Cozi +`. O formulário do
- * parceiro pergunta as duas coisas e `promotion.ts` grava cada uma na sua coluna:
+ * THE DEFECT, reported by the operator on 2026-08-26 and measured on the client `Cozi +`. The
+ * partner form asks for both and `promotion.ts` writes each one to its own column:
  *
- *     trade_name  'Cozi +'                        →  partner.clients.name
- *     legal_name  'Cozimais Restaurante e Café'   →  partner.clients.company_name
+ *     trade_name  'Cozi +'                        ->  partner.clients.name
+ *     legal_name  'Cozimais Restaurante e Café'   ->  partner.clients.company_name
  *
- * A aba Perfil rotulava `name` como `Nome / Razão social` e `company_name` como `Nome comercial`
- * — exatamente ao contrário —, e o cabeçalho do registro mostrava a razão social. Os rótulos
- * eram o erro, não o dado: é de `company_name` que `lib/contract/snapshot.ts` tira o `legalName`
- * impresso no contrato, e um rótulo invertido convida o operador a corrigir o dado certo.
+ * The Profile tab labelled `name` as the legal name and `company_name` as the trade name, exactly
+ * backwards, and the record header showed the legal name. The labels were wrong, not the data:
+ * `lib/contract/snapshot.ts` takes the printed `legalName` from `company_name`, and an inverted
+ * label invites the operator to "fix" the right data.
  *
- * E ISSO ALCANÇAVA A URL PÚBLICA. `partner.ensure_client_slug` montava o slug com
- * `COALESCE(NULLIF(company_name,''), name)` — a razão social primeiro —, e `/d/{slug}` saiu
- * `cozimais-restaurante-e-cafe` para um estabelecimento cuja fachada diz `Cozi +`. A ordem
- * inverte na migration `20260826_01`; slug existente NÃO é regenerado, porque ele já foi para
- * QR code e material impresso.
+ * AND IT REACHED THE PUBLIC URL. `partner.ensure_client_slug` built the slug from
+ * `COALESCE(NULLIF(company_name,''), name)`, legal name first, and `/d/{slug}` came out as
+ * `cozimais-restaurante-e-cafe` for a place whose facade reads `Cozi +`. Migration `20261007110000`
+ * of db-tuggiApp (#896) builds it from the trade name plus the city; an existing slug is NOT
+ * regenerated, because it is already on QR codes and printed material (BR-B2B-037).
  *
  * Run with: npm run test:api
  */
@@ -74,27 +74,21 @@ test('o registro se identifica pelo fantasia, que é o que está na fachada', ()
   )
 })
 
-// Produção diverge: o baseline 20261006120000 (pg_dump de produção) traz `ensure_client_slug` com
-// a razão social primeiro — a 20260826_01 nunca chegou ao banco do app. Até o `data` portar a
-// troca, a asserção fica como TODO: ela roda, mostra a divergência e não esconde a pergunta (#894).
-test('o slug de /d/{slug} nasce do fantasia', {
-  skip: APP_SCHEMA_SKIP,
-  todo: 'produção ainda gera o slug pela razão social; a 20260826_01 não está no baseline do app (#894)',
-}, () => {
+// BR-B2B-037 · #896 · #897: a new client slug is born from the trade name plus the city (operator
+// decision, 2026-10-07), falling back to the legal name when the trade name is blank. The source is
+// the last definition of the function in the db-tuggiApp history, today `20261007110000`.
+const SLUG_BASE =
+  "next_unique_client_slug(COALESCE(NULLIF(btrim(NEW.name), ''), NEW.company_name) || ' ' || COALESCE(NEW.city, ''), NULL)"
+
+test('BR-B2B-037: the /d/{slug} slug is born from the trade name and the city', { skip: APP_SCHEMA_SKIP }, () => {
   const fn = functionDef('partner.ensure_client_slug').replace(/^\s*--.*$/gm, '')
+  const insert = fn.slice(0, fn.indexOf("ELSIF TG_OP = 'UPDATE'"))
 
-  const generations = [...fn.matchAll(/next_unique_client_slug\(/g)].length
-  const fromTradeName = [
-    ...fn.matchAll(
-      /next_unique_client_slug\(COALESCE\(NULLIF\(NEW\.name, ''\), NEW\.company_name\), NULL\)/g
-    ),
-  ].length
-
-  assert.equal(generations, 2, 'os dois ramos de INSERT que geram o slug')
-  assert.equal(fromTradeName, 2, 'os dois partem do fantasia, com a razão social de reserva')
-  assert.equal(fn.indexOf("COALESCE(NULLIF(NEW.company_name, ''), NEW.name)"), -1)
+  assert.equal(insert.split('next_unique_client_slug(').length - 1, 2, 'the two INSERT branches that generate the slug')
+  assert.equal(insert.split(SLUG_BASE).length - 1, 2, 'both start from the trade name and the city')
+  assert.equal(fn.indexOf("COALESCE(NULLIF(NEW.company_name, ''), NEW.name)"), -1, 'the legal name no longer comes first')
 })
 
-test('slug que já existe não é regenerado — ele foi impresso em QR code', { skip: APP_SCHEMA_SKIP }, () => {
+test('BR-B2B-037 item 4: an existing slug is never regenerated, it is printed on a QR code', { skip: APP_SCHEMA_SKIP }, () => {
   assert.match(functionDef('partner.ensure_client_slug'), /ELSIF TG_OP = 'UPDATE' THEN[\s\S]*?NEW\.slug := OLD\.slug/)
 })

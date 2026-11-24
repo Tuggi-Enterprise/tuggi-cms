@@ -1,0 +1,287 @@
+// _shared/ga4-data.ts
+//
+// The Google Analytics Data API v1beta, read only, for the site block of the cycle report (#993,
+// BR-B2B-059 item 7e). A service account signs a JWT (RS256, WebCrypto), Google trades it for an
+// access token, and `runReport` reads one property.
+//
+// Docs, checked 2026-10-22: runReport is `POST https://analyticsdata.googleapis.com/v1beta/
+// properties/{id}:runReport` with the scope `analytics.readonly`; the pagePath filter is a
+// `StringFilter` with `matchType: FULL_REGEXP`; rows whose metrics are all zero are left out unless
+// `keepEmptyRows`. Token: the OAuth 2.0 service account flow (grant type jwt-bearer).
+//
+// Import-free: WebCrypto and `fetch` exist in Deno and in Node, so the CMS tests run it as is.
+// The credential is the secret `GA4_SERVICE_ACCOUNT_JSON` (the JSON key Google downloads); only
+// `client_email` and `private_key` are read, and the token goes to Google's own URL, never to a
+// `token_uri` written in the secret.
+
+export const GA4_CREDENTIALS_ENV = 'GA4_SERVICE_ACCOUNT_JSON';
+export const GA4_SCOPE = 'https://www.googleapis.com/auth/analytics.readonly';
+export const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
+export const GA4_API = 'https://analyticsdata.googleapis.com/v1beta';
+/** The site's GA4 property, "Institucional" (BR-B2B-059 item 7e; the social funnel of #1059 reads it too). */
+export const GA4_SITE_PROPERTY_ID = '494999879';
+/** The app's GA4 property (Firebase), where `first_open` lives (#1059). */
+export const GA4_APP_PROPERTY_ID = '491146217';
+/** The API's default and the most this job ever reads: the city list of a page. */
+export const GA4_ROW_LIMIT = 10000;
+
+/**
+ * The devices of the app property that are not tourists (#1149, measured 2026-11-09 on `first_open`
+ * since 2025-01-01): the Google Play test robots (Android with no country, Android in US data
+ * centers) and the Apple review (iOS around Cupertino). The one list: every report on the app
+ * property excludes it through `ga4AppFilter`, and the tests import it. Left in on purpose: Malaysia,
+ * Singapore and the Philippines (few, not known to be robots), and the team's devices (#1148).
+ */
+export const GA4_APP_NOT_TOURIST: readonly { platform: 'iOS' | 'Android'; field: 'country' | 'city'; values: readonly string[] }[] = [
+  { platform: 'Android', field: 'country', values: ['(not set)'] },
+  { platform: 'Android', field: 'city', values: ['Calpella', 'Boardman', 'Reston', 'Atlanta', 'Marietta'] },
+  {
+    platform: 'iOS',
+    field: 'city',
+    values: [
+      'San Jose',
+      'Cupertino',
+      'Saratoga',
+      'Mountain View',
+      'Sunnyvale',
+      'Santa Clara',
+      'Los Altos',
+      'Los Gatos',
+      'Campbell',
+      'Los Altos Hills',
+      'Palo Alto',
+    ],
+  },
+];
+
+/**
+ * The `dimensionFilter` of a report on the app property: the report's own filter, if any, AND NOT any
+ * signature of `GA4_APP_NOT_TOURIST`. An `andGroup` filter takes the exclusion as one more expression;
+ * any other filter is paired with it in a new `andGroup`. Data API v1beta, checked 2026-11-09:
+ * FilterExpression is one of `andGroup`, `orGroup`, `notExpression`, `filter`; `inListFilter.values`
+ * must be non-empty; `platform` answers `iOS` / `Android`; a dimension filter may name a dimension
+ * the report does not break down by.
+ */
+export function ga4AppFilter(filter?: Record<string, unknown>): Record<string, unknown> {
+  const exclusion = {
+    notExpression: {
+      orGroup: {
+        expressions: GA4_APP_NOT_TOURIST.map((s) => ({
+          andGroup: {
+            expressions: [
+              { filter: { fieldName: 'platform', stringFilter: { matchType: 'EXACT', value: s.platform } } },
+              { filter: { fieldName: s.field, inListFilter: { values: [...s.values], caseSensitive: true } } },
+            ],
+          },
+        })),
+      },
+    },
+  };
+  if (!filter) return exclusion;
+  const group = (filter as { andGroup?: { expressions?: unknown } }).andGroup;
+  if (group && Array.isArray(group.expressions) && Object.keys(filter).length === 1) {
+    return { andGroup: { expressions: [...group.expressions, exclusion] } };
+  }
+  return { andGroup: { expressions: [filter, exclusion] } };
+}
+
+export type ServiceAccount = { clientEmail: string; privateKey: string };
+
+/** The JSON key of the service account, or null when it is absent or not one. */
+export function parseServiceAccount(raw: string | undefined | null): ServiceAccount | null {
+  if (!raw || !raw.trim()) return null;
+  let v: unknown;
+  try {
+    v = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!v || typeof v !== 'object') return null;
+  const { client_email, private_key } = v as Record<string, unknown>;
+  if (typeof client_email !== 'string' || !client_email.includes('@')) return null;
+  if (typeof private_key !== 'string' || !private_key.includes('PRIVATE KEY')) return null;
+  return { clientEmail: client_email, privateKey: private_key };
+}
+
+/** One report: users of the pages whose path fully matches `pathPattern`, optionally by city. */
+export type Ga4Query = { pathPattern: string; from: string; to: string; byCity?: boolean };
+export type Ga4Row = { city: string | null; users: number };
+/** Throws when Google refuses or does not answer: the caller decides what a failed read means. */
+export type Ga4 = (q: Ga4Query) => Promise<Ga4Row[]>;
+
+export function ga4ReportBody(q: Ga4Query): Record<string, unknown> {
+  return {
+    dateRanges: [{ startDate: q.from, endDate: q.to }],
+    ...(q.byCity ? { dimensions: [{ name: 'city' }] } : {}),
+    metrics: [{ name: 'totalUsers' }],
+    dimensionFilter: {
+      filter: { fieldName: 'pagePath', stringFilter: { matchType: 'FULL_REGEXP', value: q.pathPattern, caseSensitive: false } },
+    },
+    ...(q.byCity ? { orderBys: [{ metric: { metricName: 'totalUsers' }, desc: true }] } : {}),
+    limit: String(GA4_ROW_LIMIT),
+  };
+}
+
+/** `rows[].dimensionValues[0].value` and `metricValues[0].value` (a string); no rows is no users. */
+export function ga4Rows(body: unknown, byCity: boolean): Ga4Row[] {
+  const rows = body && typeof body === 'object' ? (body as { rows?: unknown }).rows : undefined;
+  if (!Array.isArray(rows)) return [];
+  const out: Ga4Row[] = [];
+  for (const r of rows) {
+    const metric = Number((r as { metricValues?: { value?: unknown }[] })?.metricValues?.[0]?.value);
+    if (!Number.isFinite(metric) || metric <= 0) continue;
+    const dim = (r as { dimensionValues?: { value?: unknown }[] })?.dimensionValues?.[0]?.value;
+    out.push({ city: byCity && typeof dim === 'string' ? dim : null, users: Math.floor(metric) });
+  }
+  return out;
+}
+
+const b64url = (bytes: Uint8Array): string => {
+  let s = '';
+  for (const b of bytes) s += String.fromCharCode(b);
+  return btoa(s).replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
+};
+
+function pemToDer(pem: string): Uint8Array<ArrayBuffer> {
+  const body = pem.replace(/\\n/g, '\n').replace(/-----(BEGIN|END) PRIVATE KEY-----/g, '').replace(/\s+/g, '');
+  const bin = atob(body);
+  const der = new Uint8Array(new ArrayBuffer(bin.length));
+  for (let i = 0; i < bin.length; i++) der[i] = bin.charCodeAt(i);
+  return der;
+}
+
+/**
+ * The signed assertion of the jwt-bearer grant, valid for one hour (Google's maximum). One scope per token:
+ * the Search Console job (#1170) draws its own, so a GA4 token never reaches another API.
+ */
+export async function serviceAccountAssertion(
+  sa: ServiceAccount,
+  nowSeconds: number,
+  scope = GA4_SCOPE,
+): Promise<string> {
+  const enc = new TextEncoder();
+  const header = b64url(enc.encode(JSON.stringify({ alg: 'RS256', typ: 'JWT' })));
+  const claims = b64url(enc.encode(JSON.stringify({ iss: sa.clientEmail, scope, aud: GOOGLE_TOKEN_URL, iat: nowSeconds, exp: nowSeconds + 3600 })));
+  const key = await crypto.subtle.importKey('pkcs8', pemToDer(sa.privateKey), { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);
+  const sig = new Uint8Array(await crypto.subtle.sign('RSASSA-PKCS1-v1_5', key, enc.encode(`${header}.${claims}`)));
+  return `${header}.${claims}.${b64url(sig)}`;
+}
+
+type FetchFn = (url: string, init: RequestInit) => Promise<Response>;
+
+/**
+ * A refusal of a Google API. `message` is the short code the callers compare (`ga4_report_403`), unchanged
+ * since #993; `google` keeps what Google answered, for `collector_runs.detail` (#1170): the `status` of the
+ * error (`PERMISSION_DENIED`), the `reason` (`SERVICE_DISABLED` when the API is off in the Cloud project,
+ * `forbidden` when the account was not granted the resource) and Google's sentence, cleaned by `cleanGoogle`.
+ * Shape checked 2026-11-09: google.rpc.Status (`error.code`, `error.status`, `error.message`, `error.details[]`
+ * with an `ErrorInfo.reason`) and the v3 APIs' `error.errors[].reason`; the token endpoint answers the OAuth
+ * pair `error` and `error_description`. Nothing else of the body is kept: it can echo the request.
+ */
+export class GoogleApiError extends Error {
+  constructor(
+    code: string,
+    readonly google: { status: string | null; reason: string | null; message: string | null },
+  ) {
+    super(code);
+  }
+}
+
+/** Google's sentence without an e-mail or an access token, on one line, 300 characters at most. */
+export function cleanGoogle(text: string): string {
+  return text
+    .replace(/ya29\.[\w.-]+/g, '[token]')
+    .replace(/[\w.+-]+@[\w-]+(\.[\w-]+)+/g, '[email]')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 300);
+}
+
+/** The error of a refused answer, `<prefix>_<http status>`, with what Google said in `google`. */
+export async function googleApiError(prefix: string, res: Response): Promise<GoogleApiError> {
+  const body = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+  const raw = body?.error;
+  const text = (v: unknown) => (typeof v === 'string' && v.trim() ? cleanGoogle(v) : null);
+  if (typeof raw === 'string') {
+    const message = text(body?.error_description);
+    return new GoogleApiError(`${prefix}_${res.status}`, { status: text(raw), reason: null, message });
+  }
+  const e = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  const details = Array.isArray(e.details) ? (e.details as Array<Record<string, unknown>>) : [];
+  const errors = Array.isArray(e.errors) ? (e.errors as Array<Record<string, unknown>>) : [];
+  const reason = details.map((d) => d?.reason).find((r) => typeof r === 'string') ?? errors[0]?.reason;
+  const google = { status: text(e.status), reason: text(reason), message: text(e.message) };
+  return new GoogleApiError(`${prefix}_${res.status}`, google);
+}
+
+/** `collector_runs.detail` of a failed read: the code, then Google's status, reason and sentence when it gave them. */
+export function googleErrorDetail(e: unknown): string {
+  if (!(e instanceof Error)) return 'unknown';
+  if (!(e instanceof GoogleApiError)) return cleanGoogle(e.message);
+  const { status, reason, message } = e.google;
+  const head = [e.message, status, reason].filter(Boolean).join(' ');
+  return message ? `${head}: ${message}` : head;
+}
+
+/**
+ * A bearer token of the service account for one scope, drawn on first use and reused for the run (the job
+ * lasts seconds; the token one hour). A refusal forgets it, so the next call asks again.
+ */
+export function googleAccessToken(
+  sa: ServiceAccount,
+  scope: string,
+  prefix: string,
+  fetchFn: FetchFn,
+  now: () => number = Date.now,
+): () => Promise<string> {
+  let token: Promise<string> | null = null;
+  return () =>
+    (token ??= (async () => {
+      const assertion = await serviceAccountAssertion(sa, Math.floor(now() / 1000), scope);
+      const res = await fetchFn(GOOGLE_TOKEN_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: `grant_type=${encodeURIComponent('urn:ietf:params:oauth:grant-type:jwt-bearer')}&assertion=${assertion}`,
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!res.ok) throw await googleApiError(`${prefix}_token`, res);
+      const body = (await res.json().catch(() => null)) as { access_token?: unknown } | null;
+      if (typeof body?.access_token !== 'string') throw new Error(`${prefix}_token_${res.status}`);
+      return body.access_token;
+    })().catch((e) => {
+      token = null;
+      throw e;
+    }));
+}
+
+/**
+ * Any `runReport` body against one property, answering Google's raw JSON. Errors are `GoogleApiError`
+ * whose message is the HTTP status only (`ga4_report_403` is "this service account has no access to the
+ * property"), what the callers compare; Google's status, reason and sentence ride on `google`, and only
+ * `googleErrorDetail` writes them anywhere.
+ * `ga4Client` below and the social collector (#1059) both stand on this, so the token flow exists once.
+ */
+export function ga4Runner(
+  sa: ServiceAccount,
+  propertyId: string,
+  fetchFn: FetchFn,
+  now: () => number = Date.now,
+): (body: Record<string, unknown>) => Promise<unknown> {
+  const accessToken = googleAccessToken(sa, GA4_SCOPE, 'ga4', fetchFn, now);
+  return async (body) => {
+    const res = await fetchFn(`${GA4_API}/properties/${propertyId}:runReport`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${await accessToken()}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) throw await googleApiError('ga4_report', res);
+    return await res.json();
+  };
+}
+
+/** A `Ga4` for one property: the page-users report of the cycle report, on `ga4Runner`. */
+export function ga4Client(sa: ServiceAccount, propertyId: string, fetchFn: FetchFn, now: () => number = Date.now): Ga4 {
+  const run = ga4Runner(sa, propertyId, fetchFn, now);
+  return async (q) => ga4Rows(await run(ga4ReportBody(q)), q.byCity === true);
+}

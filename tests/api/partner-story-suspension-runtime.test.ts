@@ -1,5 +1,5 @@
 /**
- * #889 — the filters of `suspensionDeps().removeVoicedCopies` (BR-B2B-019 item 7: nothing of the
+ * #889 — the filters of `suspensionDeps().removeVoicedFiles` (BR-B2B-019 item 7: nothing of the
  * paid description reaches the tourist; item 4: the reach is THIS place only).
  *
  * The Deno runtime file runs for real; its three Edge-only imports are replaced by a recorder that
@@ -22,24 +22,16 @@ type Call = { op: string; args: unknown[] }
 let calls: Call[] = []
 let listing: { name: string }[] = []
 let listError: unknown = null
-let deleteError: unknown = null
 let removeError: unknown = null
-
-// A chain that records every filter and answers a DELETE / a storage call from the knobs above.
-function chain(table: string) {
-  const self: Record<string, unknown> = {}
-  for (const m of ['delete', 'update', 'select', 'eq', 'neq', 'or', 'in', 'not', 'maybeSingle']) {
-    self[m] = (...args: unknown[]) => {
-      calls.push({ op: `${table}.${m}`, args })
-      return self
-    }
-  }
-  self.then = (res: (v: unknown) => unknown) => res({ data: [], error: deleteError })
-  return self
-}
+let rpcAnswer: { data: unknown; error: unknown } = { data: [], error: null }
 
 const admin = {
-  schema: (s: string) => ({ from: (t: string) => chain(`${s}.${t}`), rpc: async () => ({ data: true, error: null }) }),
+  schema: (s: string) => ({
+    rpc: async (fn: string, args: unknown) => {
+      calls.push({ op: 'rpc', args: [s, fn, args] })
+      return rpcAnswer
+    },
+  }),
   storage: {
     from: (bucket: string) => ({
       list: async (folder: string, opts: unknown) => {
@@ -69,20 +61,9 @@ before(async () => {
 const reset = () => {
   calls = []
   listing = []
-  listError = deleteError = removeError = null
+  listError = removeError = null
+  rpcAnswer = { data: [], error: null }
 }
-
-test('BR-B2B-019 item 7 · DELETE always carries attraction_id and spares the base row (language/gender)', async () => {
-  reset()
-  await runtime.suspensionDeps().removeVoicedCopies(A)
-  const names = calls.map((c) => c.op)
-  assert.deepEqual(names.slice(0, 3), ['core.attraction_descriptions.delete', 'core.attraction_descriptions.eq', 'core.attraction_descriptions.or'])
-  const eq = calls.find((c) => c.op === 'core.attraction_descriptions.eq')!
-  assert.deepEqual(eq.args, ['attraction_id', A], 'never a DELETE without the place filter')
-  const or = calls.find((c) => c.op === 'core.attraction_descriptions.or')!
-  assert.equal(or.args[0], 'language.neq.pt-br,gender.neq.male', 'the base row is not matched')
-  assert.equal(calls.some((c) => c.op === 'core.attraction_descriptions.update'), false)
-})
 
 test('BR-B2B-019 item 7 · storage: only master_audio/{id}/{id}-*.mp3 of THIS place is removed, by exact path', async () => {
   reset()
@@ -95,7 +76,7 @@ test('BR-B2B-019 item 7 · storage: only master_audio/{id}/{id}-*.mp3 of THIS pl
     { name: `${A}-x/../${B}-y.mp3` }, // path trick
     { name: `${A}.mp3` }, // no dash after the id
   ]
-  await runtime.suspensionDeps().removeVoicedCopies(A)
+  await runtime.suspensionDeps().removeVoicedFiles(A)
   const list = calls.find((c) => c.op === 'storage.list')!
   assert.deepEqual(list.args.slice(0, 2), ['travel-app-audios', `master_audio/${A}`])
   const rm = calls.find((c) => c.op === 'storage.remove')!
@@ -108,7 +89,7 @@ test('BR-B2B-019 item 7 · storage: only master_audio/{id}/{id}-*.mp3 of THIS pl
 test('BR-B2B-019 item 7 · another place id is not reachable: nothing of B is deleted or removed when A runs', async () => {
   reset()
   listing = [{ name: `${B}-pt-br-male.mp3` }]
-  await runtime.suspensionDeps().removeVoicedCopies(A)
+  await runtime.suspensionDeps().removeVoicedFiles(A)
   assert.equal(calls.some((c) => c.op === 'storage.remove'), false, 'no matching file: no remove call')
   const touched = JSON.stringify(calls.filter((c) => c.op !== 'storage.list'))
   assert.equal(touched.includes(B), false)
@@ -117,41 +98,47 @@ test('BR-B2B-019 item 7 · another place id is not reachable: nothing of B is de
 test('BR-B2B-019 · id that is not a uuid throws before ANY write', async () => {
   for (const bad of ['', '*', '../x', `${A}/..`, 'not-a-uuid']) {
     reset()
-    await assert.rejects(runtime.suspensionDeps().removeVoicedCopies(bad), /not uuid/)
+    await assert.rejects(runtime.suspensionDeps().removeVoicedFiles(bad), /not uuid/)
     assert.equal(calls.length, 0, JSON.stringify(bad))
   }
 })
 
-test('BR-B2B-019 · errors are thrown (never swallowed): delete, list, remove', async () => {
-  reset()
-  deleteError = { code: '42501' }
-  await assert.rejects(runtime.suspensionDeps().removeVoicedCopies(A), /copies delete/)
-  assert.equal(calls.some((c) => c.op.startsWith('storage')), false, 'a failed DELETE stops before storage')
-
+test('BR-B2B-019 · errors are thrown (never swallowed): list, remove', async () => {
   reset()
   listError = { message: 'x' }
-  await assert.rejects(runtime.suspensionDeps().removeVoicedCopies(A), /audio list failed/)
+  await assert.rejects(runtime.suspensionDeps().removeVoicedFiles(A), /audio list failed/)
 
   reset()
   listing = [{ name: `${A}-pt-br-male.mp3` }]
   removeError = { message: 'x' }
-  await assert.rejects(runtime.suspensionDeps().removeVoicedCopies(A), /audio remove failed/)
+  await assert.rejects(runtime.suspensionDeps().removeVoicedFiles(A), /audio remove failed/)
 })
 
-test('BR-B2B-019 · writeBase is a conditional UPDATE: keyed by place, base language/gender AND fromKind', async () => {
+test('#1055 · the three RPCs go to the partner schema with the place id, and their answers are read', async () => {
   reset()
-  await runtime.suspensionDeps().writeBase(A, 'partner_story_script', {
-    description: 'Bar do Zé',
-    audio_url: null,
-    updated_at: 'x',
-    verification_status: 'approved',
-    generation_meta: { kind: 'partner_name_only' },
-  })
-  const eqs = calls.filter((c) => c.op === 'core.attraction_descriptions.eq').map((c) => c.args)
-  assert.deepEqual(eqs, [
-    ['attraction_id', A],
-    ['language', 'pt-br'],
-    ['gender', 'male'],
-    ['generation_meta->>kind', 'partner_story_script'],
-  ])
+  rpcAnswer = { data: [{ attraction_id: A, state: 'ended', archived: false }, { attraction_id: B, state: 'none', archived: false }], error: null }
+  assert.deepEqual(await runtime.suspensionDeps().places(), [{ attractionId: A, state: 'ended', archived: false }])
+  rpcAnswer = { data: [{ outcome: 'suspended', archive_id: B }], error: null }
+  assert.equal(await runtime.suspensionDeps().suspend(A), 'suspended')
+  rpcAnswer = { data: [{ outcome: 'restored', archive_id: B, text_restored: true, images_restored: 2 }], error: null }
+  assert.deepEqual(await runtime.suspensionDeps().restore(A), { outcome: 'restored', textRestored: true, imagesRestored: 2 })
+  assert.deepEqual(
+    calls.filter((c) => c.op === 'rpc').map((c) => c.args),
+    [
+      ['partner', 'place_paid_content_places', {}],
+      ['partner', 'place_suspend_paid_content', { p_attraction_id: A }],
+      ['partner', 'place_restore_paid_content', { p_attraction_id: A }],
+    ]
+  )
+})
+
+test('#1055 · an RPC error throws with its code (23503 reaches the alert); an unknown outcome throws', async () => {
+  reset()
+  rpcAnswer = { data: null, error: { code: '23503' } }
+  await assert.rejects(runtime.suspensionDeps().suspend(A), /suspend 23503/)
+  await assert.rejects(runtime.suspensionDeps().restore(A), /restore 23503/)
+  await assert.rejects(runtime.suspensionDeps().places(), /places read 23503/)
+  rpcAnswer = { data: [{ outcome: 'something_else' }], error: null }
+  await assert.rejects(runtime.suspensionDeps().suspend(A), /outcome unknown/)
+  await assert.rejects(runtime.suspensionDeps().restore(A), /outcome unknown/)
 })

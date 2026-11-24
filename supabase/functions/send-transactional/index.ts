@@ -16,11 +16,19 @@
 //   'partner_contract_sign'   -> to the legal representative (read and sign, #342, pt)
 //   'partner_contract_signed' -> to the legal representative (signed copy, #342, pt)
 //   'partner_acceptance_link' -> to the client's e-mail (read and accept the terms, #872, pt)
+//   'tourist_hours_earned' | 'tourist_hours_expiring' | 'tourist_reengagement_7' |
+//   'tourist_reengagement_14' | 'tourist_reengagement_30'
+//                             -> to the tourist (#957, BR-COMUNICACAO-020), in the profile's
+//                                language, with the signed one-tap unsubscribe and the RFC 8058
+//                                headers. Copy in `_shared/tourist-email.ts`; called by
+//                                `tourist-lifecycle-email`. Refused, unsent, for an address in
+//                                `marketing.email_unsubscribes` (409; 503 when unreadable).
 //
 // lang: 'pt' | 'en' | 'es' | 'fr' | 'it' (normalized; defaults to 'pt'). Applies
 //       to the user-facing types; partner_new (team) is always pt.
 //
 // Secrets: RESEND_API_KEY, RESEND_FROM (default "Tuggi <news@tuggi.app>"),
+//          NEWSLETTER_SECRET + PUBLIC_FUNCTIONS_URL (tourist types: the unsubscribe link),
 //          PARTNER_ALERT_TO (default "suporte@tuggi.app"), APP_URL (optional),
 //          PARTNER_FORM_ORIGIN (optional), PLACES_PORTAL_ORIGIN (optional)
 //
@@ -50,6 +58,10 @@ import {
   type PartnerEvent,
 } from '../_shared/partner-i18n.ts';
 import { requireAdmin } from '../_shared/auth-middleware.ts';
+import { renderEmail, renderText } from '../_shared/emailLayout.ts';
+import { isTouristEmailType, isTripQuestionMode, renderTouristEmail, type TouristEmailType } from '../_shared/tourist-email.ts';
+import { buildOneClickUrl, buildUnsubscribeUrl, unsubscribeHeaders } from '../_shared/unsubscribe-link.ts';
+import { getSecretKey } from '../_shared/secret-key.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -60,7 +72,7 @@ const corsHeaders = {
 const RESEND_URL = 'https://api.resend.com/emails';
 const TUGGI_BLUE = '#00A8E8';
 
-/** Where the app lives, for the only CTA of the `approved` e-mail. */
+/** Where the app lives, for the CTA of the partner e-mails (received, approved, rejected). */
 const DEFAULT_APP_ORIGIN = 'https://tuggi.app';
 
 /**
@@ -137,23 +149,42 @@ function shell(title: string, bodyHtml: string, preheader = ''): string {
   </div></body></html>`;
 }
 
-// Internal team alert — always pt (not user-facing).
+/** A payload value as one line of plain text: absent, null and blank all become ''. */
+function plain(value: unknown): string {
+  return String(value ?? '').replace(/\s+/g, ' ').trim();
+}
+
+// Internal team alert, always pt (not user-facing). #1181: the database sends it at the
+// acceptance of a partner request without a place (`core.dispatch_partner_team_alert`), with
+// `email` NULL because the address stays in the CMS queue. An empty field drops its line
+// instead of printing a placeholder.
 function renderTeamAlert(data: Record<string, unknown>): {
   subject: string;
   html: string;
 } {
-  const name = esc(data.partner_name ?? data.name ?? '');
-  const ctype = esc(data.client_type ?? '');
+  const name = plain(data.partner_name ?? data.name);
+  const ctype = plain(data.client_type);
+  const rows = (
+    [
+      ['Nome', name],
+      ['Tipo', ctype],
+      ['Região', plain(data.city)],
+      ['E-mail de contato', plain(data.email)],
+    ] as const
+  )
+    .filter(([, value]) => value)
+    .map(([label, value]) => `<b>${label}:</b> ${esc(value)}`)
+    .join('<br/>\n          ');
+  const headline = name || ctype;
+
   return {
-    subject: `Novo parceiro: ${name || ctype || 'cadastro'}`,
+    // Subject is a header, not HTML: the raw value, never the escaped one.
+    subject: headline ? `Novo pedido de parceiro: ${headline}` : 'Novo pedido de parceiro',
     html: shell(
-      'Novo cadastro de parceiro',
-      `<p>Um novo parceiro se cadastrou e está aguardando análise.</p>
-       <p><b>Nome:</b> ${name || '—'}<br/>
-          <b>Tipo:</b> ${ctype || '—'}<br/>
-          <b>Email:</b> ${esc(data.email ?? '—')}<br/>
-          <b>Cidade:</b> ${esc(data.city ?? '—')}</p>
-       <p>Analise no CMS para aprovar ou rejeitar.</p>`
+      'Novo pedido de parceiro',
+      `<p>Um pedido de parceiro sem local chegou com o aceite do termo e espera análise.</p>
+       ${rows ? `<p>${rows}</p>` : ''}
+       <p>Aprove ou recuse na fila de pedidos do CMS.</p>`
     ),
   };
 }
@@ -179,11 +210,9 @@ function renderLocalized(
 
   // `ctaButton` and not the band colour: white on #00A8E8 measures 2.70:1 and fails even the
   // 3:1 of the non-text criterion. This button carried that defect until 2026-08-21, while
-  // the two contract templates beside it had already been corrected.
-  const cta =
-    event === 'approved' && s.email.cta
-      ? ctaButton(ownOrigin('APP_URL', DEFAULT_APP_ORIGIN), s.email.cta)
-      : '';
+  // the two contract templates beside it had already been corrected. #1181: every event has
+  // its button, all to the app, where the request status (and the rejection reason) lives.
+  const cta = ctaButton(ownOrigin('APP_URL', DEFAULT_APP_ORIGIN), s.email.cta);
 
   return {
     subject: s.email.subject,
@@ -414,6 +443,83 @@ function renderContractSigned(data: Record<string, unknown>): {
   };
 }
 
+/** Where the site's `/unsubscribe` page lives — the same default `send-newsletter` uses. */
+const DEFAULT_SITE_ORIGIN = 'https://www.tuggi.app';
+
+/**
+ * #957 — a tourist e-mail, wrapped in the newsletter layout so the one-tap unsubscribe is the same
+ * mechanism and the same list (BR-COMUNICACAO-020 item 4, BR-COMUNICACAO-015). The link is signed
+ * over `to`, so it can only unsubscribe the address it was sent to; the button is
+ * `TOURIST_APP_LINK`. Nothing in `data` becomes an href. `null` when a fact the sentence needs is
+ * missing, or when there is no secret to sign the unsubscribe with: no e-mail leaves without it.
+ */
+async function renderTourist(
+  type: TouristEmailType,
+  to: string,
+  lang: unknown,
+  data: Record<string, unknown>
+): Promise<{ subject: string; html: string; text: string; headers: Record<string, string> } | null> {
+  const secret = (Deno.env.get('NEWSLETTER_SECRET') ?? '').trim();
+  if (!secret) return null;
+  const rendered = renderTouristEmail(type, lang, {
+    minutes: typeof data.minutes === 'number' ? data.minutes : Number(data.minutes ?? NaN),
+    expires_at: typeof data.expires_at === 'string' ? data.expires_at : null,
+    nickname: typeof data.nickname === 'string' ? data.nickname.slice(0, 40) : null,
+    balance_minutes: typeof data.balance_minutes === 'number' ? data.balance_minutes : null,
+    timezone: typeof data.timezone === 'string' ? data.timezone : null,
+    eve: data.eve === true,
+    // BR-COMUNICACAO-019 3.u.4 (#1276): a closed value, never a sentence; anything else is no block.
+    trip_question: isTripQuestionMode(data.trip_question) ? data.trip_question : null,
+  });
+  if (!rendered) return null;
+
+  const functionsUrl = (
+    Deno.env.get('PUBLIC_FUNCTIONS_URL') ||
+    `${(Deno.env.get('SUPABASE_URL') ?? '').trim().replace(/\/$/, '')}/functions/v1`
+  ).trim();
+  const locale = String(lang ?? 'pt').slice(0, 2).toLowerCase();
+  const unsubscribeUrl = await buildUnsubscribeUrl(to, ownOrigin('APP_URL', DEFAULT_SITE_ORIGIN), secret, locale);
+  const oneClickUrl = await buildOneClickUrl(to, functionsUrl, secret);
+  const opts = {
+    unsubscribeUrl,
+    locale,
+    utmCampaign: rendered.utmCampaign,
+    footerNote: rendered.footerNote,
+    unsubscribeLabel: rendered.unsubscribeLabel,
+  };
+  return {
+    subject: rendered.content.subject ?? 'Tuggi',
+    html: renderEmail(rendered.content, opts),
+    text: renderText(rendered.content, opts),
+    headers: unsubscribeHeaders(oneClickUrl),
+  };
+}
+
+/**
+ * BR-COMUNICACAO-020 item 4 — is `to` in `marketing.email_unsubscribes`? `tourist-lifecycle-email`
+ * already drops the unsubscribed, but this route is also reachable by hand (an operator testing a
+ * template), and that path must not mail an address that said no. Over PostgREST with `fetch`, not
+ * supabase-js, so the handler still runs under Node in `tests/api/tourist-lifecycle-email.test.ts`.
+ * The address is lowercased and trimmed exactly as every writer of the list stores it.
+ * `null` = the list could not be read; the caller fails CLOSED on it.
+ */
+async function isUnsubscribed(to: string): Promise<boolean | null> {
+  const url = (Deno.env.get('SUPABASE_URL') ?? '').trim().replace(/\/$/, '');
+  const key = (getSecretKey() ?? '').trim();
+  if (!url || !key) return null;
+  try {
+    const email = encodeURIComponent(to.toLowerCase().trim());
+    const res = await fetch(`${url}/rest/v1/email_unsubscribes?select=email&email=eq.${email}&limit=1`, {
+      headers: { apikey: key, Authorization: `Bearer ${key}`, 'Accept-Profile': 'marketing' },
+    });
+    if (!res.ok) return null;
+    const rows = await res.json();
+    return Array.isArray(rows) ? rows.length > 0 : null;
+  } catch {
+    return null;
+  }
+}
+
 const EVENT_BY_TYPE: Record<string, PartnerEvent> = {
   partner_received: 'received',
   partner_approved: 'approved',
@@ -479,6 +585,40 @@ Deno.serve(async (req: Request) => {
     // Internal alert defaults to the team address; user emails require `to`.
     const recipient = type === 'partner_new' ? to || PARTNER_ALERT_TO : to;
     if (!recipient) return json({ error: 'to required' }, 400);
+
+    if (isTouristEmailType(type)) {
+      if (typeof recipient !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) {
+        return json({ error: 'invalid_to' }, 400);
+      }
+      const tourist = await renderTourist(type, recipient, lang, data ?? {});
+      if (!tourist) return json({ error: 'not_renderable', type }, 422);
+      const unsubscribed = await isUnsubscribed(recipient);
+      if (unsubscribed !== false) {
+        // The request id and the verdict only: the address is PII.
+        console.warn(`[${requestId}] tourist e-mail refused: ${unsubscribed ? 'unsubscribed' : 'unsubscribe list unavailable'}`);
+        return unsubscribed
+          ? json({ error: 'unsubscribed', type }, 409)
+          : json({ error: 'unsubscribe_list_unavailable', type }, 503);
+      }
+      const res = await fetch(RESEND_URL, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${RESEND_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          from: RESEND_FROM,
+          to: [recipient],
+          subject: tourist.subject,
+          html: tourist.html,
+          text: tourist.text,
+          headers: tourist.headers,
+        }),
+      });
+      const out = await res.json();
+      if (!res.ok) return json({ error: 'resend_failed', detail: out }, 502);
+      return json({ success: true, id: out.id });
+    }
 
     const { subject, html } =
       type === 'partner_new'

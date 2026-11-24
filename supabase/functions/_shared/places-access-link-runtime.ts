@@ -6,7 +6,7 @@
 
 import { createAdminClient } from './supabase-client.ts';
 import { PORTAL_ORIGIN_ENV, PORTAL_SIGNUP_ORIGIN, portalOrigin, type AccessLinkDeps, type Deps } from './places-portal-draft.ts';
-import { isPayingLegacy } from './places-legacy-access.ts';
+import { isPayingLegacy, portalUserOutcome, type ListUsersPage, type PortalUser } from './places-legacy-access.ts';
 
 const RESEND_URL = 'https://api.resend.com/emails';
 
@@ -19,20 +19,35 @@ export function fromWithName(from: string, name?: string): string {
   return `${name} <${address}>`;
 }
 
-export async function sendEmail(to: string, subject: string, html: string, text: string, fromName?: string): Promise<boolean> {
+/** Resend's message id, or `null` when it was not sent. */
+/** `replyTo` goes as Resend's `reply_to`; omitted, replies go to the sender. */
+export async function sendEmailWithId(to: string, subject: string, html: string, text: string, fromName?: string, replyTo?: string): Promise<string | null> {
   const key = (Deno.env.get('RESEND_API_KEY') ?? '').trim();
-  if (!key) return false;
+  if (!key) return null;
   try {
     const res = await fetch(RESEND_URL, {
       method: 'POST',
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from: fromWithName((Deno.env.get('RESEND_FROM') ?? 'Tuggi <news@tuggi.app>').trim(), fromName), to: [to], subject, html, text }),
+      body: JSON.stringify({
+        from: fromWithName((Deno.env.get('RESEND_FROM') ?? 'Tuggi <news@tuggi.app>').trim(), fromName),
+        to: [to],
+        subject,
+        html,
+        text,
+        ...(replyTo ? { reply_to: replyTo } : {}),
+      }),
       signal: AbortSignal.timeout(10_000),
     });
-    return res.ok;
+    if (!res.ok) return null;
+    const id = ((await res.json().catch(() => null)) as { id?: unknown } | null)?.id;
+    return typeof id === 'string' && id ? id : '';
   } catch {
-    return false;
+    return null;
   }
+}
+
+export async function sendEmail(to: string, subject: string, html: string, text: string, fromName?: string): Promise<boolean> {
+  return (await sendEmailWithId(to, subject, html, text, fromName)) !== null;
 }
 
 export async function sha256Hex(s: string): Promise<string> {
@@ -46,11 +61,28 @@ export function randomToken(): string {
   return btoa(String.fromCharCode(...b)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
+/**
+ * The portal's Auth user of `email`: created confirmed and marked as portal (`signup_origin`), or
+ * `exists` when the address is already registered. The one place that creates a portal user: the
+ * access link (`ensureUser`) and the legacy accounts of #997 (`places-legacy-access`).
+ */
+export async function createPortalUser(admin: Admin, email: string): Promise<PortalUser> {
+  const { data, error } = await admin.auth.admin.createUser({ email, email_confirm: true, user_metadata: { signup_origin: PORTAL_SIGNUP_ORIGIN } });
+  return portalUserOutcome(data?.user?.id, error);
+}
+
+/** One page of the Auth users, for `userFinder` (`places-legacy-access.ts`). */
+export function listUsersPage(admin: Admin): ListUsersPage {
+  return async (page, perPage) => {
+    const { data, error } = await admin.auth.admin.listUsers({ page, perPage });
+    return error ? { error: error.code ?? 'unknown' } : { users: data.users };
+  };
+}
+
 export function authAdmin(admin: Admin): Pick<Deps['auth'], 'ensureUser' | 'magicLink'> {
   return {
     async ensureUser(email) {
-      const { error } = await admin.auth.admin.createUser({ email, email_confirm: true, user_metadata: { signup_origin: PORTAL_SIGNUP_ORIGIN } });
-      return !error || error.code === 'email_exists' || error.status === 422;
+      return (await createPortalUser(admin, email)).kind !== 'failed';
     },
     async magicLink(email) {
       const { data, error } = await admin.auth.admin.generateLink({ type: 'magiclink', email });

@@ -85,7 +85,7 @@ before(async () => {
 
 // ── BR-B2B-044: commission by plan ───────────────────────────────────────────────────────────
 
-test('BR-B2B-044: a client born from the paid plan ("Com história") starts at DEFAULT_COMMISSION_RATE', async () => {
+test('BR-B2B-044: a client born from the paid plan ("Experiência") accepted up to the v10 starts at DEFAULT_COMMISSION_RATE', async () => {
   rows = {}
   inserts = []
   const outcome = await createPromotedClient({ name: 'Cantina' } as never, { plan_choice: 'map_and_description' })
@@ -96,7 +96,17 @@ test('BR-B2B-044: a client born from the paid plan ("Com história") starts at D
   assert.equal(DEFAULT_COMMISSION_RATE, 0.1)
 })
 
-test('BR-B2B-044: a client born from the free plan ("No mapa") has no commission', async () => {
+test('BR-B2B-044 item 6, BR-MONETIZACAO-039 item 2 (#1053): the paid plan accepted on the v11 on is born with commission 0, written, never absent', async () => {
+  rows = {}
+  inserts = []
+  await createPromotedClient({ name: 'Cantina' } as never, { plan_choice: 'map_and_description' }, { commission: false })
+  const insert = inserts.find((entry) => entry.table === 'clients')
+  assert.ok(insert)
+  assert.ok('commission_rate' in insert.payload)
+  assert.equal(insert.payload.commission_rate, 0)
+})
+
+test('BR-B2B-044: a client born from the free plan ("Presença") has no commission', async () => {
   rows = {}
   inserts = []
   await createPromotedClient({ name: 'Cantina' } as never, { plan_choice: 'map_only' })

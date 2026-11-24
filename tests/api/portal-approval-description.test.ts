@@ -87,7 +87,7 @@ const service = {
         const q: any = {
           select: () => q,
           eq: () => q,
-          maybeSingle: async () => ({ data: { email: 'dono@bardoze.com.br', plan_choice: planChoice }, error: null }),
+          maybeSingle: async () => ({ data: { id: 'acc-1053', email: 'dono@bardoze.com.br', plan_choice: planChoice }, error: null }),
         }
         return q
       }
@@ -97,7 +97,9 @@ const service = {
       }
       return submissionsTable()
     },
-    rpc: async (_n: string, args: Record<string, unknown>) => {
+    rpc: async (n: string, args: Record<string, unknown>) => {
+      // #1053: the commission of the new client follows the accepted term; not what this file proves.
+      if (n === 'place_acceptance_terms_model') return { data: [{ has_commission: false, has_commitment: false }], error: null }
       transitioned.push(String(args.p_to))
       return { data: args.p_to, error: null }
     },

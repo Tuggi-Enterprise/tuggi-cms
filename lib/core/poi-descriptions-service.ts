@@ -9,6 +9,43 @@
 
 type SupabaseLike = any
 
+/**
+ * Every column of `core.attraction_descriptions` the CMS reads with the operator's session, which
+ * is all of them except `generated_by_*`. Those say which person triggered a generation, next to
+ * a POI and a timestamp: a trail of where a tourist was (#1014). No screen shows them, and the
+ * column grant that takes them away from `anon` and `authenticated` turns a `select('*')` into a
+ * 42501, so readers of this table list columns from here instead.
+ */
+export const DESCRIPTION_COLUMNS = [
+  'id',
+  'attraction_id',
+  'group_id',
+  'language',
+  'gender',
+  'name',
+  'description',
+  'base_narrative_text',
+  'description_hash',
+  'is_original',
+  'audio_url',
+  'play_count',
+  'last_played_at',
+  'verification_status',
+  'last_score_overall',
+  'last_score_version',
+  'last_verified_at',
+  'facts_pack_json',
+  'facts_version',
+  'grounded',
+  'generation_kind',
+  'generation_meta',
+  'llm_model',
+  'input_tokens',
+  'output_tokens',
+  'created_at',
+  'updated_at',
+].join(', ')
+
 /** Fetch all descriptions for a POI (and its group, if any). */
 export async function fetchDescriptions(
   supabase: SupabaseLike,
@@ -18,7 +55,7 @@ export async function fetchDescriptions(
   const { data } = await supabase
     .schema('core')
     .from('attraction_descriptions')
-    .select('*')
+    .select(DESCRIPTION_COLUMNS)
     .or(`attraction_id.eq.${poiId},group_id.in.(${groupId || ''})`)
     .order('updated_at', { ascending: false })
     .order('created_at', { ascending: false })
@@ -43,7 +80,7 @@ export async function upsertPortugueseDescription(
   const { data: existing } = await supabase
     .schema('core')
     .from('attraction_descriptions')
-    .select('*')
+    .select('id, description')
     .eq('attraction_id', poiId)
     .eq('language', 'pt-br')
     .maybeSingle()

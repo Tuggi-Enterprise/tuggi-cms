@@ -7,12 +7,17 @@ export type AuditAction =
   | 'PASSWORD_RESET_REQUEST'
   | 'PASSWORD_CHANGE'
   | 'UPDATE_PROFILE'
+  // #941: someone was put on the CMS team, with the role they got. Granting `admin` is the
+  // widest privilege in the CMS, so the row says who granted it.
+  | 'INVITE_CMS_USER'
   | 'CREATE_POI'
   | 'UPDATE_POI'
   | 'DELETE_POI'
   // Hour-credit ledger (epic #283). `core.audit_logs.action` is free text — the only
   // CHECK on the table is on `status` — so a value added here reaches the row as written.
   | 'GRANT_TIME_CREDIT'
+  // #945, BR-ROTA-006: the CMS turns an app user's route publishing on or off (App Store 1.2 block).
+  | 'SET_ROUTE_PUBLISHING'
   // A period grant is two transactions: the access period committed and the ledger row did
   // not. The right exists with no grant row behind it, so this row is the only record of
   // who applied it — and of the fact that it must not be applied again.
@@ -45,6 +50,9 @@ export type AuditAction =
   | 'REVIEW_CLIENT_CONFERENCE'
   // BR-B2B-056 (#872): who issued an acceptance link, and whether it went by e-mail.
   | 'ISSUE_ACCEPTANCE_LINK'
+  // BR-B2B-060 (#1054): an admin cancelled a place's paid plan at the partner's written request.
+  // The database records the operator on the cancellation; this row ties it to the CMS session.
+  | 'SUPPORT_CANCEL_PLACE_PLAN'
   // The place the approval creates (#360). It is a write into a catalogue of 2.2 million rows
   // made by a side-effect and not by the Places screen, so the row that says which approval
   // produced which POI is the only way back from one to the other.
@@ -54,9 +62,24 @@ export type AuditAction =
   | 'APPROVE_PORTAL_SUBMISSION'
   | 'REQUEST_PORTAL_CHANGES'
   | 'REJECT_PORTAL_SUBMISSION'
+  // The tour guide's public profile (#936, BR-B2B-064 items 10 and 11): publishing it, hiding or
+  // showing it in the app, and the curator's rewrite of the bio. #1179: "Aparece no app" on and
+  // off, and the curator's meeting point.
+  | 'PUBLISH_GUIDE_PROFILE'
+  | 'HIDE_GUIDE_PROFILE'
+  | 'SHOW_GUIDE_PROFILE'
+  | 'UPDATE_GUIDE_BIO'
+  | 'LIST_GUIDE_PROFILE'
+  | 'UNLIST_GUIDE_PROFILE'
+  | 'UPDATE_GUIDE_MEETING_POINT'
   // The whole CPF of a portal signer, shown on the operator's explicit click (#812): the screen
   // carries only the mask, and this row is who saw the number and when.
   | 'REVEAL_PORTAL_CPF'
+  // #996: "Ver como o lojista". Issuing says which admin asked to see which submission; opening is
+  // the access being spent, and its row is written with `id` = the access's jti, so a second
+  // opening collides on the primary key and is refused (`portal-view-service.ts`).
+  | 'ISSUE_PORTAL_VIEW_ACCESS'
+  | 'OPEN_PORTAL_VIEW'
   // Pointing the client at a place the catalogue ALREADY carried (#409), which is the ordinary
   // act and not the exception: the three clients that used `CREATE_PARTNER_PLACE` each got an
   // empty second row beside an establishment that was already published. This row is what
@@ -150,6 +173,24 @@ export type AuditAction =
   | 'CALCULATE_FINANCE_PAYOUTS'
   | 'RELEASE_FINANCE_PAYOUT'
   | 'RECORD_FINANCE_PAYOUT_INVOICE'
+  // #1139, BR-B2B-066 item 2: the decision on a request of a partner without a place from the app.
+  // Approving creates the partner record with its rate and its commission mark.
+  | 'APPROVE_PARTNER_REQUEST'
+  | 'REFUSE_PARTNER_REQUEST'
+  // #1144, BR-USUARIO-051 items 1, 5 and 6, BR-USUARIO-050 item 7: the moderation of public names.
+  // No reported value, name or term in the description: ids and the field are enough.
+  | 'DECIDE_PUBLIC_IDENTITY_REPORT'
+  | 'RESET_PUBLIC_IDENTITY'
+  | 'SET_PUBLIC_IDENTITY_LOCK'
+  | 'ADD_RESERVED_PUBLIC_NAME'
+  | 'REMOVE_RESERVED_PUBLIC_NAME'
+  | 'ADD_TEXT_FILTER_TERM'
+  | 'REMOVE_TEXT_FILTER_TERM'
+  // #1257, BR-B2B-070 items 2 and 9: the curator decides a partner logo, sets a pilot, prices a
+  // gift package. Ids and the outcome in the description, never the refusal reason.
+  | 'DECIDE_PARTNER_LOGO'
+  | 'SET_PARTNER_PILOT'
+  | 'SET_GIFT_PACKAGE_PRICE'
 
 export type AuditEntity = 'USER' | 'POI' | 'AUTH' | 'CLIENT' | 'PARTNER_PROPOSAL' | 'FINANCE'
 
@@ -161,6 +202,8 @@ interface AuditLogInput {
   userId?: string | null
   userEmail?: string | null
   entityId?: string | null
+  /** The row's own id, for a caller that needs the insert to be unique (#996, single-use access). */
+  id?: string
 }
 
 /**
@@ -222,6 +265,7 @@ export async function logAuditEvent(input: AuditLogInput): Promise<boolean> {
       .schema('core')
       .from('audit_logs')
       .insert({
+        ...(input.id ? { id: input.id } : {}),
         user_id: input.userId ?? null,
         user_email: input.userEmail ?? null,
         action: input.action,

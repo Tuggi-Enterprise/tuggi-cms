@@ -16,10 +16,40 @@ import {
   validateAvatarUrl,
 } from '@/lib/services/client-editable-fields'
 import { describeClientUniqueViolation } from '@/lib/services/client-unique-conflicts'
+import type { ClientLegacyPlan } from '@/types/clients'
 
 /** The 409 of a client that other records still point at (`23503`). */
 const CLIENT_IN_USE =
   'Este cliente tem registros ligados a ele, como o aceite do termo ou o código do parceiro, e não pode ser excluído.'
+
+/**
+ * #1054: the pre-portal plan of each place of the client, so the Locais tab hides "Cancelar plano"
+ * once the fee ended and shows until when the story stays. The date is the database's
+ * (`partner.place_legacy_paid_until`); a failed read leaves it null and never fails the record.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function readLegacyPlans(service: any, clientId: string): Promise<ClientLegacyPlan[]> {
+  const { data, error } = await service
+    .schema('partner')
+    .from('place_submissions')
+    .select('id, attraction_id, legacy_fee_ended_at')
+    .eq('legacy_client_id', clientId)
+    .not('attraction_id', 'is', null)
+  if (error || !Array.isArray(data)) {
+    if (error) console.error('[clients] legacy plans read failed', error.code)
+    return []
+  }
+  return Promise.all(
+    (data as { id: string; attraction_id: string; legacy_fee_ended_at: string | null }[]).map(async (r) => {
+      let storyUntil: string | null = null
+      if (r.legacy_fee_ended_at) {
+        const until = await service.schema('partner').rpc('place_legacy_paid_until', { p_submission_id: r.id })
+        storyUntil = !until.error && typeof until.data === 'string' ? until.data : null
+      }
+      return { attraction_id: r.attraction_id, fee_ended_at: r.legacy_fee_ended_at, story_until: storyUntil }
+    })
+  )
+}
 
 async function getAdminUser(request: NextRequest) {
   const cookieStore = await cookies()
@@ -81,7 +111,8 @@ export async function GET(
       success: true,
       client: {
         ...client,
-        users_count: usersCount || 0
+        users_count: usersCount || 0,
+        legacy_plans: await readLegacyPlans(supabaseService, clientId),
       }
     })
   } catch (error) {

@@ -1,0 +1,12 @@
+Date	App Name	App Apple Identifier	Event	Page Type	Source Type	Engagement Type	Device	Platform Version	Territory	Counts	Unique Counts
+2026-11-05	Tuggi	6744379818	Impression	No page	App Store search		iPhone	iOS 26.1	BR	43	40
+2026-11-05	Tuggi	6744379818	Impression	No page	App Store search		iPhone	iOS 26.1	US	8	5
+2026-11-05	Tuggi	6744379818	Page view	Product page	App Store search		iPhone	iOS 26.1	BR	15	12
+2026-11-05	Tuggi	6744379818	Page view	Developer page	App Store search		iPhone	iOS 26.1	BR	6	3
+2026-11-05	Tuggi	6744379818	Tap	Product page	App Store search	Get	iPhone	iOS 26.1	BR	11	8
+2026-11-05	Tuggi	6744379818	Impression	No page	App Store browse		iPhone	iOS 26.1	BR	23	20
+2026-11-05	Tuggi	6744379818	Page view	Product page	Web referrer		iPhone	iOS 26.1	BR	10	7
+2026-11-05	Tuggi	6744379818	Impression	No page	Siri Suggestions		iPhone	iOS 26.1	BR	7	4
+2026-11-05	Tuggi	999	Impression	No page	App Store search		iPhone	iOS 26.1	BR	1003	1000
+2026-11-06	Tuggi	6744379818	Impression	No page	App Store search		iPhone	iOS 26.1	BR	33	30
+2026-11-06	Tuggi	6744379818	Page view	Product page	App Store search		iPhone	iOS 26.1	BR	12	9

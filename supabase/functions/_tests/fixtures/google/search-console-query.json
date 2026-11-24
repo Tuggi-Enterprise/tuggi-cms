@@ -1,0 +1,9 @@
+{
+  "rows": [
+    { "keys": ["2026-11-03", "o que fazer em búzios"], "clicks": 2, "impressions": 40, "ctr": 0.05, "position": 7.456 },
+    { "keys": ["2026-11-03", "tuggi"], "clicks": 5, "impressions": 6, "ctr": 0.8333333333333334, "position": 1 },
+    { "keys": ["2026-11-04", "audio guia arraial do cabo"], "clicks": 0, "impressions": 12, "ctr": 0, "position": 23.25 },
+    { "keys": ["2026-11-05", "tuggi app"], "clicks": 1, "impressions": 2, "ctr": 0.5, "position": 1.5 }
+  ],
+  "responseAggregationType": "byProperty"
+}

@@ -14,6 +14,9 @@
  * (BR-USUARIO-042, item 4).
  */
 
+import { partnerKindOf } from '@/lib/partnerships/partner-kind'
+import type { GuideProfileFacts } from '@/lib/partnerships/pipeline'
+import { loadGuideProfileFacts } from '@/lib/services/guide-profile-service'
 import { getSupabaseService } from '@/lib/core/supabase-client'
 import type { PartnerAnswers } from '@/lib/partner-form/schema'
 import { asaasExternalReference, maskCpf, onlyDigits } from '@/lib/partnerships/portal-review'
@@ -105,6 +108,8 @@ export interface PortalSubmissionReview {
   /** Whose record the validation opens in (#890): the linked client, else the one with the same
    * CNPJ — the same lookup `resolveApprovalClient` makes when approving. `null` = pre-registration. */
   recordClientId: string | null
+  /** #936: the guide's profile once published, `null` before (or for any other kind). */
+  guideProfile: GuideProfileFacts | null
   acceptance: PortalReviewAcceptance | null
   payment: PortalReviewPayment | null
   history: PortalHistoryEntry[]
@@ -228,7 +233,7 @@ const failed = (what: string, code?: string): PortalReviewOutcome => {
 export async function getPortalSubmissionReview(submissionId: string): Promise<PortalReviewOutcome> {
   const { data: row, error } = await partner()
     .from('place_submissions')
-    .select('id, status, answers, tax_id_normalized, attraction_id, submitted_at, status_changed_at')
+    .select('id, status, answers, tax_id_normalized, attraction_id, client_id, submitted_at, status_changed_at')
     .eq('id', submissionId)
     .maybeSingle()
   if (error) return failed('submission', error.code)
@@ -241,6 +246,7 @@ export async function getPortalSubmissionReview(submissionId: string): Promise<P
     answers: PartnerAnswers | null
     tax_id_normalized: string | null
     attraction_id: string | null
+    client_id: string | null
     submitted_at: string | null
     status_changed_at: string
   }
@@ -293,9 +299,12 @@ export async function getPortalSubmissionReview(submissionId: string): Promise<P
   // Soft on purpose: the client is a shortcut out of the screen, not part of the decision, and a
   // failed read must not take the conference down with it.
   if (clientRead.error) console.error('[portal-review] client read failed', clientRead.error.code)
-  const clientId = clientRead.error
-    ? null
-    : ((clientRead.data as { partner_client_id: string | null } | null)?.partner_client_id ?? null)
+  // #936: a partner without a place names its client directly (`client_id`).
+  const clientId =
+    submission.client_id ??
+    (clientRead.error ? null : ((clientRead.data as { partner_client_id: string | null } | null)?.partner_client_id ?? null))
+  const guideProfile =
+    clientId && partnerKindOf(answers) === 'guide' ? ((await loadGuideProfileFacts([clientId])).get(clientId) ?? null) : null
 
   // Soft like the link above: a failed lookup opens the pre-registration, never takes the screen down.
   const recordClientId =
@@ -365,6 +374,7 @@ export async function getPortalSubmissionReview(submissionId: string): Promise<P
       attractionId: submission.attraction_id,
       clientId,
       recordClientId,
+      guideProfile,
       acceptance,
       payment,
       history,
@@ -416,7 +426,8 @@ export async function getClientPortalRecords(clientId: string): Promise<ClientPo
     return {
       submissionId: submission.id,
       status: submission.status,
-      attractionId: submission.attraction_id,
+      // `''` for a partner without a place (#936): the record's readers already treat it as "no POI".
+      attractionId: submission.attraction_id ?? '',
       submittedAt: submission.submitted_at,
       acceptance: row ? toReviewAcceptance(row, answeredCpf.get(submission.id)) : null,
       payment: row ? (subscriptions.byAcceptance.get(row.id) ?? null) : null,
