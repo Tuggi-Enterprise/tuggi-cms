@@ -1422,6 +1422,7 @@
           "ranking_rank_drop": "Dropped in the scoreboard",
           "weekly_thursday_local": "Weekly push: Thursday",
           "weekly_saturday_local": "Weekly push: Saturday",
+          "weekly_first_sunday_local": "Weekly push: 1st Sunday (trip)",
           "region_waitlist_arrived": "Region live (Notify me)",
           "subscription_reminder_12h": "Access ends in 12 h (old)",
           "subscription_reminder_1h": "Access ends in 1 h (old)",
