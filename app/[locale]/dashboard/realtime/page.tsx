@@ -1,15 +1,17 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { MapPin, RefreshCw, AlertCircle, Activity, Globe } from 'lucide-react'
+import { RefreshCw, AlertCircle, Activity, Globe } from 'lucide-react'
 import { useTranslations, useLocale } from 'next-intl'
-import { dashboardService } from '@/lib/services/dashboard-service'
+import { dashboardService, type RealtimeActiveUser } from '@/lib/services/dashboard-service'
+import { LIVE_PIN_STATES, livePinColor, livePinState, livePinTitle } from '@/lib/dashboard/live-pin'
+import { MapLegend } from '@/components/dashboard/MapLegend'
 import { getSupabaseClient } from '@/lib/core/supabase-client'
 import { RecentVisitCard, RecentVisit } from '@/components/dashboard/RecentVisitCard'
 import { GoogleMapComponent } from '@/components/ui/GoogleMapComponent' // Fixed import
 
 export default function RealtimeDashboard() {
-  const [activeUsers, setActiveUsers] = useState<Array<{ user_id: string; lat: number; lng: number; timestamp: string }>>([])
+  const [activeUsers, setActiveUsers] = useState<RealtimeActiveUser[]>([])
   const [activePois, setActivePois] = useState<RecentVisit[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -84,13 +86,12 @@ export default function RealtimeDashboard() {
     }
   }, [fetchRealtimeData])
 
-  // Process map markers
+  // One pin per person, coloured and titled by the guide state (#1266, lib/dashboard/live-pin.ts).
   const mapMarkers = activeUsers.map(u => ({
     id: u.user_id,
     position: { lat: u.lat, lng: u.lng },
-    title: 'Active User',
-    // Using a subtle blue dot for user locations
-    color: '#00A8E8'
+    title: livePinTitle(u, t),
+    color: livePinColor(livePinState(u)),
   }))
 
   const mapCenter = activeUsers.length > 0 
@@ -181,6 +182,7 @@ export default function RealtimeDashboard() {
                   enableDrawing={false}
                   showDrawingButton={false}
                 />
+                <MapLegend items={LIVE_PIN_STATES.map(s => ({ color: s.color, label: t(`live_pin.${s.state}`) }))} />
               </div>
             )}
           </div>

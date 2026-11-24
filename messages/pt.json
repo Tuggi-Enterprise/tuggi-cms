@@ -1429,6 +1429,12 @@
           "partner_new": "Parceiro: novo cadastro"
         },
         "measured_since": "Medido desde {date}. Antes disso, sem dado."
+      },
+      "live_pin": {
+        "guide_on": "Guia ligado",
+        "guide_on_no_balance": "Guia ligado, sem saldo",
+        "location_only": "Só localização",
+        "balance": "{minutes} min de saldo"
       }
     },
     "POIMigration": {

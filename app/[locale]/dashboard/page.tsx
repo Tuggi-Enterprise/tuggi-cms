@@ -12,7 +12,7 @@ import { StatCard } from '@/components/ui/StatCard'
 import { WidgetCard, SectionHeader } from '@/components/dashboard/WidgetCard'
 import {
   dashboardService, DashboardStats, EMPTY_DASHBOARD_STATS, EMPTY_PAID_ACCESS,
-  UserLocationPin, WaitlistPin, PaidAccessSnapshot, consumedMinutesTotal,
+  UserLocationPin, WaitlistPin, PaidAccessSnapshot, RealtimeActiveUser, consumedMinutesTotal,
 } from '@/lib/services/dashboard-service'
 import { formatDuration } from '@/lib/format/duration'
 import { appUserLabel } from '@/lib/format/user-identity'
@@ -21,14 +21,9 @@ import { PaidAccessCard } from '@/components/dashboard/PaidAccessCard'
 import { MonthlyUsageCard, TotalBaseCard, UsageByHourCard } from '@/components/dashboard/UsageCards'
 import { usageMonths } from '@/lib/dashboard/usage'
 import { GoogleMapComponent } from '@/components/ui/GoogleMapComponent'
-
-const TUGGI_COLORS = {
-  blue: '#00A8E8',
-  orange: '#FF6F00',
-  green: '#10B981',
-  purple: '#8B5CF6',
-  red: '#EF4444',
-}
+import { MapLegend } from '@/components/dashboard/MapLegend'
+import { CHART_COLORS } from '@/lib/constants/chart-colors'
+import { LIVE_PIN_STATES, livePinColor, livePinState, livePinTitle } from '@/lib/dashboard/live-pin'
 
 // Janela de "online agora" em SEGUNDOS: usuário é ativo se teve ping nos últimos N seg.
 // Ping de background ~30s → 90s tolera 2 pings perdidos sem falso-online, e derruba um
@@ -36,13 +31,11 @@ const TUGGI_COLORS = {
 // O polling abaixo (60s) deve ser ≤ janela pra a UI refletir o offline a tempo.
 const REALTIME_WINDOW_SEC = 90
 
-type ActiveUser = { user_id: string; lat: number; lng: number; timestamp: string }
-
 export default function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats>(EMPTY_DASHBOARD_STATS)
   const [userPins, setUserPins] = useState<UserLocationPin[]>([])
   const [waitlistPins, setWaitlistPins] = useState<WaitlistPin[]>([])
-  const [activeUsers, setActiveUsers] = useState<ActiveUser[]>([])
+  const [activeUsers, setActiveUsers] = useState<RealtimeActiveUser[]>([])
   const [paidAccess, setPaidAccess] = useState<PaidAccessSnapshot>(EMPTY_PAID_ACCESS)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -127,8 +120,9 @@ export default function DashboardPage() {
     }
   }, [fetchData, fetchRealtime])
 
-  // Markers do mapa, com cores distintas por tipo:
-  //   🔵 usuário · 🟠 premium · 🟢 ativo agora · 🔴 demanda (waitlist)
+  // Map markers. Snapshot pins: blue user, orange premium. Live pins take the guide state of #1266
+  // (green guide on, red guide on with no balance, grey location only). Demand (waitlist) is purple,
+  // so it does not read as "no balance".
   const mapMarkers = useMemo(() => {
     // Índice dos ativos AGORA → posição AO VIVO (RPC de presença). Para um usuário ativo, essa é
     // a FONTE DA VERDADE da posição; o snapshot em userPins (última localização salva) envelhece
@@ -143,8 +137,9 @@ export default function DashboardPage() {
         position: live ? { lat: live.lat, lng: live.lng } : { lat: p.latitude, lng: p.longitude },
         // The pin names the tourist by `nickname`, falling back to the truncated `user_id`
         // — BR-USUARIO-042. It used to fall back to the word "User", which named nobody.
-        title: appUserLabel(p),
-        color: p.is_premium ? TUGGI_COLORS.orange : TUGGI_COLORS.blue,
+        // A live pin also says the guide state (#1266); the snapshot pin stays as it was.
+        title: live ? livePinTitle({ ...live, nickname: live.nickname ?? p.nickname }, t) : appUserLabel(p),
+        color: live ? livePinColor(livePinState(live)) : (p.is_premium ? CHART_COLORS.orange : CHART_COLORS.blue),
         active: !!live,
       }
     })
@@ -155,8 +150,8 @@ export default function DashboardPage() {
         markers.push({
           id: `a-${u.user_id}`,
           position: { lat: u.lat, lng: u.lng },
-          title: appUserLabel(u),
-          color: TUGGI_COLORS.green,
+          title: livePinTitle(u, t),
+          color: livePinColor(livePinState(u)),
           active: true,
         })
       }
@@ -167,7 +162,7 @@ export default function DashboardPage() {
         id: `w-${w.id}`,
         position: { lat: w.latitude, lng: w.longitude },
         title: `${t('labels.demand')}${w.country ? ` · ${w.country}` : ''}`,
-        color: TUGGI_COLORS.red,
+        color: CHART_COLORS.purple,
         active: false,
       })
     }
@@ -210,7 +205,7 @@ export default function DashboardPage() {
       {/* 1. HERO KPI ROW (6) — cada card é drill-down pro report */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
         <Link href="/dashboard/reports/catalog">
-          <StatCard size="compact" icon={CheckCircle} title={t('labels.approved')} value={stats.approvedPOIs} color={TUGGI_COLORS.green} isLoading={isLoading} />
+          <StatCard size="compact" icon={CheckCircle} title={t('labels.approved')} value={stats.approvedPOIs} color={CHART_COLORS.green} isLoading={isLoading} />
         </Link>
         <Link href="/dashboard/reports/users">
           {/* The general numbers count everyone who uses the app, account and guest together
@@ -220,7 +215,7 @@ export default function DashboardPage() {
             icon={Users}
             title={t('labels.users')}
             value={stats.totalUsers}
-            color={TUGGI_COLORS.purple}
+            color={CHART_COLORS.purple}
             isLoading={isLoading}
           />
         </Link>
@@ -230,7 +225,7 @@ export default function DashboardPage() {
             icon={Zap}
             title={t('labels.active_30d')}
             value={stats.activeUsers30d}
-            color={TUGGI_COLORS.green}
+            color={CHART_COLORS.green}
             isLoading={isLoading}
           />
         </Link>
@@ -242,12 +237,12 @@ export default function DashboardPage() {
             icon={ShieldCheck}
             title={t('labels.paid_access')}
             value={paidAccess.overview ? paidAccess.overview.unlimited_users + paidAccess.overview.metered_users : '—'}
-            color={TUGGI_COLORS.orange}
+            color={CHART_COLORS.orange}
             isLoading={isLoading}
           />
         </Link>
         <Link href="/dashboard/reports/engagement">
-          <StatCard size="compact" icon={Play} title={t('labels.total_trips')} value={stats.totalTrips} color={TUGGI_COLORS.blue} isLoading={isLoading} />
+          <StatCard size="compact" icon={Play} title={t('labels.total_trips')} value={stats.totalTrips} color={CHART_COLORS.blue} isLoading={isLoading} />
         </Link>
         {/* Consumption, cut by how the minute was granted (BR-MONETIZACAO-047): purchased is
             recognised revenue being used; granted — welcome, coupon, CMS grant — is
@@ -268,7 +263,7 @@ export default function DashboardPage() {
                     granted: formatDuration(paidAccess.overview?.consumed_minutes_granted),
                   })
             }
-            color={TUGGI_COLORS.orange}
+            color={CHART_COLORS.orange}
             isLoading={isLoading}
           />
         </Link>
@@ -282,7 +277,7 @@ export default function DashboardPage() {
             <SectionHeader
               title={t('labels.user_map')}
               icon={Globe}
-              iconColor={TUGGI_COLORS.blue}
+              iconColor={CHART_COLORS.blue}
               className="mb-0"
               right={
                 <div className="flex items-center gap-3">
@@ -316,13 +311,14 @@ export default function DashboardPage() {
                 </span>
               </div>
             )}
-            {/* Legenda — cores por tipo de pin */}
-            <div className="absolute bottom-3 left-3 z-10 flex flex-col gap-1.5 bg-white/90 dark:bg-gray-900/90 backdrop-blur-sm rounded-lg border border-gray-200 dark:border-gray-800 px-3 py-2 shadow-sm pointer-events-none">
-              <LegendItem color={TUGGI_COLORS.blue} label={t('labels.users')} />
-              <LegendItem color={TUGGI_COLORS.orange} label={t('labels.premium')} />
-              <LegendItem color={TUGGI_COLORS.green} label={t('labels.active_now')} pulse />
-              <LegendItem color={TUGGI_COLORS.red} label={t('labels.demand')} />
-            </div>
+            <MapLegend
+              items={[
+                { color: CHART_COLORS.blue, label: t('labels.users') },
+                { color: CHART_COLORS.orange, label: t('labels.premium') },
+                ...LIVE_PIN_STATES.map(s => ({ color: s.color, label: t(`live_pin.${s.state}`), pulse: true })),
+                { color: CHART_COLORS.purple, label: t('labels.demand') },
+              ]}
+            />
           </div>
         </WidgetCard>
 
@@ -331,7 +327,7 @@ export default function DashboardPage() {
           <SectionHeader
             title={t('labels.pois_listened')}
             icon={Radar}
-            iconColor={TUGGI_COLORS.orange}
+            iconColor={CHART_COLORS.orange}
             right={
               <Link href="/dashboard/realtime" className="group flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-green-500 hover:text-green-600 transition-colors">
                 <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
@@ -369,7 +365,7 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
         <UsageByHourCard className="lg:col-span-8" />
         <WidgetCard className="lg:col-span-4 lg:h-[380px]">
-          <SectionHeader title={t('labels.paid_access')} icon={Wallet} iconColor={TUGGI_COLORS.purple} href="/dashboard/reports/premium" linkLabel={t('labels.view_details')} />
+          <SectionHeader title={t('labels.paid_access')} icon={Wallet} iconColor={CHART_COLORS.purple} href="/dashboard/reports/premium" linkLabel={t('labels.view_details')} />
           <PaidAccessCard overview={paidAccess.overview} />
         </WidgetCard>
       </div>
@@ -382,18 +378,6 @@ export default function DashboardPage() {
           <p suppressHydrationWarning className="font-bold lowercase opacity-60 italic">Last sync: {stats.lastUpdated.toLocaleTimeString()}</p>
         </div>
       </footer>
-    </div>
-  )
-}
-
-function LegendItem({ color, label, pulse }: { color: string; label: string; pulse?: boolean }) {
-  return (
-    <div className="flex items-center gap-2">
-      <span
-        className={`w-2.5 h-2.5 rounded-full ${pulse ? 'animate-pulse' : ''}`}
-        style={{ backgroundColor: color }}
-      />
-      <span className="text-[10px] font-black uppercase tracking-tight text-gray-600 dark:text-gray-300">{label}</span>
     </div>
   )
 }

@@ -244,6 +244,25 @@ export interface HeatmapPoint {
   weight: number
 }
 
+/**
+ * One person on the live map, as `core.dashboard_realtime_activity` returns it (#1266).
+ *
+ * `guide_on`, `entitlement_state` and `balance_minutes` are optional while the RPC does not
+ * return them: the migration of #1266 is applied by the operator, and a row without them is
+ * drawn as "location only" by `livePinState` (`lib/dashboard/live-pin.ts`). The state comes
+ * already resolved by `drive.get_entitlement`, BR-MONETIZACAO-046; nothing here recomputes it.
+ */
+export interface RealtimeActiveUser {
+  user_id: string
+  nickname?: string | null
+  lat: number
+  lng: number
+  timestamp: string
+  guide_on?: boolean | null
+  entitlement_state?: EntitlementState | null
+  balance_minutes?: number | null
+}
+
 export interface UserLocationPin {
   user_id: string
   latitude: number
@@ -1218,7 +1237,7 @@ class DashboardService {
   static async getRealtimeActivity(windowSeconds = 120): Promise<{
     success: boolean;
     data?: {
-      active_users: Array<{ user_id: string; lat: number; lng: number; timestamp: string }>;
+      active_users: RealtimeActiveUser[];
       // `visit_source` é opcional enquanto `core.dashboard_realtime_activity` não
       // devolver a coluna — SQL pendente em docs/dev/radar-visit-source.md. O cartão
       // omite o selo de engajamento no que chegar sem ela.

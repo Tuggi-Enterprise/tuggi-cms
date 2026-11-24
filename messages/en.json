@@ -1431,6 +1431,12 @@
           "partner_new": "Partner: new sign-up"
         },
         "measured_since": "Measured since {date}. No data before that."
+      },
+      "live_pin": {
+        "guide_on": "Guide on",
+        "guide_on_no_balance": "Guide on, no balance",
+        "location_only": "Location only",
+        "balance": "{minutes} min left"
       }
     },
     "POIMigration": {
