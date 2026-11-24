@@ -2155,6 +2155,10 @@
         "sent_direct": "Sent to {count} client(s): {accepted} tokens accepted, {failed} rejected.",
         "scheduled": "Campaign scheduled.",
         "no_tokens": "The message was processed, but no active device was found. Check that the client allowed notifications in the app.",
+        "not_sent_off": "The push did not go out: {count, plural, one {this user has} other {these # users have}} Tuggi notifications turned off. They get it once they turn them back on in the app.",
+        "not_sent_unknown": "We could not confirm right now whether {count, plural, one {this user} other {these # users}} can receive the push. Try again in a few minutes.",
+        "not_sent_failed": "The send failed. Try again in a few minutes.",
+        "not_sent_mixed": "The push reached nobody. {off, plural, =0 {} other {# with notifications off. }}{noDevice, plural, =0 {} other {# with no active device. }}{unknown, plural, =0 {} other {# could not be confirmed right now, try again in a few minutes. }}{failed, plural, =0 {} other {# failed to send.}}",
         "partial": "{ok} of {total} languages sent. Failures: {errors}"
       },
       "history": {

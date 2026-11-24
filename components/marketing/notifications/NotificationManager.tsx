@@ -50,6 +50,7 @@ import { TemplateManager } from './TemplateManager';
 import { NotificationHistory } from './NotificationHistory';
 import { SendConfirmDialog } from './SendConfirmDialog';
 import { useCmsUser } from '@/lib/hooks/useCmsUser';
+import { directPushNotSent } from '@/lib/notifications/direct-push-outcome';
 import {
   NotificationService,
   PUSH_LANGUAGES,
@@ -306,8 +307,10 @@ export function NotificationManager() {
         });
         const accepted = response?.result?.success ?? 0;
         const rejected = response?.result?.failure ?? 0;
-        if (accepted === 0 && rejected === 0) {
-          setBanner({ type: 'err', text: t('messages.no_tokens') });
+        // Zero accepted is also what the gate's refusal looks like: the reason is in `gate`.
+        const notSent = directPushNotSent(response?.result, response?.gate);
+        if (notSent) {
+          setBanner({ type: 'err', text: t(`messages.${notSent.key}`, notSent.values) });
         } else {
           setBanner({
             type: 'ok',
