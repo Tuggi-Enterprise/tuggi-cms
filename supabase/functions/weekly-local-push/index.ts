@@ -5,8 +5,10 @@
  *   POST, machine key only. The pg_cron `weekly-local-push` (minute 2 of every hour) sends `{}`.
  *   Optional body `{ "now": "<ISO 8601>" }` replays the batch of a past hour (#1205): the claim
  *   runs with that instant as `p_now`. Same gate, no other caller.
- *   -> 200 { claimed, outcomes: { sent, denied, not_delivered, failed }, invalid, unfinished },
- *      summed over every claim page (50 rows a page, 40 pages at most)
+ *   -> 200 { claimed, outcomes: { sent, denied, not_delivered, failed }, invalid, unfinished,
+ *      trip_question: { asked, marked, already_spent, mark_failed, audience_failed } },
+ *      summed over every claim page (50 rows a page, 40 pages at most). `trip_question` is the
+ *      first-Saturday question of BR-COMUNICACAO-019 3.u.3 (#1276)
  *   -> 400 { error: 'invalid_now' } when `now` is present and not an ISO 8601 date-time
  *   -> 401 any other caller, 405 any other method, 500 when the first claim fails
  *

@@ -255,6 +255,35 @@ export const TRIP_PUSH_COPY = {
     it: 'Hai ricevuto {{trip_hours}} per ascoltare le storie del viaggio fino al {{date}}. Sai già il giorno? Segnalo.',
     de: 'Du hast {{trip_hours}} für die Geschichten am Weg, gültig bis zum {{date}}. Weißt du den Tag? Trag ihn ein.',
   },
+  /**
+   * The trip question of the first Saturday (BR-COMUNICACAO-019 3.u.3, #1276), to whoever has no
+   * active trip: no destination, no hours (3.u.5). Copy `proxima-viagem-de-novo-1274-2026-11.md` §1.
+   * `next_ask_body` promises the reminder; `_no_reminder` is for a reminder that cannot leave.
+   */
+  next_ask_title: {
+    pt: 'Já tem a próxima viagem em vista?',
+    en: 'Got your next trip in mind?',
+    es: '¿Ya tienes tu próximo viaje en mente?',
+    fr: 'Un prochain voyage en vue ?',
+    it: 'Hai già in vista il prossimo viaggio?',
+    de: 'Schon die nächste Reise in Sicht?',
+  },
+  next_ask_body: {
+    pt: 'Marque a data e a gente te lembra de levar o Tuggi. Assim, nenhuma história do caminho passa batido.',
+    en: "Add the date and we'll remind you to take Tuggi along, so no story along the way slips by.",
+    es: 'Añade la fecha y te recordaremos llevar Tuggi, para que ninguna historia del camino se te escape.',
+    fr: "Note la date et on te rappellera d'emporter Tuggi. Aucune histoire de la route ne t'échappera.",
+    it: 'Segna la data e ti ricorderemo di portare Tuggi con te: nessuna storia lungo la strada ti sfuggirà.',
+    de: 'Trag das Datum ein, dann erinnern wir dich daran, Tuggi mitzunehmen. So entgeht dir keine Geschichte am Weg.',
+  },
+  next_ask_body_no_reminder: {
+    pt: 'Marque a data no Tuggi. No caminho, ele te conta a história dos lugares por onde você passa.',
+    en: 'Add the date in Tuggi. Along the way, it tells you the story of the places you pass.',
+    es: 'Añade la fecha en Tuggi. En la ruta, te cuenta la historia de los lugares por donde pasas.',
+    fr: "Note la date dans Tuggi. En route, il te raconte l'histoire des lieux où tu passes.",
+    it: 'Segna la data su Tuggi. In viaggio, ti racconta la storia dei luoghi dove passi.',
+    de: 'Trag das Datum in Tuggi ein. Unterwegs erzählt dir Tuggi die Geschichte der Orte am Weg.',
+  },
 } satisfies Record<string, Six>;
 
 export const PUSH_TITLE_MAX = 40;
