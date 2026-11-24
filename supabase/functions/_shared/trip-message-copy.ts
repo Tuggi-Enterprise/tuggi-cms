@@ -185,7 +185,7 @@ export const TRIP_PUSH_COPY = {
     es: 'Ganaste {{trip_hours}} de guía para usar hasta el {{date}}. Actívala y no se te escapa ninguna historia.',
     fr: "Tu as gagné {{trip_hours}} de guide à utiliser jusqu'au {{date}}. Active-le et aucune histoire ne t'échappe.",
     it: 'Hai ricevuto {{trip_hours}} di guida, da usare entro il {{date}}. Attivala e nessuna storia ti sfugge.',
-    de: 'Du hast {{trip_hours}} Guide bekommen, gültig bis zum {{date}}. Damit entgeht dir unterwegs keine Geschichte.',
+    de: 'Du hast {{trip_hours}} Guide bekommen, gültig bis zum {{date}}. So entgeht dir unterwegs keine Geschichte.',
   },
   m3_body: {
     pt: 'Leve o Tuggi e nenhum lugar com história passa batido: ele vai contando enquanto você dirige ou caminha.',
@@ -244,17 +244,16 @@ export const TRIP_PUSH_COPY = {
     de: 'Weißt du schon den Tag? Trag ihn in Tuggi ein, dann erinnern wir dich rechtzeitig an die Geschichten am Weg.',
   },
   /**
-   * PROVISIONAL, pending the `copy` (#1244): the day ask that is also the first send of the trip
-   * (023 2.1.f). The doc has no string for it, and `month_ask_body` with the hours line of `m2_body`
-   * does not fit in 110, so this joins the two by their own words, measured with the worst case.
+   * The day ask that is also the first send of the trip (023 2.1.f): the hours it got and until
+   * when, then the ask. Copy §2; `{{date}}` is the validity, as in `m2_body`.
    */
   month_ask_hours_body: {
-    pt: 'Você ganhou {{trip_hours}} de guia para usar até {{date}}. Já sabe o dia? Marque no Tuggi.',
-    en: 'You got {{trip_hours}} of guide time, valid until {{date}}. Know the day yet? Add it in Tuggi.',
-    es: 'Ganaste {{trip_hours}} de guía para usar hasta el {{date}}. ¿Ya sabes el día? Márcalo en Tuggi.',
-    fr: "Tu as gagné {{trip_hours}} de guide à utiliser jusqu'au {{date}}. Tu connais le jour ? Note-le dans Tuggi.",
-    it: 'Hai ricevuto {{trip_hours}} di guida, da usare entro il {{date}}. Sai già il giorno? Segnalo su Tuggi.',
-    de: 'Du hast {{trip_hours}} Guide bekommen, gültig bis zum {{date}}. Kennst du den Tag? Trag ihn in Tuggi ein.',
+    pt: 'Você ganhou {{trip_hours}} para ouvir a história do caminho até {{date}}. Já sabe o dia? Marque no Tuggi.',
+    en: 'You got {{trip_hours}} to hear the stories on the way, until {{date}}. Know the day yet? Add it in Tuggi.',
+    es: 'Ganaste {{trip_hours}} para oír las historias del camino hasta el {{date}}. ¿Ya sabes el día? Márcalo.',
+    fr: "Tu as gagné {{trip_hours}} pour écouter l'histoire du chemin jusqu'au {{date}}. Tu connais le jour\u00a0? Note-le.",
+    it: 'Hai ricevuto {{trip_hours}} per ascoltare le storie del viaggio fino al {{date}}. Sai già il giorno? Segnalo.',
+    de: 'Du hast {{trip_hours}} für die Geschichten am Weg, gültig bis zum {{date}}. Weißt du den Tag? Trag ihn ein.',
   },
 } satisfies Record<string, Six>;
 

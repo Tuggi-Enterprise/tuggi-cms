@@ -214,7 +214,7 @@ Deno.test('BR-COMUNICACAO-023 2.1.f (#1244): the day ask that is the first send 
   const first: TripFacts = { ...MONTH_ASK, trip_hours: { minutes: 60, expires_at: '2027-03-06T13:00:00Z' }, balance_minutes: null };
   assertEquals(tripReminderPush(first, 'pt'), {
     title: 'Chegou fevereiro, e Lisboa te espera',
-    body: 'Você ganhou 1 h de guia para usar até 6 de março. Já sabe o dia? Marque no Tuggi.',
+    body: 'Você ganhou 1 h para ouvir a história do caminho até 6 de março. Já sabe o dia? Marque no Tuggi.',
   });
   assertEquals(tripReminderEmail(first, 'pt')?.paragraphs, [
     'Olá,',
@@ -345,13 +345,14 @@ Deno.test('security-reviewer #1230 condition 3: no address, number or secret in 
 // ===============================================================================================
 
 Deno.test('BR-COMUNICACAO-019 item 11 and copy §2: every reminder push, six languages, inside 40 and 110 at the worst case, no claim of a story at the destination', () => {
-  // The worst case of the copy's count (§2): 12 h 30 min, valid until 28 February. The day ask's
-  // provisional body is measured with 28 September, the longest month in de.
+  // The worst case of the copy's count (§2): 12 h 30 min, valid until the 28th of the longest month,
+  // which is February in pt and September in en, es, fr, it and de.
   const worst = { minutes: 750, expires_at: '2027-02-28T13:00:00Z' };
   const worstSeptember = { minutes: 750, expires_at: '2027-09-28T13:00:00Z' };
   const cases: TripFacts[] = [
     { ...BEFORE, balance_minutes: null },
     { ...BEFORE, trip_hours: worst, balance_minutes: null },
+    { ...BEFORE, trip_hours: worstSeptember, balance_minutes: null },
     { ...BEFORE, trip_hours: null, balance_minutes: null },
     { ...BEFORE, piece: 'trip_reminder_day', trip_hours: null, balance_minutes: 750 },
     { ...BEFORE, piece: 'trip_reminder_day', trip_hours: null, balance_minutes: 0 },
@@ -359,6 +360,7 @@ Deno.test('BR-COMUNICACAO-019 item 11 and copy §2: every reminder push, six lan
     { ...BEFORE, destination: { city: 'São José dos Campos do Norte', country_code: 'BR' }, trip_hours: null, balance_minutes: null },
     MONTH_ASK_FACTS,
     { ...MONTH_ASK_FACTS, trip_date: '2027-09-01', trip_hours: worstSeptember },
+    { ...MONTH_ASK_FACTS, trip_date: '2027-09-01', trip_hours: worst },
     { ...MONTH_ASK_FACTS, trip_date: '2027-09-01', destination: { city: 'São José dos Campos do Norte', country_code: 'BR' } },
   ];
   for (const facts of cases) {
