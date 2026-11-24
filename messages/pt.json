@@ -111,7 +111,8 @@
     "story_feedback": "Votos nos textos",
     "route_review": "Aprovação de rotas",
     "public_names": "Nomes públicos",
-    "app_campaigns": "Campanhas no app"
+    "app_campaigns": "Campanhas no app",
+    "partner_brand": "Marca do parceiro"
   },
   "Pages": {
     "Login": {
@@ -4509,7 +4510,8 @@
         "configuration": "Configuração",
         "afterSave": "Disponível depois de salvar",
         "afterApproval": "Disponível depois de aprovar",
-        "guide": "Perfil no app"
+        "guide": "Perfil no app",
+        "brand": "Marca no app"
       },
       "save": "Salvar",
       "missingTitle": "Faltam para salvar",
@@ -7381,6 +7383,113 @@
       "wishes_intro": "Lugares que quem respondeu \"ainda não sei\" quer conhecer. Não são viagens e não entram nas contagens acima. Só contagem, nunca a pessoa.",
       "wishes_column": "Desejos",
       "wishes_empty": "Nenhum desejo de destino ainda."
+    }
+  },
+  "PartnerBrand": {
+    "title": "Marca do parceiro",
+    "subtitle": "Logos para aprovar, prazo da marca no app, chaves e preço dos pacotes de dias. Nada do parceiro aparece ao turista sem aprovação aqui.",
+    "loading": "Carregando…",
+    "save": "Salvar",
+    "settingsTitle": "Configuração",
+    "logo": {
+      "queueTitle": "Logos para aprovar",
+      "queueIntro": "O parceiro envia pelo portal. Enquanto o novo não passa, o app mostra o último aprovado.",
+      "queueEmpty": "Nenhum logo esperando decisão.",
+      "noName": "Parceiro sem nome",
+      "submittedAt": "Enviado em {date}",
+      "live": "No ar",
+      "sent": "Enviado",
+      "noneLive": "Nenhum logo aprovado",
+      "unsigned": "Não foi possível abrir o arquivo",
+      "size": "{width} × {height} px",
+      "sizeShort": "{width} × {height} px: o logo precisa ser quadrado, com pelo menos {min} × {min} px.",
+      "checkHint": "Confira: PNG quadrado, com pelo menos {min} × {min} px, legível sobre a placa branca.",
+      "approve": "Aprovar",
+      "approving": "Aprovando…",
+      "refuse": "Recusar",
+      "refuseConfirm": "Recusar logo",
+      "cancel": "Cancelar",
+      "reasonLabel": "Motivo (o parceiro lê no portal)",
+      "reasonPlaceholder": "Ex.: o logo está cortado nas bordas. Envie a versão inteira, com fundo transparente.",
+      "done_approved": "Logo aprovado. O app passa a mostrar este.",
+      "done_rejected": "Logo recusado. O parceiro vê o motivo no portal."
+    },
+    "term": {
+      "label": "Prazo da marca no app",
+      "unit": "dias",
+      "hint": "Contado do instante da atribuição. Mudar vale para todo mundo na leitura seguinte, inclusive para quem já está dentro do prazo.",
+      "missing": "O prazo não está no banco. Chame o time de dados.",
+      "saved": "Prazo salvo: {days} dias."
+    },
+    "switches": {
+      "on": "ligada",
+      "off": "desligada",
+      "saved_on": "{label}: ligada.",
+      "saved_off": "{label}: desligada.",
+      "missing": "As chaves não estão no banco. Chame o time de dados.",
+      "items": {
+        "brand_color_enabled": {
+          "label": "Cor do parceiro",
+          "hint": "Faixa e selo com a cor do parceiro. Desligada, tudo fica neutro."
+        },
+        "gift_ios_enabled": {
+          "label": "Presente de dias no iPhone",
+          "hint": "Desligada, a campanha do presente some no iOS. A marca fica."
+        },
+        "gift_android_enabled": {
+          "label": "Presente de dias no Android",
+          "hint": "Desligada, a campanha do presente some no Android. A marca fica."
+        }
+      }
+    },
+    "packages": {
+      "title": "Pacotes de dias",
+      "intro": "Preço de cada pacote, opcional e vazio por enquanto. Nada é cobrado daqui. Valor e moeda vão juntos.",
+      "days": "Pacote",
+      "daysValue": "{days, plural, one {# dia} other {# dias}}",
+      "price": "Preço",
+      "currency": "Moeda",
+      "pricePlaceholder": "sem preço",
+      "priceOf": "Preço do pacote de {days} dias",
+      "currencyOf": "Moeda do pacote de {days} dias",
+      "saved": "Salvo."
+    },
+    "pilot": {
+      "title": "Piloto",
+      "intro": "Entre o início e o fim, o parceiro tem o Tuggi do parceiro de graça. Para estender, mude o fim.",
+      "none": "Sem piloto gravado, o parceiro não tem o produto.",
+      "starts": "Início",
+      "ends": "Fim",
+      "hint": "Os dois juntos, com o fim depois do início. Apagar os dois tira o produto do parceiro.",
+      "saved": "Piloto salvo.",
+      "cleared": "Piloto apagado."
+    },
+    "tab": {
+      "title": "Marca no app",
+      "logo": "Logo",
+      "approved": "Este é o logo no ar.",
+      "noLogo": "O parceiro ainda não tem logo aprovado.",
+      "lastRefusal": "Última recusa: {reason}"
+    },
+    "errors": {
+      "invalid_body": "Pedido inválido. Recarregue a página e tente de novo.",
+      "invalid_client": "Parceiro inválido.",
+      "reason_required": "Escreva o motivo da recusa: o parceiro lê no portal.",
+      "reason_too_long": "O motivo está longo demais. Resuma em duas frases.",
+      "logo_not_pending": "Este logo não espera mais decisão: chegou outro, ou alguém já decidiu. A lista foi recarregada.",
+      "invalid_date": "Data inválida.",
+      "pilot_incomplete": "Preencha o início e o fim do piloto, ou apague os dois.",
+      "pilot_window": "O fim do piloto precisa vir depois do início.",
+      "invalid_package": "Pacote inválido.",
+      "price_incomplete": "Preço e moeda vão juntos: preencha os dois ou deixe os dois vazios.",
+      "invalid_price": "Preço inválido. Use números, com até duas casas: 49,90.",
+      "invalid_currency": "Moeda inválida. Use o código de três letras: BRL, USD, EUR.",
+      "client_not_found": "Este parceiro não existe mais. Recarregue a página.",
+      "package_not_found": "Este pacote não existe mais. Recarregue a página.",
+      "invalid_value": "O banco recusou o valor. Confira e tente de novo.",
+      "forbidden": "Só um administrador ativo do CMS pode alterar isto.",
+      "read_failed": "Não foi possível carregar. Recarregue a página.",
+      "write_failed": "Não foi possível salvar. Tente de novo."
     }
   }
 }

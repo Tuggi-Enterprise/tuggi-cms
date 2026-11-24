@@ -144,6 +144,7 @@ export function programOf(key: string): RewardProgram {
 
 export function ruleOf(key: string): string | null {
   if (key.startsWith('wallet.')) return 'BR-MONETIZACAO-089'
+  if (key === 'partner_brand.days') return 'BR-B2B-070'
   // Both validities are BR-MONETIZACAO-086 (items 2.c and 2.d), not the program's rule.
   if (key === 'welcome.validity_days' || key === 'planned_trip.validity_days') return 'BR-MONETIZACAO-086'
   return PROGRAM_RULE[programOf(key)]
@@ -177,6 +178,8 @@ const NAMED: Record<string, string> = {
   'mission.cities_milestone.minutes': 'Marco de cidades: prêmio',
   'podium.max_points_per_day': 'Antiabuso: pontos por dia acima disto vão para revisão',
   'podium.min_trips': 'Antiabuso: viagens na semana para receber prêmio',
+  // #1257: also edited on /admin/partner-brand, the same key and the same write.
+  'partner_brand.days': 'Marca do parceiro no app: dias desde a atribuição',
 }
 
 /**

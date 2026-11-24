@@ -111,7 +111,8 @@
     "story_feedback": "Votos en los textos",
     "route_review": "Aprobación de rutas",
     "public_names": "Nombres públicos",
-    "app_campaigns": "Campañas en la app"
+    "app_campaigns": "Campañas en la app",
+    "partner_brand": "Marca del socio"
   },
   "Pages": {
     "Login": {
@@ -4032,7 +4033,8 @@
         "configuration": "Configuración",
         "afterSave": "Disponible después de guardar",
         "afterApproval": "Disponible después de aprobar",
-        "guide": "Perfil en la app"
+        "guide": "Perfil en la app",
+        "brand": "Marca en la app"
       },
       "save": "Guardar",
       "missingTitle": "Faltan para guardar",
@@ -5365,6 +5367,113 @@
       "empty": "Ningún local con comisión en {month}.",
       "error": "No se pudieron leer los repases.",
       "reload": "Recargar"
+    }
+  },
+  "PartnerBrand": {
+    "title": "Marca del socio",
+    "subtitle": "Logos para aprobar, plazo de la marca en la app, interruptores y precio de los paquetes de días. Nada del socio llega al turista sin aprobación aquí.",
+    "loading": "Cargando…",
+    "save": "Guardar",
+    "settingsTitle": "Configuración",
+    "logo": {
+      "queueTitle": "Logos para aprobar",
+      "queueIntro": "El socio lo envía por el portal. Mientras el nuevo no pasa, la app muestra el último aprobado.",
+      "queueEmpty": "Ningún logo esperando decisión.",
+      "noName": "Socio sin nombre",
+      "submittedAt": "Enviado el {date}",
+      "live": "En línea",
+      "sent": "Enviado",
+      "noneLive": "Ningún logo aprobado",
+      "unsigned": "No se pudo abrir el archivo",
+      "size": "{width} × {height} px",
+      "sizeShort": "{width} × {height} px: el logo debe ser cuadrado, de al menos {min} × {min} px.",
+      "checkHint": "Revisa: PNG cuadrado, de al menos {min} × {min} px, legible sobre la placa blanca.",
+      "approve": "Aprobar",
+      "approving": "Aprobando…",
+      "refuse": "Rechazar",
+      "refuseConfirm": "Rechazar logo",
+      "cancel": "Cancelar",
+      "reasonLabel": "Motivo (el socio lo lee en el portal)",
+      "reasonPlaceholder": "Ej.: el logo está cortado en los bordes. Envía la versión entera, con fondo transparente.",
+      "done_approved": "Logo aprobado. La app pasa a mostrar este.",
+      "done_rejected": "Logo rechazado. El socio ve el motivo en el portal."
+    },
+    "term": {
+      "label": "Plazo de la marca en la app",
+      "unit": "días",
+      "hint": "Contado desde el instante de la atribución. El cambio vale para todos en la lectura siguiente, incluso para quien ya está dentro del plazo.",
+      "missing": "El plazo no está en la base de datos. Llama al equipo de datos.",
+      "saved": "Plazo guardado: {days} días."
+    },
+    "switches": {
+      "on": "encendido",
+      "off": "apagado",
+      "saved_on": "{label}: encendido.",
+      "saved_off": "{label}: apagado.",
+      "missing": "Los interruptores no están en la base de datos. Llama al equipo de datos.",
+      "items": {
+        "brand_color_enabled": {
+          "label": "Color del socio",
+          "hint": "Franja y sello con el color del socio. Apagado, todo queda neutro."
+        },
+        "gift_ios_enabled": {
+          "label": "Regalo de días en iPhone",
+          "hint": "Apagado, la campaña del regalo desaparece en iOS. La marca queda."
+        },
+        "gift_android_enabled": {
+          "label": "Regalo de días en Android",
+          "hint": "Apagado, la campaña del regalo desaparece en Android. La marca queda."
+        }
+      }
+    },
+    "packages": {
+      "title": "Paquetes de días",
+      "intro": "Precio de cada paquete, opcional y vacío por ahora. Nada se cobra desde aquí. Valor y moneda van juntos.",
+      "days": "Paquete",
+      "daysValue": "{days, plural, one {# día} other {# días}}",
+      "price": "Precio",
+      "currency": "Moneda",
+      "pricePlaceholder": "sin precio",
+      "priceOf": "Precio del paquete de {days} días",
+      "currencyOf": "Moneda del paquete de {days} días",
+      "saved": "Guardado."
+    },
+    "pilot": {
+      "title": "Piloto",
+      "intro": "Entre el inicio y el fin, el socio tiene el Tuggi do parceiro sin costo. Para extenderlo, cambia el fin.",
+      "none": "Sin piloto guardado, el socio no tiene el producto.",
+      "starts": "Inicio",
+      "ends": "Fin",
+      "hint": "Los dos juntos, con el fin después del inicio. Borrar los dos le quita el producto al socio.",
+      "saved": "Piloto guardado.",
+      "cleared": "Piloto borrado."
+    },
+    "tab": {
+      "title": "Marca en la app",
+      "logo": "Logo",
+      "approved": "Este es el logo en línea.",
+      "noLogo": "El socio todavía no tiene logo aprobado.",
+      "lastRefusal": "Último rechazo: {reason}"
+    },
+    "errors": {
+      "invalid_body": "Pedido inválido. Recarga la página e inténtalo de nuevo.",
+      "invalid_client": "Socio inválido.",
+      "reason_required": "Escribe el motivo del rechazo: el socio lo lee en el portal.",
+      "reason_too_long": "El motivo es demasiado largo. Resúmelo en dos frases.",
+      "logo_not_pending": "Este logo ya no espera decisión: llegó otro, o alguien ya decidió. La lista se recargó.",
+      "invalid_date": "Fecha inválida.",
+      "pilot_incomplete": "Completa el inicio y el fin del piloto, o borra los dos.",
+      "pilot_window": "El fin del piloto debe ser posterior al inicio.",
+      "invalid_package": "Paquete inválido.",
+      "price_incomplete": "Precio y moneda van juntos: completa los dos o deja los dos vacíos.",
+      "invalid_price": "Precio inválido. Usa números, con hasta dos decimales: 49,90.",
+      "invalid_currency": "Moneda inválida. Usa el código de tres letras: BRL, USD, EUR.",
+      "client_not_found": "Este socio ya no existe. Recarga la página.",
+      "package_not_found": "Este paquete ya no existe. Recarga la página.",
+      "invalid_value": "La base de datos rechazó el valor. Revísalo e inténtalo de nuevo.",
+      "forbidden": "Solo un administrador activo del CMS puede cambiar esto.",
+      "read_failed": "No se pudo cargar. Recarga la página.",
+      "write_failed": "No se pudo guardar. Inténtalo de nuevo."
     }
   }
 }

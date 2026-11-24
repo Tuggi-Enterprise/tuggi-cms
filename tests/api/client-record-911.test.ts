@@ -23,12 +23,12 @@ const messages = (locale: string) => JSON.parse(read(`messages/${locale}.json`))
 const at = (tree: Record<string, unknown>, path: string): unknown =>
   path.split('.').reduce<unknown>((node, key) => (node as Record<string, unknown> | undefined)?.[key], tree)
 
-test('#911 §8 item 1: seven tabs in the spec order, Pessoas is `team`, and `?tab=appusers` opens it', () => {
+test('#911 §8 item 1: the tabs in the spec order (#1257 adds Marca last), Pessoas is `team`, and `?tab=appusers` opens it', () => {
   const modal = read('components/admin/clients/ClientEditorModal.tsx')
   const tabs = modal.slice(modal.indexOf('const TABS'), modal.indexOf('export function ClientEditorModal'))
   assert.deepEqual(
     Array.from(tabs.matchAll(/\{ id: '(\w+)', labelKey: '(\w+)'/g), (m) => `${m[1]}:${m[2]}`),
-    ['partnership:partnership', 'profile:profile', 'fiscal:fiscal', 'contract:contract', 'team:people', 'places:places', 'coupons:coupons']
+    ['partnership:partnership', 'profile:profile', 'fiscal:fiscal', 'contract:contract', 'team:people', 'places:places', 'coupons:coupons', 'brand:brand']
   )
   assert.doesNotMatch(modal, /'appusers'/, 'no appusers tab left in the record')
   const page = read('components/admin/AdminClientsPageContent.tsx')

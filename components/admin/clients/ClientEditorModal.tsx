@@ -22,7 +22,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import {
   Save, Loader2, Building2, Scale, Users, MapPin, Gift, AlertTriangle, Plus, Edit,
-  FileSignature, Handshake, UserRound,
+  FileSignature, Handshake, UserRound, BadgeCheck,
 } from 'lucide-react'
 import { useLocale, useTranslations } from 'next-intl'
 import { useDialogShell } from '@/lib/hooks/use-dialog-shell'
@@ -39,6 +39,7 @@ import { GuideProfileTab } from '@/components/admin/clients/tabs/GuideProfileTab
 import { isAppPartnerType, partnerKindOf, placesTabOf, type PartnerKind } from '@/lib/partnerships/partner-kind'
 import { PartnershipTab } from '@/components/admin/clients/tabs/PartnershipTab'
 import { CouponsTab } from '@/components/admin/clients/tabs/CouponsTab'
+import { BrandTab } from '@/components/admin/clients/tabs/BrandTab'
 import { ContractTab } from '@/components/admin/clients/tabs/ContractTab'
 import { useValidationRecord } from '@/components/admin/clients/shared/PortalSubmission'
 import { DecisionSummary, ValidationDecision } from '@/components/admin/partner-proposals/ValidationDecision'
@@ -68,6 +69,8 @@ export type ClientEditorTab =
   // #936: the tour guide's public profile, in place of `places` (a guide has no place).
   | 'guide'
   | 'coupons'
+  // #1257: the Tuggi do parceiro (logo decision and pilot, BR-B2B-070 items 2 and 9).
+  | 'brand'
 
 interface ClientEditorModalProps {
   clientId?: string
@@ -117,6 +120,7 @@ const TABS: TabDef[] = [
   { id: 'team', labelKey: 'people', icon: Users },
   { id: 'places', labelKey: 'places', icon: MapPin },
   { id: 'coupons', labelKey: 'coupons', icon: Gift },
+  { id: 'brand', labelKey: 'brand', icon: BadgeCheck },
 ]
 
 /**
@@ -476,7 +480,7 @@ export function ClientEditorModal({
             const isDisabled = (tab: (typeof TABS)[number]) =>
               preRegistration
                 ? tab.id !== 'partnership'
-                : !isEditing && (tab.id === 'partnership' || tab.id === 'places' || tab.id === 'coupons')
+                : !isEditing && (tab.id === 'partnership' || tab.id === 'places' || tab.id === 'coupons' || tab.id === 'brand')
             const hasValidation = Boolean(validation.submissionId)
             const onValidation = activeTab === 'partnership' && hasValidation
             const decisionSummary = (describesApprove: boolean) =>
@@ -622,6 +626,9 @@ export function ClientEditorModal({
             )}
             {activeTab === 'coupons' && (
               <CouponsTab client={client} edited={edited} updateField={updateField} canEdit clientId={clientId} />
+            )}
+            {activeTab === 'brand' && (
+              <BrandTab client={client} edited={edited} updateField={updateField} canEdit clientId={clientId} />
             )}
                 </RecordCacheProvider>
                 </main>

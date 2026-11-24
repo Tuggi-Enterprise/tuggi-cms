@@ -56,6 +56,7 @@
 
 import {
   Activity,
+  BadgeCheck,
   Banknote,
   BarChart3,
   Bell,
@@ -239,6 +240,8 @@ function catalogue(): { basic: NavEntry[]; modules: NavEntry[] } {
               item(CLIENT_DIRECTORY_PATH, 'partnerships', Handshake),
               item('/admin/materials', 'materials', Package),
               item('/admin/coupons', 'coupons', Gift),
+              // The Tuggi do parceiro (#1257): logos to approve, the brand term, the switches, the package prices.
+              item('/admin/partner-brand', 'partner_brand', BadgeCheck),
             ],
           },
         ],

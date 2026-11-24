@@ -199,6 +199,8 @@ test('o catálogo do admin é exatamente este — apagar um destino tem de doer'
     '/admin/clients',
     '/admin/coupons',
     '/admin/materials',
+    // The Tuggi do parceiro (#1257): logos, term, switches, package prices.
+    '/admin/partner-brand',
     '/admin/poi-trigger-map',
     // The moderation of public names (#1144, BR-USUARIO-051 item 5).
     '/admin/public-names',

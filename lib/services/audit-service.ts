@@ -186,6 +186,11 @@ export type AuditAction =
   | 'REMOVE_RESERVED_PUBLIC_NAME'
   | 'ADD_TEXT_FILTER_TERM'
   | 'REMOVE_TEXT_FILTER_TERM'
+  // #1257, BR-B2B-070 items 2 and 9: the curator decides a partner logo, sets a pilot, prices a
+  // gift package. Ids and the outcome in the description, never the refusal reason.
+  | 'DECIDE_PARTNER_LOGO'
+  | 'SET_PARTNER_PILOT'
+  | 'SET_GIFT_PACKAGE_PRICE'
 
 export type AuditEntity = 'USER' | 'POI' | 'AUTH' | 'CLIENT' | 'PARTNER_PROPOSAL' | 'FINANCE'
 

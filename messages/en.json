@@ -111,7 +111,8 @@
     "story_feedback": "Text votes",
     "route_review": "Route approval",
     "public_names": "Public names",
-    "app_campaigns": "In-app campaigns"
+    "app_campaigns": "In-app campaigns",
+    "partner_brand": "Partner brand"
   },
   "Pages": {
     "Login": {
@@ -4050,7 +4051,8 @@
         "configuration": "Configuration",
         "afterSave": "Available after saving",
         "afterApproval": "Available after approval",
-        "guide": "App profile"
+        "guide": "App profile",
+        "brand": "Brand in the app"
       },
       "save": "Save",
       "missingTitle": "Missing to save",
@@ -5383,6 +5385,113 @@
       "empty": "No place earned commission in {month}.",
       "error": "Could not read the payouts.",
       "reload": "Reload"
+    }
+  },
+  "PartnerBrand": {
+    "title": "Partner brand",
+    "subtitle": "Logos to approve, the brand term in the app, switches and the price of the days packages. Nothing from the partner reaches the tourist without approval here.",
+    "loading": "Loading…",
+    "save": "Save",
+    "settingsTitle": "Settings",
+    "logo": {
+      "queueTitle": "Logos to approve",
+      "queueIntro": "The partner sends it through the portal. Until the new one passes, the app shows the last approved one.",
+      "queueEmpty": "No logo waiting for a decision.",
+      "noName": "Unnamed partner",
+      "submittedAt": "Sent on {date}",
+      "live": "Live",
+      "sent": "Sent",
+      "noneLive": "No approved logo",
+      "unsigned": "The file could not be opened",
+      "size": "{width} × {height} px",
+      "sizeShort": "{width} × {height} px: the logo must be square, at least {min} × {min} px.",
+      "checkHint": "Check: a square PNG, at least {min} × {min} px, readable on the white plate.",
+      "approve": "Approve",
+      "approving": "Approving…",
+      "refuse": "Refuse",
+      "refuseConfirm": "Refuse logo",
+      "cancel": "Cancel",
+      "reasonLabel": "Reason (the partner reads it in the portal)",
+      "reasonPlaceholder": "E.g. the logo is cut at the edges. Send the whole version, with a transparent background.",
+      "done_approved": "Logo approved. The app now shows this one.",
+      "done_rejected": "Logo refused. The partner sees the reason in the portal."
+    },
+    "term": {
+      "label": "Brand term in the app",
+      "unit": "days",
+      "hint": "Counted from the moment of the attribution. A change holds for everyone at the next read, including people already inside the term.",
+      "missing": "The term is not in the database. Call the data team.",
+      "saved": "Term saved: {days} days."
+    },
+    "switches": {
+      "on": "on",
+      "off": "off",
+      "saved_on": "{label}: on.",
+      "saved_off": "{label}: off.",
+      "missing": "The switches are not in the database. Call the data team.",
+      "items": {
+        "brand_color_enabled": {
+          "label": "Partner colour",
+          "hint": "Band and seal in the partner colour. Off, everything stays neutral."
+        },
+        "gift_ios_enabled": {
+          "label": "Gift of days on iPhone",
+          "hint": "Off, the gift campaign disappears on iOS. The brand stays."
+        },
+        "gift_android_enabled": {
+          "label": "Gift of days on Android",
+          "hint": "Off, the gift campaign disappears on Android. The brand stays."
+        }
+      }
+    },
+    "packages": {
+      "title": "Days packages",
+      "intro": "The price of each package, optional and empty for now. Nothing is charged from here. Amount and currency go together.",
+      "days": "Package",
+      "daysValue": "{days, plural, one {# day} other {# days}}",
+      "price": "Price",
+      "currency": "Currency",
+      "pricePlaceholder": "no price",
+      "priceOf": "Price of the {days}-day package",
+      "currencyOf": "Currency of the {days}-day package",
+      "saved": "Saved."
+    },
+    "pilot": {
+      "title": "Pilot",
+      "intro": "Between the start and the end, the partner has the Tuggi do parceiro at no cost. To extend it, change the end.",
+      "none": "Without a saved pilot, the partner does not have the product.",
+      "starts": "Start",
+      "ends": "End",
+      "hint": "Both together, the end after the start. Clearing both takes the product away from the partner.",
+      "saved": "Pilot saved.",
+      "cleared": "Pilot cleared."
+    },
+    "tab": {
+      "title": "Brand in the app",
+      "logo": "Logo",
+      "approved": "This is the live logo.",
+      "noLogo": "The partner has no approved logo yet.",
+      "lastRefusal": "Last refusal: {reason}"
+    },
+    "errors": {
+      "invalid_body": "Invalid request. Reload the page and try again.",
+      "invalid_client": "Invalid partner.",
+      "reason_required": "Write the reason for the refusal: the partner reads it in the portal.",
+      "reason_too_long": "The reason is too long. Sum it up in two sentences.",
+      "logo_not_pending": "This logo is no longer waiting for a decision: another one arrived, or someone already decided. The list was reloaded.",
+      "invalid_date": "Invalid date.",
+      "pilot_incomplete": "Fill in both the start and the end of the pilot, or clear both.",
+      "pilot_window": "The end of the pilot must come after the start.",
+      "invalid_package": "Invalid package.",
+      "price_incomplete": "Price and currency go together: fill in both or leave both empty.",
+      "invalid_price": "Invalid price. Use numbers, with up to two decimals: 49.90.",
+      "invalid_currency": "Invalid currency. Use the three-letter code: BRL, USD, EUR.",
+      "client_not_found": "This partner no longer exists. Reload the page.",
+      "package_not_found": "This package no longer exists. Reload the page.",
+      "invalid_value": "The database refused the value. Check it and try again.",
+      "forbidden": "Only an active CMS administrator can change this.",
+      "read_failed": "Could not load. Reload the page.",
+      "write_failed": "Could not save. Try again."
     }
   }
 }
