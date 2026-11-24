@@ -82,8 +82,9 @@ export function pointOnSurface(g: GeoJsonGeometry): [number, number] | null {
   const ps: number[][][][] = g.type === 'Polygon' ? [g.coordinates] : g.type === 'MultiPolygon' ? g.coordinates : []
   if (!ps.length) return null
   const poly = ps.reduce((a, b) => (Math.abs(ringArea(b[0])) > Math.abs(ringArea(a[0])) ? b : a))
-  const ys = poly[0].map((c) => c[1])
-  const y0 = Math.min(...ys), y1 = Math.max(...ys)
+  // A loop, not Math.min(...ys): a ring with ~10^5 vertices (Ilha de Marajó, 2026-11-23) overflows the call stack.
+  let y0 = Infinity, y1 = -Infinity
+  for (const c of poly[0]) { if (c[1] < y0) y0 = c[1]; if (c[1] > y1) y1 = c[1] }
   let best: [number, number] | null = null, bestW = -1
   for (const f of [0.5, 0.45, 0.55, 0.4, 0.6, 0.3, 0.7]) {
     const y = y0 + (y1 - y0) * f

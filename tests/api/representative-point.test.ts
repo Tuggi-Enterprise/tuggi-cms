@@ -64,4 +64,12 @@ describe('representativePoint: the pin sits inside the areal, mid-line on the li
   it('Point stays the point', () => {
     assert.deepEqual(representativePoint({ type: 'Point', coordinates: at(1, 1) }), at(1, 1))
   })
+
+  it('ring with 300k vertices does not overflow the stack (Ilha de Marajó import, 2026-11-23)', () => {
+    const n = 300_000
+    const r = Array.from({ length: n }, (_, i) => [Math.cos((2 * Math.PI * i) / n), Math.sin((2 * Math.PI * i) / n)])
+    r.push(r[0])
+    const p = representativePoint({ type: 'Polygon', coordinates: [r] })!
+    assert.ok(Math.hypot(p[0], p[1]) < 1)
+  })
 })
