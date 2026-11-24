@@ -1,5 +1,5 @@
 /**
- * #1233: the CMS screen of the planned trip and the trip reminder, its seven API doors under
+ * #1233: the CMS screen of the planned trip and the trip reminder, its API doors under
  * `/api/admin/trip-reminder/` and the pieces the screen derives. Contract:
  * `docs/contracts/viagem-marcada-e-lembrete.md` (Parte 1, "CMS", "#1233 CMS").
  *
@@ -8,7 +8,9 @@
  * to the database only as a bound argument of a POST `rpc()` and never comes back, never in a log
  * and never in an error (BR-COMUNICACAO-024 item 10, condition of the security-reviewer in #1230);
  * the test send speaks the interface fixed with #1231 and shows the failure code without a phone
- * number (item 9); the send log and the panel read with the documented arguments.
+ * number (item 9); the send log and the panel read with the documented arguments. #1281: the
+ * list of the hours of "now" (BR-MONETIZACAO-091 item 8.2), the eighth door, names a person only by
+ * the email of the account.
  *
  * Run with: npm run test:api
  */
@@ -69,6 +71,7 @@ let secretsRoute: any
 let testSendRoute: any
 let sendsRoute: any
 let panelRoute: any
+let nowCreditsRoute: any
 let lib: any
 let rewards: any
 /* eslint-enable @typescript-eslint/no-explicit-any */
@@ -91,6 +94,7 @@ before(async () => {
   testSendRoute = await import('@/app/api/admin/trip-reminder/test-send/route')
   sendsRoute = await import('@/app/api/admin/trip-reminder/sends/route')
   panelRoute = await import('@/app/api/admin/trip-reminder/panel/route')
+  nowCreditsRoute = await import('@/app/api/admin/trip-reminder/now-credits/route')
   lib = await import('@/lib/trip-reminder/settings')
   rewards = await import('@/lib/rewards/settings')
 })
@@ -149,7 +153,7 @@ const TEMPLATE = {
   provider_language: 'pt_BR',
 }
 
-test('#1233 BR-COMUNICACAO-024 items 9 and 10: only an admin reaches the seven doors, and nothing runs before the gate', async () => {
+test('#1233 #1281 BR-COMUNICACAO-024 items 9 and 10, BR-MONETIZACAO-091 item 8.2: only an admin reaches the eight doors, and nothing runs before the gate', async () => {
   for (const r of ['editor', 'viewer', 'client']) {
     role = r
     const statuses = [
@@ -160,8 +164,9 @@ test('#1233 BR-COMUNICACAO-024 items 9 and 10: only an admin reaches the seven d
       (await testSendRoute.POST(req('POST', '/test-send', { piece: 'trip_reminder_day', channel: 'email' }), ctx)).status,
       (await sendsRoute.GET(nextReq('/sends'), ctx)).status,
       (await panelRoute.GET(req('GET', '/panel'), ctx)).status,
+      (await nowCreditsRoute.GET(req('GET', '/now-credits'), ctx)).status,
     ]
-    assert.deepEqual(statuses, [403, 403, 403, 403, 403, 403, 403], r)
+    assert.deepEqual(statuses, [403, 403, 403, 403, 403, 403, 403, 403], r)
   }
   assert.deepEqual(calls, [])
   assert.deepEqual(fetchCalls, [])
@@ -446,7 +451,7 @@ test('#1238 BR-MONETIZACAO-091 2.a and 2.d: one amount per length band, shortest
   assert.equal(rewards.validateRewardValue(62, 'minutes', 'planned_trip.minutes_week'), 'not_multiple_of_5')
 })
 
-test('#1238 #1276 BR-USUARIO-055 items 6.c and 11: the panel hands counts by destination, month and band, the wished destinations apart, and nothing a later column adds about a person', async () => {
+test('#1238 #1276 #1281 BR-USUARIO-055 items 6.c and 11: the panel hands counts by destination, month and band, the wished destinations apart by place and month, and nothing a later column adds about a person', async () => {
   answers.cms_get_planned_trips_panel = {
     data: {
       by_destination_month: [
@@ -464,7 +469,8 @@ test('#1238 #1276 BR-USUARIO-055 items 6.c and 11: the panel hands counts by des
         wishes: 3,
       },
       wishes_by_destination: [
-        { country_code: 'IT', city: 'Roma', wishes: 2, user_id: 'u-person-1' },
+        { country_code: 'IT', city: 'Roma', month: '2027-09-01', wishes: 2, user_id: 'u-person-1' },
+        { country_code: 'IT', city: 'Roma', month: null, wishes: 1 },
         { country_code: 'JP', city: null, wishes: 1, emails: ['ana@example.com'] },
       ],
       answers: { now: 0, planned: 1, unsure: 0 },
@@ -490,9 +496,11 @@ test('#1238 #1276 BR-USUARIO-055 items 6.c and 11: the panel hands counts by des
       by_duration_band: { short: 0, week: 0, long: 2, none: 1 },
       wishes: 3,
     },
+    // #1281 item 11.e: one row per place and month; a read from before the month hands it as null.
     wishes_by_destination: [
-      { country_code: 'IT', city: 'Roma', wishes: 2 },
-      { country_code: 'JP', city: null, wishes: 1 },
+      { country_code: 'IT', city: 'Roma', month: '2027-09-01', wishes: 2 },
+      { country_code: 'IT', city: 'Roma', month: null, wishes: 1 },
+      { country_code: 'JP', city: null, month: null, wishes: 1 },
     ],
     answers: { now: 0, planned: 1, unsure: 0 },
     contacts_by_channel: [{ channel: null, delivery_state: 'pending', stopped: false, contacts: 1 }],
@@ -506,6 +514,74 @@ test('#1238 #1276 BR-USUARIO-055 items 6.c and 11: the panel hands counts by des
   assert.deepEqual(empty.by_destination_month, [])
   // #1275/#1276 BR-USUARIO-055 item 11: a read from before the wishes still draws, with zero wishes.
   assert.deepEqual([empty.totals.wishes, empty.wishes_by_destination], [0, []])
+})
+
+test('#1281 BR-MONETIZACAO-091 item 8.2 and BR-USUARIO-055 items 6.b, 6.c and 8: the list of the hours of "now" reads with the database defaults and hands the email of the account, never the destination, the wish nor the contact email', async () => {
+  answers.cms_get_trip_now_credits = {
+    data: {
+      total: 73,
+      rows: [
+        {
+          email: 'ana@example.com',
+          credited_at: '2026-11-24T21:10:00+00:00',
+          minutes: 120,
+          duration_band: 'week',
+          country_code: 'PT',
+          city: 'Lisboa',
+          destination: { country_code: 'PT', city: 'Lisboa' },
+          wish: { country_code: 'IT', city: 'Roma' },
+          contact_email: 'ana.contato@example.com',
+          phone_e164: '+5511987654321',
+          user_id: 'u-person-1',
+        },
+        { email: 'bia@example.com', credited_at: '2026-11-24T18:00:00+00:00', minutes: 60, duration_band: null },
+        // A row whose amount did not come back keeps `null`, never a 0 nobody measured.
+        { email: 'caio@example.com', credited_at: '2026-11-23T12:00:00+00:00', duration_band: 'long' },
+      ],
+      people: [{ id: 'u-person-1' }],
+    },
+  }
+  const res = await nowCreditsRoute.GET(req('GET', '/now-credits'), ctx)
+  assert.equal(res.status, 200)
+  // Personal data: never kept by a cache between the database and the admin.
+  assert.equal(res.headers.get('cache-control'), 'no-store')
+  const body = await res.json()
+  assert.deepEqual(body, {
+    total: 73,
+    rows: [
+      { email: 'ana@example.com', credited_at: '2026-11-24T21:10:00+00:00', minutes: 120, duration_band: 'week' },
+      { email: 'bia@example.com', credited_at: '2026-11-24T18:00:00+00:00', minutes: 60, duration_band: null },
+      { email: 'caio@example.com', credited_at: '2026-11-23T12:00:00+00:00', minutes: null, duration_band: 'long' },
+    ],
+  })
+  assert.equal(/Lisboa|Roma|contato|5511987654321|u-person-1/.test(JSON.stringify(body)), false)
+  // The size of the list is the function's (default 50, at most 200): the route passes nothing.
+  assert.deepEqual(
+    calls.map(({ schema, fn, args }) => ({ schema, fn, args })),
+    [{ schema: 'drive', fn: 'cms_get_trip_now_credits', args: undefined }]
+  )
+  assert.deepEqual(logged, [])
+
+  // An empty read still draws the section, with the empty sentence.
+  answers.cms_get_trip_now_credits = { data: null }
+  assert.deepEqual(await (await nowCreditsRoute.GET(req('GET', '/now-credits'), ctx)).json(), { total: 0, rows: [] })
+})
+
+test('#1281 BR-MONETIZACAO-091 item 8.2: before the function reaches production the list fails alone, named by its code, and the log carries no row', async () => {
+  answers.cms_get_trip_now_credits = { error: { code: 'PGRST202', message: 'Could not find the function drive.cms_get_trip_now_credits ana@example.com' } }
+  const missing = await nowCreditsRoute.GET(req('GET', '/now-credits'), ctx)
+  assert.equal(missing.status, 500)
+  assert.equal(missing.headers.get('cache-control'), 'no-store')
+  assert.deepEqual(await missing.json(), { error: { code: 'unknown', sqlstate: 'PGRST202' } })
+  answers.cms_get_trip_now_credits = { error: { code: '42501', message: 'permission denied' } }
+  const denied = await nowCreditsRoute.GET(req('GET', '/now-credits'), ctx)
+  assert.equal(denied.status, 403)
+  assert.deepEqual(await denied.json(), { error: { code: 'forbidden', sqlstate: '42501' } })
+  // The message of the database is never logged, only the SQLSTATE.
+  assert.deepEqual(logged, ['[trip-reminder] now credits read refused: PGRST202', '[trip-reminder] now credits read refused: 42501'])
+  // The counts of the panel do not depend on it.
+  answers.cms_get_planned_trips_panel = { data: null }
+  assert.equal((await panelRoute.GET(req('GET', '/panel'), ctx)).status, 200)
 })
 
 test('#1233 BR-COMUNICACAO-024 item 5: the confirmation of the number is tested only on a phone channel', () => {

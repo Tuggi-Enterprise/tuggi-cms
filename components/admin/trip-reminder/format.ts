@@ -6,7 +6,7 @@
 
 import type { useTranslations } from 'next-intl'
 import { UNKNOWN_VALUE } from '@/lib/format/unknown'
-import type { TripAdminError } from '@/lib/trip-reminder/settings'
+import { isDurationBand, type TripAdminError } from '@/lib/trip-reminder/settings'
 
 type Translate = ReturnType<typeof useTranslations>
 
@@ -29,6 +29,12 @@ export function formatMonth(day: string | null | undefined): string | null {
   const parts = day ? /^(\d{4})-(\d{2})-\d{2}$/.exec(day) : null
   if (!parts) return null
   return monthFormat.format(new Date(Date.UTC(Number(parts[1]), Number(parts[2]) - 1, 1)))
+}
+
+/** The length band the person picked (#1238); `null` and `none` are a skipped length, an unknown band stays raw. */
+export function bandName(t: Translate, band: string | null): string {
+  if (band === null || band === 'none') return t('panel.no_duration')
+  return isDurationBand(band) ? t(`panel.bands.${band}`) : band
 }
 
 /** The sentence of a refusal; an unexplained one names its SQLSTATE so the operator can report it. */

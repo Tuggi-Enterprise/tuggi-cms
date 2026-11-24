@@ -4,7 +4,8 @@
  *
  * The database owns every value, range and list: `drive.cms_get_trip_settings`,
  * `drive.cms_set_feature_switch`, `drive.cms_set_message_template`, `drive.cms_set_provider_secret`,
- * `drive.cms_get_message_sends` and `drive.cms_get_planned_trips_panel`. This module holds only the
+ * `drive.cms_get_message_sends`, `drive.cms_get_planned_trips_panel` and (#1281)
+ * `drive.cms_get_trip_now_credits`. This module holds only the
  * shapes the routes check before calling them (mirrors of the CHECKs, so a malformed body never
  * reaches the database) and the classification of a refusal. Rules: BR-COMUNICACAO-023 item 5,
  * BR-COMUNICACAO-024 items 8 to 10, BR-USUARIO-055 item 6.c.
@@ -13,6 +14,7 @@
 import type { RewardSetting, RewardUnit } from '@/lib/rewards/settings'
 import { compareRewardKeys, isRewardUnit } from '@/lib/rewards/settings'
 import { WEEKLY_PUSH_LANGUAGES } from '@/lib/notifications/weekly-push'
+import { optionalMinutes } from '@/lib/format/duration'
 
 // ── Lists ───────────────────────────────────────────────────────────────────────────────
 
@@ -258,12 +260,24 @@ export interface PlannedTripsPanel {
     /** #1275 BR-USUARIO-055 item 11: accounts with a wished destination, apart from the trips. */
     wishes: number
   }
-  /** #1275 BR-USUARIO-055 items 6.c and 11: wished destinations, counts only. `city` null is a country. */
-  wishes_by_destination: { country_code: string | null; city: string | null; wishes: number }[]
+  /**
+   * #1275 BR-USUARIO-055 items 6.c and 11: wished destinations, counts only. `city` null is a
+   * country. #1281 item 11.e: one row per place and month, `month` the day 1 or null when not given.
+   */
+  wishes_by_destination: { country_code: string | null; city: string | null; month: string | null; wishes: number }[]
   answers: Record<'now' | 'planned' | 'unsure', number>
   contacts_by_channel: { channel: string | null; delivery_state: string; stopped: boolean; contacts: number }[]
   email_reminders_stopped: number
 }
+
+const record = (value: unknown): Record<string, unknown> =>
+  value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
+const rows = (value: unknown): Record<string, unknown>[] => (Array.isArray(value) ? value.map(record) : [])
+const count = (value: unknown): number => {
+  const n = Number(value)
+  return Number.isFinite(n) ? n : 0
+}
+const text = (value: unknown): string | null => (typeof value === 'string' ? value : null)
 
 /**
  * `drive.cms_get_planned_trips_panel()` as the route hands it to the browser, field by field
@@ -271,14 +285,6 @@ export interface PlannedTripsPanel {
  * to that read never reaches the page by accident, the same guard as `pickSecret`.
  */
 export function normalizePlannedTripsPanel(data: unknown): PlannedTripsPanel {
-  const record = (value: unknown): Record<string, unknown> =>
-    value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
-  const rows = (value: unknown): Record<string, unknown>[] => (Array.isArray(value) ? value.map(record) : [])
-  const count = (value: unknown): number => {
-    const n = Number(value)
-    return Number.isFinite(n) ? n : 0
-  }
-  const text = (value: unknown): string | null => (typeof value === 'string' ? value : null)
   const d = record(data)
   const totals = record(d.totals)
   const bands = record(totals.by_duration_band)
@@ -303,6 +309,7 @@ export function normalizePlannedTripsPanel(data: unknown): PlannedTripsPanel {
     wishes_by_destination: rows(d.wishes_by_destination).map((r) => ({
       country_code: text(r.country_code),
       city: text(r.city),
+      month: text(r.month),
       wishes: count(r.wishes),
     })),
     answers: { now: count(answers.now), planned: count(answers.planned), unsure: count(answers.unsure) },
@@ -313,6 +320,35 @@ export function normalizePlannedTripsPanel(data: unknown): PlannedTripsPanel {
       contacts: count(r.contacts),
     })),
     email_reminders_stopped: count(d.email_reminders_stopped),
+  }
+}
+
+/**
+ * #1281 BR-MONETIZACAO-091 item 8.2: who got the hours of "estou viajando agora", newest credit
+ * first. The one read of this screen that names a person, and only by the email of the account.
+ */
+export interface TripNowCredits {
+  /** Accounts with that hour; above `rows.length` when the read cut the list (the size is the database's). */
+  total: number
+  rows: { email: string | null; credited_at: string | null; minutes: number | null; duration_band: string | null }[]
+}
+
+/**
+ * `drive.cms_get_trip_now_credits()` as the route hands it to the browser, field by field. Item 8.2
+ * and BR-USUARIO-055 items 6.b, 6.c and 8: never the destination, the wish nor the contact email,
+ * so a column added later to that read stays on the server. `minutes` stays `null` when it did not
+ * come back, never a `0` nobody measured.
+ */
+export function normalizeTripNowCredits(data: unknown): TripNowCredits {
+  const d = record(data)
+  return {
+    total: count(d.total),
+    rows: rows(d.rows).map((r) => ({
+      email: text(r.email),
+      credited_at: text(r.credited_at),
+      minutes: optionalMinutes(r.minutes),
+      duration_band: text(r.duration_band),
+    })),
   }
 }
 

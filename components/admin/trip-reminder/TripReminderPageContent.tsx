@@ -15,11 +15,10 @@
 
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { useTranslations } from 'next-intl'
-import { Button } from '@/components/ui/button'
 import { Container } from '@/components/ui/Container'
 import { DIM } from '@/components/ui/dense-table'
 import type { TripAdminError, TripSettings } from '@/lib/trip-reminder/settings'
-import { errorText } from './format'
+import { ReadFailure } from './ReadFailure'
 import { TripPanel } from './TripPanel'
 import { TripSettingsTab } from './TripSettingsTab'
 import { ProviderSecrets } from './ProviderSecrets'
@@ -68,18 +67,7 @@ export function TripReminderPageContent() {
 
   const settingsBlock = (render: (data: TripSettings) => ReactNode) => {
     if (settings.state === 'loading') return <p className={`text-sm ${DIM}`}>{t('loading')}</p>
-    if (settings.state === 'error') {
-      return (
-        <div role="alert" className="flex flex-wrap items-center gap-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
-          <span>
-            {t('load_error')} {errorText(t, settings.error)}
-          </span>
-          <Button variant="outline" size="sm" onClick={() => void loadSettings()}>
-            {t('reload')}
-          </Button>
-        </div>
-      )
-    }
+    if (settings.state === 'error') return <ReadFailure error={settings.error} onRetry={() => void loadSettings()} />
     return render(settings.data)
   }
 

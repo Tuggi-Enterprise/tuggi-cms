@@ -7,18 +7,24 @@
  * destination, a length band or a channel. #1238: an account may have many trips, each counted, and
  * every row and total is split by the band the person picked (BR-MONETIZACAO-091 2.a).
  * #1275/#1276: the wished destinations of whoever answered "unsure" (BR-USUARIO-055 item 11) are a
- * block of their own, never mixed with the trips: a wish is not a trip.
+ * block of their own, never mixed with the trips: a wish is not a trip. #1281: by place and month
+ * (item 11.e).
+ *
+ * The one exception to "counts only" is the last block, `TripNowCredits` (#1281, BR-MONETIZACAO-091
+ * item 8.2): who got the hours of "estou viajando agora", by the email of the account. It has its own
+ * route and read, so the counts and the list load and fail apart.
  */
 
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { CalendarClock, CalendarDays, Heart, Hourglass, MailX, MapPin, Users } from 'lucide-react'
-import { Button } from '@/components/ui/button'
 import { CountryFlag } from '@/components/ui/CountryFlag'
 import { StatCard, StatCardRow } from '@/components/ui/StatCard'
 import { CELL, DIM, HEAD_SOLO, HEAD_SOLO_NUM, NUM } from '@/components/ui/dense-table'
-import { DURATION_BANDS, isDurationBand, type PlannedTripsPanel, type TripAdminError } from '@/lib/trip-reminder/settings'
-import { countFormat, errorText, formatMonth } from './format'
+import { DURATION_BANDS, type PlannedTripsPanel, type TripAdminError } from '@/lib/trip-reminder/settings'
+import { bandName as nameOfBand, countFormat, formatMonth } from './format'
+import { ReadFailure } from './ReadFailure'
+import { TripNowCredits } from './TripNowCredits'
 
 type Load =
   | { state: 'loading' }
@@ -30,6 +36,15 @@ const BAND_TOTALS = [...DURATION_BANDS, 'none'] as const
 const KNOWN_STATES = ['pending', 'confirmed', 'no_channel', 'undeliverable']
 
 export function TripPanel() {
+  return (
+    <div className="space-y-8">
+      <PlannedTripsCounts />
+      <TripNowCredits />
+    </div>
+  )
+}
+
+function PlannedTripsCounts() {
   const t = useTranslations('TripReminder')
   const [load, setLoad] = useState<Load>({ state: 'loading' })
 
@@ -54,27 +69,19 @@ export function TripPanel() {
   if (load.state === 'loading') return <p className={`text-sm ${DIM}`}>{t('loading')}</p>
   if (load.state === 'error') {
     return (
-      <div role="alert" className="flex flex-wrap items-center gap-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
-        <span>
-          {t('load_error')} {errorText(t, load.error)}
-        </span>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            setLoad({ state: 'loading' })
-            void fetchPanel()
-          }}>
-          {t('reload')}
-        </Button>
-      </div>
+      <ReadFailure
+        error={load.error}
+        onRetry={() => {
+          setLoad({ state: 'loading' })
+          void fetchPanel()
+        }}
+      />
     )
   }
 
   const { totals, answers, by_destination_month: rows, contacts_by_channel: contacts, wishes_by_destination: wishes } = load.data
   const n = (value: number | undefined) => countFormat.format(Number(value ?? 0))
-  const bandName = (band: string | null) =>
-    band === null || band === 'none' ? t('panel.no_duration') : isDurationBand(band) ? t(`panel.bands.${band}`) : band
+  const bandName = (band: string | null) => nameOfBand(t, band)
 
   return (
     <div className="space-y-8">
@@ -181,13 +188,17 @@ export function TripPanel() {
             <table className="w-full border-collapse">
               <thead>
                 <tr>
+                  <th className={HEAD_SOLO}>{t('panel.wishes_month')}</th>
                   <th className={HEAD_SOLO}>{t('panel.destination')}</th>
                   <th className={HEAD_SOLO_NUM}>{t('panel.wishes_column')}</th>
                 </tr>
               </thead>
               <tbody>
                 {wishes.map((row, index) => (
-                  <tr key={`${row.country_code}-${row.city}-${index}`} className="border-t border-gray-100 dark:border-gray-800">
+                  <tr key={`${row.month}-${row.country_code}-${row.city}-${index}`} className="border-t border-gray-100 dark:border-gray-800">
+                    <td className={`${CELL} whitespace-nowrap`}>
+                      {formatMonth(row.month) ?? <span className={DIM}>{t('panel.wishes_no_month')}</span>}
+                    </td>
                     <td className={CELL}>
                       {row.country_code ? (
                         <span className="inline-flex flex-wrap items-center gap-x-2">

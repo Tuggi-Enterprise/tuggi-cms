@@ -13,7 +13,7 @@ import { test, expect } from '@playwright/experimental-ct-react'
 import type { Page, Route } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
 import { TripReminderHarness } from './trip-reminder-helpers'
-import { PANEL, SENDS, SETTINGS } from './trip-reminder-fixtures'
+import { NOW_CREDITS, PANEL, SENDS, SETTINGS } from './trip-reminder-fixtures'
 
 const CAPTURE = process.env.CT_CAPTURE_DIR
 const NEW_SECRET = 'EAAG-new-provider-token-0123-QRST'
@@ -28,6 +28,7 @@ async function serve(page: Page, sent: Sent[]) {
   }
   await page.route('**/api/admin/trip-reminder/settings', (route) => route.fulfill({ json: settings }))
   await page.route('**/api/admin/trip-reminder/panel', (route) => route.fulfill({ json: PANEL }))
+  await page.route('**/api/admin/trip-reminder/now-credits', (route) => route.fulfill({ json: NOW_CREDITS }))
   await page.route('**/api/admin/trip-reminder/sends**', (route) => route.fulfill({ json: { sends: SENDS } }))
   await page.route('**/api/admin/trip-reminder/switches', async (route) => {
     record(route)

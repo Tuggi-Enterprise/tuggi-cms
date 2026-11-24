@@ -7404,7 +7404,9 @@
       "now_hours_account": "Conta",
       "now_hours_credited_on": "Dia do crédito",
       "now_hours_hours": "Horas",
-      "now_hours_empty": "Nenhuma conta ganhou horas por \"estou viajando agora\" ainda."
+      "now_hours_empty": "Nenhuma conta ganhou horas por \"estou viajando agora\" ainda.",
+      "now_hours_total": "Contas",
+      "now_hours_truncated": "Mostrando as {shown} mais recentes de {total}."
     }
   },
   "PartnerBrand": {

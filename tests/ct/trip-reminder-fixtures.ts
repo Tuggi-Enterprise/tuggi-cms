@@ -2,6 +2,7 @@
  * Replies of the `/api/admin/trip-reminder/*` routes for the #1233 component tests, in the shape
  * of `docs/contracts/viagem-marcada-e-lembrete.md`. Seeds of the 120000 migration for switches and
  * slots, of the 210000 (#1237) for the numbers; panel and sends are invented counts, never a person.
+ * `NOW_CREDITS` (#1281) is the one read with a person in it: invented accounts on example.com.
  */
 
 export const SETTINGS = {
@@ -65,7 +66,13 @@ export const PANEL = {
     accounts: 31,
     trip_hours_credited: 5,
     by_duration_band: { short: 12, week: 9, long: 8, none: 9 },
+    wishes: 14,
   },
+  wishes_by_destination: [
+    { country_code: 'IT', city: 'Roma', month: '2027-09-01', wishes: 6 },
+    { country_code: 'IT', city: 'Roma', month: null, wishes: 3 },
+    { country_code: 'JP', city: null, month: '2027-04-01', wishes: 5 },
+  ],
   answers: { now: 12, planned: 38, unsure: 21 },
   contacts_by_channel: [{ channel: null, delivery_state: 'pending', stopped: false, contacts: 3 }],
   email_reminders_stopped: 1,
@@ -76,3 +83,13 @@ export const SENDS = [
   { id: 's2', created_at: '2026-11-23T18:09:00Z', updated_at: '2026-11-23T18:09:01Z', piece: 'test', channel: 'email', outcome: 'delivered', reason: null, phone_last4: null },
   { id: 's1', created_at: '2026-11-23T13:00:00Z', updated_at: '2026-11-23T13:00:01Z', piece: 'trip_reminder_before', channel: 'push', outcome: 'sent', reason: null, phone_last4: null },
 ]
+
+/** #1281 BR-MONETIZACAO-091 item 8.2: the newest credits first, a total above the rows the read cut. */
+export const NOW_CREDITS = {
+  total: 73,
+  rows: [
+    { email: 'ana.souza.viagens@example.com', credited_at: '2026-11-24T21:10:00+00:00', minutes: 120, duration_band: 'week' },
+    { email: 'bia@example.com', credited_at: '2026-11-24T18:00:00+00:00', minutes: 60, duration_band: null },
+    { email: 'caio@example.com', credited_at: '2026-11-23T12:30:00+00:00', minutes: 180, duration_band: 'long' },
+  ],
+}
