@@ -1,14 +1,15 @@
 /**
- * weekly-local-push: the weekly push, Thursday 18h and Saturday 10h in the person's zone
- * (BR-COMUNICACAO-019 item 3.m, BR-COMUNICACAO-012 item 1.7; #1046, #1047).
+ * weekly-local-push: the weekly push, Thursday 18h and Saturday 10h in the person's zone, and the
+ * trip question on the first Sunday of the month at 19h (BR-COMUNICACAO-019 items 3.m and 3.u.3,
+ * BR-COMUNICACAO-012 item 1.7; #1046, #1047, #1276).
  *
  *   POST, machine key only. The pg_cron `weekly-local-push` (minute 2 of every hour) sends `{}`.
  *   Optional body `{ "now": "<ISO 8601>" }` replays the batch of a past hour (#1205): the claim
  *   runs with that instant as `p_now`. Same gate, no other caller.
  *   -> 200 { claimed, outcomes: { sent, denied, not_delivered, failed }, invalid, unfinished,
- *      trip_question: { asked, marked, already_spent, mark_failed, audience_failed } },
+ *      trip_question: { asked, marked, already_spent, mark_failed } },
  *      summed over every claim page (50 rows a page, 40 pages at most). `trip_question` is the
- *      first-Saturday question of BR-COMUNICACAO-019 3.u.3 (#1276)
+ *      first-Sunday question of BR-COMUNICACAO-019 3.u.3 (#1276)
  *   -> 400 { error: 'invalid_now' } when `now` is present and not an ISO 8601 date-time
  *   -> 401 any other caller, 405 any other method, 500 when the first claim fails
  *

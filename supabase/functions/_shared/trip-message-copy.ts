@@ -256,7 +256,7 @@ export const TRIP_PUSH_COPY = {
     de: 'Du hast {{trip_hours}} für die Geschichten am Weg, gültig bis zum {{date}}. Weißt du den Tag? Trag ihn ein.',
   },
   /**
-   * The trip question of the first Saturday (BR-COMUNICACAO-019 3.u.3, #1276), to whoever has no
+   * The trip question of the first Sunday (BR-COMUNICACAO-019 3.u.3, #1276), to whoever has no
    * active trip: no destination, no hours (3.u.5). Copy `proxima-viagem-de-novo-1274-2026-11.md` §1.
    * `next_ask_body` promises the reminder; `_no_reminder` is for a reminder that cannot leave.
    */

@@ -18,13 +18,14 @@ import {
   parseRunBody,
   runWeeklyLocalPush,
   SEND_CONCURRENCY,
+  WEEKLY_PUSH_KINDS,
   type WeeklyPushDeps,
 } from '../_shared/weekly-local-push.ts';
 import { PUSH_BODY_MAX, PUSH_TITLE_MAX, TRIP_PUSH_COPY } from '../_shared/trip-message-copy.ts';
-import { isFirstSaturday, reminderReachable, tripQuestionPush } from '../_shared/trip-question.ts';
+import { reminderReachable, tripQuestionPush } from '../_shared/trip-question.ts';
 
-/** The tally of a run with no first-Saturday question in it. */
-const NO_QUESTION = { asked: 0, marked: 0, already_spent: 0, mark_failed: 0, audience_failed: 0 };
+/** The tally of a run with no trip question in it. */
+const NO_QUESTION = { asked: 0, marked: 0, already_spent: 0, mark_failed: 0 };
 
 const USER_A = '33333333-3333-4333-8333-333333333333';
 const USER_B = '44444444-4444-4444-8444-444444444444';
@@ -350,10 +351,12 @@ Deno.test('#1205: a now that is not an ISO 8601 date-time, or a body that is not
   for (const text of bad) assertEquals([text, parseRunBody(text)], [text, { error: 'invalid_now' }]);
 });
 
-Deno.test('BR-COMUNICACAO-019 3.m (#1047): the two weekly kinds are unrequested and do not need "using the app"', () => {
-  for (const kind of ['weekly_thursday_local', 'weekly_saturday_local'] as const) {
-    assertEquals([kind, PUSH_KINDS[kind].requested, PUSH_KINDS[kind].requiresActive], [kind, false, false]);
+Deno.test('BR-COMUNICACAO-019 3.m and 3.u.3 (#1047, #1276): the weekly kinds are unrequested, do not need "using the app" and keep a cap', () => {
+  for (const kind of WEEKLY_PUSH_KINDS) {
+    const { requested, requiresActive, outsideCaps, vacancyPriority } = PUSH_KINDS[kind];
+    assertEquals([kind, requested, requiresActive, outsideCaps, vacancyPriority], [kind, false, false, false, PUSH_KINDS.weekly_saturday_local.vacancyPriority]);
   }
+  assertEquals([...WEEKLY_PUSH_KINDS], ['weekly_thursday_local', 'weekly_saturday_local', 'weekly_first_sunday_local']);
 });
 
 // ---- the handler: the gate in front of the run ----
@@ -386,7 +389,7 @@ Deno.test('#1047: the cron call with the machine key claims and answers the tall
     outcomes: { sent: 0, denied: 0, not_delivered: 0, failed: 0 },
     invalid: 0,
     unfinished: 0,
-    trip_question: { asked: 0, marked: 0, already_spent: 0, mark_failed: 0, audience_failed: 0 },
+    trip_question: NO_QUESTION,
   });
 });
 
@@ -467,15 +470,30 @@ Deno.test('BR-COMUNICACAO-019 3.m (#1046): 120 claimed people all leave, through
   assertEquals(scenario.calls.filter((c) => c === 'rpc:claim_weekly_push').length, 3);
 });
 
-// ---- #1276, BR-COMUNICACAO-019 3.u.3 and 3.u.2: the trip question on the first Saturday ----
+// ---- #1276, BR-COMUNICACAO-019 3.u.3 and 3.u.2: the trip question, a piece of its own on the first Sunday ----
 
-/** 2026-12-05 is the first Saturday of December; 2026-12-12 the second. */
+/** 2026-12-06 is the first Sunday of December; 2026-12-05 the first Saturday. */
+const FIRST_SUNDAY = '2026-12-06';
 const FIRST_SATURDAY = '2026-12-05';
-const SECOND_SATURDAY = '2026-12-12';
+
+/** The row the claim returns for the question: no words, no link, no item (contract, Parte 4). */
+function sundayRow(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return claimRow({
+    piece: 'first_sunday_local',
+    push_kind: 'weekly_first_sunday_local',
+    local_date: FIRST_SUNDAY,
+    variant: 'trip_next_ask',
+    title: null,
+    body: null,
+    deeplink: null,
+    item_id: null,
+    ...overrides,
+  });
+}
 
 function saturdayRow(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return claimRow({
-    piece: 'saturday',
+    piece: 'saturday_local',
     push_kind: 'weekly_saturday_local',
     local_date: FIRST_SATURDAY,
     variant: 'route',
@@ -495,17 +513,9 @@ const SETTINGS_ON = {
   ],
 };
 
-/** The other RPCs of a run with the question: who is in the audience, the switches and the mark. */
-function questionRpcs(opts: {
-  audience?: string[] | { code: string };
-  settings?: unknown;
-  mark?: RpcAnswer;
-} = {}): (fn: string, args: Record<string, unknown>) => RpcAnswer | undefined {
+/** The other RPCs of a run with the question: the reminder switches and the mark. Nothing else answers. */
+function questionRpcs(opts: { settings?: unknown; mark?: RpcAnswer } = {}): (fn: string, args: Record<string, unknown>) => RpcAnswer | undefined {
   return (fn) => {
-    if (fn === 'trip_question_audience') {
-      const a = opts.audience ?? [USER_A];
-      return Array.isArray(a) ? { data: a.map((user_id) => ({ user_id })), error: null } : { data: null, error: a };
-    }
     if (fn === 'cms_get_trip_settings') return { data: 'settings' in opts ? opts.settings : SETTINGS_ON, error: null };
     if (fn === 'mark_trip_question_sent') return opts.mark ?? { data: true, error: null };
     return undefined;
@@ -517,102 +527,77 @@ const sentNotification = (trail: Trail, i = 0) =>
 
 const marks = (trail: Trail) => trail.rpcs.filter((c) => c.fn === 'mark_trip_question_sent').map((c) => c.args);
 
-Deno.test('BR-COMUNICACAO-019 3.u.3 and 3.u.2 (#1276): first Saturday, in the audience: the question goes in place of the Saturday piece and the month is spent', async () => {
-  const { deps, trail } = fakeRun({ data: [saturdayRow()], error: null }, () => gateAnswer('sent'), undefined, questionRpcs());
+const called = (trail: Trail, fn: string) => trail.rpcs.filter((c) => c.fn === fn).length;
+
+Deno.test('BR-COMUNICACAO-019 3.u.3 and 3.u.2 (#1276): the first-Sunday row leaves with the words and the link of the question, then spends the month', async () => {
+  const { deps, trail } = fakeRun({ data: [sundayRow()], error: null }, () => gateAnswer('sent'), undefined, questionRpcs());
   const report = await runWeeklyLocalPush(deps);
 
-  const audience = trail.rpcs.find((c) => c.fn === 'trip_question_audience');
-  assertEquals(audience?.args, { p_channel: 'push', p_user_ids: [USER_A] });
-  assertEquals(trail.sends.length, 1, 'the question is never one push more');
-  const send = trail.sends[0].body;
-  assertEquals(send.push_kind, 'weekly_saturday_local', 'the question takes the Saturday slot of item 4.1');
+  assertEquals(trail.sends.length, 1);
+  assertEquals(trail.sends[0].body.push_kind, 'weekly_first_sunday_local', 'the question takes its own slot of item 4.1');
   const n = sentNotification(trail);
-  assertEquals(n.title, TRIP_PUSH_COPY.next_ask_title.pt);
-  assertEquals(n.body, TRIP_PUSH_COPY.next_ask_body.pt);
-  assertEquals(n.data, { type: 'weekly_saturday_local', deeplink: 'tuggi://trip?ask=1', variant: 'trip_next_ask', piece: 'trip_next_ask' });
+  assertEquals([n.title, n.body], [TRIP_PUSH_COPY.next_ask_title.pt, TRIP_PUSH_COPY.next_ask_body.pt]);
+  assertEquals(n.data, { type: 'weekly_first_sunday_local', deeplink: 'tuggi://trip?ask=1', variant: 'trip_next_ask', piece: 'trip_next_ask' });
   assertEquals(marks(trail), [{ p_user_id: USER_A, p_channel: 'push' }]);
   const order = trail.rpcs.map((c) => c.fn);
   assert(order.indexOf('mark_trip_question_sent') < order.indexOf('finish_weekly_push'), 'mark before the row closes');
   assertEquals(finishes(trail), [{ p_send_id: 101, p_outcome: 'sent' }]);
-  assertEquals(report.trip_question, { asked: 1, marked: 1, already_spent: 0, mark_failed: 0, audience_failed: 0 });
+  assertEquals(called(trail, 'trip_question_audience'), 0, 'the database already chose who');
+  assertEquals(report.trip_question, { asked: 1, marked: 1, already_spent: 0, mark_failed: 0 });
+  assertEquals([report.invalid, report.outcomes.sent], [0, 1]);
 });
 
-Deno.test('BR-COMUNICACAO-019 3.u.3 (#1276): the second Saturday sends the usual piece and never asks the audience', async () => {
-  const { deps, trail } = fakeRun(
-    { data: [saturdayRow({ local_date: SECOND_SATURDAY })], error: null },
-    () => gateAnswer('sent'),
-    undefined,
-    questionRpcs(),
-  );
+Deno.test('BR-COMUNICACAO-019 3.m.3 and 3.u.3 (#1276): the first Saturday and the Thursday of the first week leave as always, with no question', async () => {
+  const rows = [saturdayRow(), claimRow({ send_id: 102, user_id: USER_B, local_date: '2026-12-03' })];
+  const { deps, trail } = fakeRun({ data: rows, error: null }, () => gateAnswer('sent'), undefined, questionRpcs());
   const report = await runWeeklyLocalPush(deps);
-  assertEquals(trail.rpcs.some((c) => c.fn === 'trip_question_audience'), false);
-  const n = sentNotification(trail);
-  assertEquals([n.title, n.data.deeplink, n.data.variant, 'piece' in n.data], [
+
+  const byUser = new Map(trail.sends.map((s) => [(s.body.userIds as string[])[0], s.body]));
+  const saturday = byUser.get(USER_A)?.notification as { title: string; data: Record<string, unknown> };
+  assertEquals(byUser.get(USER_A)?.push_kind, 'weekly_saturday_local');
+  assertEquals([saturday.title, saturday.data.deeplink, saturday.data.variant, 'piece' in saturday.data], [
     'Sábado em Búzios: “Rota dos Fortes”',
     'tuggi://route?id=66666666-6666-4666-8666-666666666666',
     'route',
     false,
   ]);
-  assertEquals(marks(trail), []);
+  assertEquals((byUser.get(USER_B)?.notification as { data: Record<string, unknown> }).data.variant, 'event');
+  assertEquals([called(trail, 'trip_question_audience'), called(trail, 'cms_get_trip_settings'), marks(trail).length], [0, 0, 0]);
   assertEquals(report.trip_question, NO_QUESTION);
 });
 
-Deno.test('BR-COMUNICACAO-019 3.u.3 (#1276): a Thursday piece in the first week is never the question', async () => {
-  const { deps, trail } = fakeRun(
-    { data: [claimRow({ local_date: '2026-12-03' })], error: null },
-    () => gateAnswer('sent'),
-    undefined,
-    questionRpcs(),
-  );
-  await runWeeklyLocalPush(deps);
-  assertEquals(trail.rpcs.some((c) => c.fn === 'trip_question_audience'), false);
-  assertEquals(sentNotification(trail).data.variant, 'event');
-});
-
-Deno.test('BR-COMUNICACAO-019 3.u.1 (#1276): first Saturday, outside the audience: the usual piece, no mark', async () => {
-  const rows = [saturdayRow(), saturdayRow({ send_id: 102, user_id: USER_B })];
-  const { deps, trail } = fakeRun({ data: rows, error: null }, () => gateAnswer('sent'), undefined, questionRpcs({ audience: [USER_B] }));
-  const report = await runWeeklyLocalPush(deps);
-  const byUser = new Map(trail.sends.map((s) => [(s.body.userIds as string[])[0], s.body.notification as { title: string; data: Record<string, unknown> }]));
-  assertEquals(byUser.get(USER_A)?.data.variant, 'route');
-  assertEquals(byUser.get(USER_A)?.title, 'Sábado em Búzios: “Rota dos Fortes”');
-  assertEquals(byUser.get(USER_B)?.data.piece, 'trip_next_ask');
-  assertEquals(marks(trail), [{ p_user_id: USER_B, p_channel: 'push' }]);
-  assertEquals(trail.rpcs.filter((c) => c.fn === 'trip_question_audience').length, 1, 'one audience read per page');
-  assertEquals(report.trip_question.asked, 1);
-});
-
-Deno.test('BR-COMUNICACAO-019 3.u.2 and 3.m.8 (#1276): a question the gate drops or the FCM refuses spends nothing', async () => {
+Deno.test('BR-COMUNICACAO-019 3.u.2, 3.u.3.b and 3.m.8 (#1276): a question the gate drops, the quiet hours refuse or the FCM fails spends nothing and is never deferred', async () => {
   for (const [outcome, closed] of [['denied', 'denied'], ['not_delivered', 'not_delivered'], ['failed', 'failed'], ['gate_error', 'failed']] as const) {
-    const { deps, trail } = fakeRun({ data: [saturdayRow()], error: null }, () => gateAnswer(outcome), undefined, questionRpcs());
+    const { deps, trail } = fakeRun({ data: [sundayRow()], error: null }, () => gateAnswer(outcome), undefined, questionRpcs());
     const report = await runWeeklyLocalPush(deps);
-    assertEquals([outcome, sentNotification(trail).data.piece], [outcome, 'trip_next_ask']);
+    assertEquals([outcome, trail.sends.length, sentNotification(trail).data.piece], [outcome, 1, 'trip_next_ask']);
     assertEquals([outcome, marks(trail)], [outcome, []]);
     assertEquals([outcome, finishes(trail)], [outcome, [{ p_send_id: 101, p_outcome: closed }]]);
-    assertEquals([outcome, report.trip_question.marked], [outcome, 0]);
+    assertEquals([outcome, report.trip_question], [outcome, { asked: 1, marked: 0, already_spent: 0, mark_failed: 0 }]);
   }
-  const { deps, trail } = fakeRun({ data: [saturdayRow()], error: null }, () => new Response('{}', { status: 500 }), undefined, questionRpcs());
+  const { deps, trail } = fakeRun({ data: [sundayRow()], error: null }, () => new Response('{}', { status: 500 }), undefined, questionRpcs());
   await runWeeklyLocalPush(deps);
-  assertEquals(marks(trail), []);
+  assertEquals([marks(trail), finishes(trail)], [[], [{ p_send_id: 101, p_outcome: 'failed' }]]);
 });
 
-Deno.test('BR-COMUNICACAO-019 3.u.2 (#1276): a month the e-mail already spent is logged, and the row still closes sent', async () => {
+Deno.test('BR-COMUNICACAO-019 3.u.2 (#1276): a month the e-mail already spent is only counted, and the row still closes sent', async () => {
   const { deps, trail } = fakeRun(
-    { data: [saturdayRow()], error: null },
+    { data: [sundayRow()], error: null },
     () => gateAnswer('sent'),
     undefined,
     questionRpcs({ mark: { data: false, error: null } }),
   );
   const report = await runWeeklyLocalPush(deps);
-  assertEquals(report.trip_question, { asked: 1, marked: 0, already_spent: 1, mark_failed: 0, audience_failed: 0 });
+  assertEquals(report.trip_question, { asked: 1, marked: 0, already_spent: 1, mark_failed: 0 });
   assertEquals(finishes(trail), [{ p_send_id: 101, p_outcome: 'sent' }]);
+  assertEquals(report.outcomes, { sent: 1, denied: 0, not_delivered: 0, failed: 0 });
   assert(trail.logs.some((l) => l.includes('already spent')));
   assert(!trail.logs.join('\n').includes(USER_A), 'the log carries the user id');
 });
 
 Deno.test('#1276: a mark that fails is counted and logged without the person; the row still closes sent', async () => {
   const { deps, trail } = fakeRun(
-    { data: [saturdayRow()], error: null },
+    { data: [sundayRow()], error: null },
     () => gateAnswer('sent'),
     undefined,
     questionRpcs({ mark: { data: null, error: { code: 'TGU37' } } }),
@@ -624,36 +609,48 @@ Deno.test('#1276: a mark that fails is counted and logged without the person; th
   assert(!trail.logs.join('\n').includes(USER_A));
 });
 
-Deno.test('#1276: an audience that cannot be read sends the usual piece and counts it', async () => {
-  const { deps, trail } = fakeRun(
-    { data: [saturdayRow()], error: null },
-    () => gateAnswer('sent'),
-    undefined,
-    questionRpcs({ audience: { code: 'PGRST202' } }),
-  );
-  const report = await runWeeklyLocalPush(deps);
-  assertEquals(sentNotification(trail).data.variant, 'route');
-  assertEquals(marks(trail), []);
-  assertEquals(report.trip_question.audience_failed, 1);
-  assertEquals(report.outcomes.sent, 1);
-});
-
 Deno.test('BR-COMUNICACAO-023 item 5 (#1276): with the reminder or the push channel off, or unreadable, the question promises no reminder', async () => {
   const off = [
     { switches: [{ key: 'trip_reminder.enabled', is_on: false }, { key: 'channel.push', is_on: true }] },
     { switches: [{ key: 'trip_reminder.enabled', is_on: true }, { key: 'channel.push', is_on: false }] },
+    { switches: [{ key: 'trip_reminder.enabled', is_on: true }, { key: 'channel.email', is_on: true }] },
     null,
   ];
   for (const settings of off) {
-    const { deps, trail } = fakeRun({ data: [saturdayRow()], error: null }, () => gateAnswer('sent'), undefined, questionRpcs({ settings }));
+    const { deps, trail } = fakeRun({ data: [sundayRow()], error: null }, () => gateAnswer('sent'), undefined, questionRpcs({ settings }));
     await runWeeklyLocalPush(deps);
     assertEquals([JSON.stringify(settings), sentNotification(trail).body], [JSON.stringify(settings), TRIP_PUSH_COPY.next_ask_body_no_reminder.pt]);
   }
+  // Settings that cannot be read at all: no promise either, and the row still leaves.
+  const { deps: failing, trail: failingTrail } = fakeRun({ data: [sundayRow()], error: null }, () => gateAnswer('sent'), undefined, (fn) =>
+    fn === 'mark_trip_question_sent' ? { data: true, error: null } : undefined);
+  await runWeeklyLocalPush(failing);
+  assertEquals(sentNotification(failingTrail).body, TRIP_PUSH_COPY.next_ask_body_no_reminder.pt);
+  assertEquals(finishes(failingTrail), [{ p_send_id: 101, p_outcome: 'sent' }]);
   // The switches are read once per run, not once per person.
-  const rows = [saturdayRow(), saturdayRow({ send_id: 102, user_id: USER_B })];
-  const { deps, trail } = fakeRun({ data: rows, error: null }, () => gateAnswer('sent'), undefined, questionRpcs({ audience: [USER_A, USER_B] }));
+  const rows = [sundayRow(), sundayRow({ send_id: 102, user_id: USER_B })];
+  const { deps, trail } = fakeRun({ data: rows, error: null }, () => gateAnswer('sent'), undefined, questionRpcs());
   await runWeeklyLocalPush(deps);
-  assertEquals(trail.rpcs.filter((c) => c.fn === 'cms_get_trip_settings').length, 1);
+  assertEquals(called(trail, 'cms_get_trip_settings'), 1);
+  assertEquals(marks(trail).length, 2);
+});
+
+Deno.test('#1276: a row with no words or no link is refused outside trip_next_ask, and the question kind goes only with its variant', async () => {
+  const bad = [
+    claimRow({ send_id: 301, title: null }),
+    saturdayRow({ send_id: 302, body: null }),
+    saturdayRow({ send_id: 303, deeplink: null }),
+    sundayRow({ send_id: 304, variant: 'route' }),
+    sundayRow({ send_id: 305, variant: null }),
+    saturdayRow({ send_id: 306, variant: 'trip_next_ask', title: null, body: null, deeplink: null }),
+    claimRow({ send_id: 307, variant: 'trip_next_ask' }),
+  ];
+  const { deps, trail } = fakeRun({ data: bad, error: null }, () => gateAnswer('sent'), undefined, questionRpcs());
+  const report = await runWeeklyLocalPush(deps);
+  assertEquals(trail.sends.length, 0);
+  assertEquals(finishes(trail), [301, 302, 303, 304, 305, 306, 307].map((id) => ({ p_send_id: id, p_outcome: 'failed' })));
+  assertEquals([report.invalid, marks(trail).length, report.trip_question.asked], [7, 0, 0]);
+  for (const reason of ['copy', 'deeplink', 'variant']) assert(trail.logs.some((l) => l.includes(`invalid ${reason}`)), reason);
 });
 
 Deno.test('BR-COMUNICACAO-019 3.u.5 and 11 (#1276): the question in six languages, within 40 and 110, names no destination and no hours', () => {
@@ -666,25 +663,26 @@ Deno.test('BR-COMUNICACAO-019 3.u.5 and 11 (#1276): the question in six language
       assert(!/\b(horas?|hours?|heures?|ore|Stunden?)\b/iu.test(push.title + push.body), `${lang}: speaks of hours`);
     }
   }
-  assertEquals(tripQuestionPush('fr', true).title, 'Un prochain voyage en vue ?');
+  // French puts a no-break space before the question mark.
+  assertEquals(tripQuestionPush('fr', true).title, 'Un prochain voyage en vue\u00a0?');
   assertEquals(tripQuestionPush('de-DE', true).body, TRIP_PUSH_COPY.next_ask_body.de);
   assertEquals(tripQuestionPush('xx', true).title, TRIP_PUSH_COPY.next_ask_title.en);
 });
 
-Deno.test('BR-COMUNICACAO-019 3.u.5 (#1276): the question carries nothing of the piece it replaces', async () => {
-  const { deps, trail } = fakeRun({ data: [saturdayRow({ language: 'it' })], error: null }, () => gateAnswer('sent'), undefined, questionRpcs());
+Deno.test('BR-COMUNICACAO-019 3.u.5 and 11 (#1276): each claim language reaches the push, and words the claim might carry are never sent', async () => {
+  const langs = ['pt', 'en', 'es', 'fr', 'it', 'de'] as const;
+  const rows = langs.map((language, i) =>
+    sundayRow({ send_id: 401 + i, user_id: `${'0'.repeat(7)}${i + 1}-0000-4000-8000-000000000000`, language, title: 'Volte a Búzios', body: 'Búzios espera', deeplink: 'tuggi://route?id=66666666-6666-4666-8666-666666666666' }));
+  const { deps, trail } = fakeRun({ data: rows, error: null }, () => gateAnswer('sent'), undefined, questionRpcs());
   await runWeeklyLocalPush(deps);
-  const n = sentNotification(trail);
-  assertEquals([n.title, n.body], [TRIP_PUSH_COPY.next_ask_title.it, TRIP_PUSH_COPY.next_ask_body.it]);
-  assert(!JSON.stringify(trail.sends[0].body).includes('Búzios'), 'the destination of the replaced piece leaked');
-  assert(!JSON.stringify(trail.sends[0].body).includes('66666666'), 'the item of the replaced piece leaked');
-});
-
-Deno.test('BR-COMUNICACAO-019 3.u.3 (#1276): the first Saturday is a Saturday in days 1 to 7 of the local month', () => {
-  for (const d of ['2026-12-05', '2027-01-02', '2027-05-01', '2027-08-07']) assertEquals([d, isFirstSaturday(d)], [d, true]);
-  for (const d of ['2026-12-12', '2026-12-04', '2026-12-06', '2027-05-08', '2026-02-30', '2026-12-5', '', null, undefined]) {
-    assertEquals([d, isFirstSaturday(d as string)], [d, false]);
-  }
+  assertEquals(trail.sends.length, 6);
+  const byId = new Map(trail.sends.map((s) => [(s.body.userIds as string[])[0], s.body.notification as { title: string; body: string; data: Record<string, unknown> }]));
+  langs.forEach((lang, i) => {
+    const n = byId.get(`${'0'.repeat(7)}${i + 1}-0000-4000-8000-000000000000`)!;
+    assertEquals([lang, n.title, n.body, n.data.deeplink], [lang, TRIP_PUSH_COPY.next_ask_title[lang], TRIP_PUSH_COPY.next_ask_body[lang], 'tuggi://trip?ask=1']);
+  });
+  const sent = JSON.stringify(trail.sends.map((s) => s.body));
+  assert(!sent.includes('Búzios') && !sent.includes('66666666'), 'a destination or an item reached the push');
 });
 
 Deno.test('BR-COMUNICACAO-023 item 5 (#1276): a reminder reaches the person only with the reminder and the channel both on', () => {
@@ -693,16 +691,4 @@ Deno.test('BR-COMUNICACAO-023 item 5 (#1276): a reminder reaches the person only
   assertEquals(reminderReachable({ switches: [{ key: 'trip_reminder.enabled', is_on: true }] }, 'push'), false);
   assertEquals(reminderReachable({ switches: [{ key: 'trip_reminder.enabled', is_on: 'true' }, { key: 'channel.push', is_on: true }] }, 'push'), false);
   for (const bad of [null, undefined, {}, { switches: 'on' }, []]) assertEquals(reminderReachable(bad, 'push'), false);
-});
-
-Deno.test('BR-COMUNICACAO-019 3.u.3 (#1276): only the Saturday row is replaced, even when the audience names the person of another row', async () => {
-  const rows = [claimRow({ local_date: '2026-12-03' }), saturdayRow({ send_id: 102, user_id: USER_B })];
-  const { deps, trail } = fakeRun({ data: rows, error: null }, () => gateAnswer('sent'), undefined, questionRpcs({ audience: [USER_A, USER_B] }));
-  await runWeeklyLocalPush(deps);
-  const audience = trail.rpcs.find((c) => c.fn === 'trip_question_audience');
-  assertEquals(audience?.args, { p_channel: 'push', p_user_ids: [USER_B] });
-  const byUser = new Map(trail.sends.map((s) => [(s.body.userIds as string[])[0], (s.body.notification as { data: Record<string, unknown> }).data]));
-  assertEquals(byUser.get(USER_A)?.variant, 'event');
-  assertEquals(byUser.get(USER_B)?.piece, 'trip_next_ask');
-  assertEquals(marks(trail), [{ p_user_id: USER_B, p_channel: 'push' }]);
 });

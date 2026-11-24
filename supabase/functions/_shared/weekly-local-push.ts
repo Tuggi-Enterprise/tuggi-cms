@@ -20,28 +20,26 @@
  * asks for `CLAIM_PAGE_SIZE` rows; a row the claim returns is already written to
  * `drive.weekly_push_sends`, so the next call with the same `p_now` brings the next people.
  *
- * The trip question (BR-COMUNICACAO-019 3.u.3, #1276): on the first Saturday of the person's month,
- * whoever `drive.trip_question_audience('push')` returns gets the question in place of the Saturday
- * piece. The row, its kind and its slot in the cap of item 4.1 stay the Saturday ones, so the
- * question is never one push more; only the words, the link and `piece` change. After the gate
- * says `sent`, `drive.mark_trip_question_sent` spends the month (3.u.2); a piece the gate drops
- * spends nothing. When the audience cannot be read, the usual piece goes.
+ * The trip question (BR-COMUNICACAO-019 3.u.3, #1276) is a piece of its own: the claim returns it on
+ * the first Sunday of the person's month, at 19h local, to whoever is in its audience, with kind
+ * `weekly_first_sunday_local`, variant `trip_next_ask` and no title, body or link. The words and the
+ * link are this sender's (`_shared/trip-question.ts`), because they depend on the reminder switches.
+ * Its slot in item 4.1 is its own and the gate counts it (`drive.push_allowed`); Thursday and Saturday
+ * are never replaced. After the gate says `sent`, `drive.mark_trip_question_sent` spends the month
+ * (3.u.2); a piece the gate drops spends nothing, and a refusal in the quiet hours closes `denied`,
+ * never deferred (3.u.3.b). Contract: `docs/contracts/viagem-marcada-e-lembrete.md`, Parte 4.
  *
  * Logs carry counts and the reason of a failure, never a user id, token, e-mail or position.
  */
 import { type DriveRpc, parsePushKind, type PushKind, singleGateOutcome } from './push-gate.ts';
-import {
-  audienceIds,
-  isFirstSaturday,
-  reminderReachable,
-  TRIP_ASK_DEEPLINK,
-  TRIP_QUESTION_PIECE,
-  tripQuestionPush,
-} from './trip-question.ts';
+import { reminderReachable, TRIP_ASK_DEEPLINK, TRIP_QUESTION_PIECE, tripQuestionPush } from './trip-question.ts';
 
-/** The two kinds of the weekly bucket. The database knows them by `drive.weekly_push_pieces.push_kind`. */
-export const WEEKLY_PUSH_KINDS = ['weekly_thursday_local', 'weekly_saturday_local'] as const;
+/** The kinds of the weekly push. The database knows them by `drive.weekly_push_pieces.push_kind`. */
+export const WEEKLY_PUSH_KINDS = ['weekly_thursday_local', 'weekly_saturday_local', 'weekly_first_sunday_local'] as const;
 export type WeeklyPushKind = (typeof WEEKLY_PUSH_KINDS)[number];
+
+/** The kind that carries only the trip question (3.u.3), and the one variant it comes with. */
+const TRIP_QUESTION_KIND: WeeklyPushKind = 'weekly_first_sunday_local';
 
 /** `drive.finish_weekly_push` accepts these and nothing else. */
 export type WeeklyPushOutcome = 'sent' | 'denied' | 'not_delivered' | 'failed';
@@ -55,11 +53,7 @@ export interface WeeklyPushRow {
   title: string;
   body: string;
   deeplink: string;
-  /** The local date of the piece (`YYYY-MM-DD`), or `null` when the claim did not carry one. */
-  localDate: string | null;
-  /** The language of the words the claim returned, the person's when it has them. */
-  language: string | null;
-  /** `trip_next_ask` once the row carries the trip question (3.u.3); absent for the usual piece. */
+  /** `trip_next_ask` on the trip question row (3.u.3); absent on every other piece. */
   piece?: typeof TRIP_QUESTION_PIECE;
 }
 
@@ -88,17 +82,41 @@ export function readSendId(raw: unknown): number | null {
   return Number.isSafeInteger(id) && id > 0 ? id : null;
 }
 
+/** Whether a raw claim row is the trip question, read before parsing to know if the switches are needed. */
+export function isTripQuestionRow(raw: unknown): boolean {
+  return (raw as { variant?: unknown } | null)?.variant === TRIP_QUESTION_PIECE;
+}
+
 /**
- * A raw claim row, or the reason it cannot be sent. Title and body are taken as they are: the copy
- * belongs to the database (`drive.weekly_push_texts`), and this sender never rewrites it.
+ * A raw claim row, or the reason it cannot be sent. Title and body of the Thursday and Saturday
+ * pieces are taken as they are: that copy belongs to the database (`drive.weekly_push_texts`), and
+ * this sender never rewrites it. The trip question row comes with no words and no link (3.u.3): they
+ * are written here, in the row's language, promising the reminder only when `reminder` says it can
+ * reach the person by push (BR-COMUNICACAO-023 item 5). Its kind and its variant go together: one
+ * without the other is refused, because the question has no version without its words.
  */
-export function parseClaimRow(raw: unknown): WeeklyPushRow | { invalid: string } {
+export function parseClaimRow(raw: unknown, reminder = false): WeeklyPushRow | { invalid: string } {
   const row = (raw ?? {}) as Record<string, unknown>;
   const sendId = readSendId(row);
   if (sendId === null) return { invalid: 'send_id' };
   if (typeof row.user_id !== 'string' || !UUID_RE.test(row.user_id)) return { invalid: 'user_id' };
   const pushKind = parsePushKind(row.push_kind);
   if (!isWeeklyKind(pushKind)) return { invalid: 'push_kind' };
+  const question = isTripQuestionRow(row);
+  if (question !== (pushKind === TRIP_QUESTION_KIND)) return { invalid: 'variant' };
+  if (question) {
+    const { title, body } = tripQuestionPush(row.language, reminder);
+    return {
+      sendId,
+      userId: row.user_id,
+      pushKind,
+      variant: TRIP_QUESTION_PIECE,
+      title,
+      body,
+      deeplink: TRIP_ASK_DEEPLINK,
+      piece: TRIP_QUESTION_PIECE,
+    };
+  }
   if (!nonBlank(row.title) || !nonBlank(row.body)) return { invalid: 'copy' };
   if (!nonBlank(row.deeplink) || !row.deeplink.startsWith('tuggi://')) return { invalid: 'deeplink' };
   return {
@@ -109,20 +127,7 @@ export function parseClaimRow(raw: unknown): WeeklyPushRow | { invalid: string }
     title: row.title,
     body: row.body,
     deeplink: row.deeplink,
-    localDate: typeof row.local_date === 'string' ? row.local_date : null,
-    language: nonBlank(row.language) ? row.language : null,
   };
-}
-
-/** The Saturday row may carry the trip question: its kind is Saturday and its date the first Saturday. */
-export function mayAskTrip(row: WeeklyPushRow): boolean {
-  return row.pushKind === 'weekly_saturday_local' && isFirstSaturday(row.localDate);
-}
-
-/** The same row with the trip question in place of the Saturday piece (3.u.3). Kind and slot stay. */
-export function withTripQuestion(row: WeeklyPushRow, reminder: boolean): WeeklyPushRow {
-  const { title, body } = tripQuestionPush(row.language, reminder);
-  return { ...row, title, body, deeplink: TRIP_ASK_DEEPLINK, variant: TRIP_QUESTION_PIECE, piece: TRIP_QUESTION_PIECE };
 }
 
 /**
@@ -190,7 +195,7 @@ export interface WeeklyPushReport {
   invalid: number;
   /** `finish_weekly_push` errored or had no row: the row stays claimed, which blocks the item. */
   unfinished: number;
-  /** BR-COMUNICACAO-019 3.u (#1276): the first-Saturday question. */
+  /** BR-COMUNICACAO-019 3.u (#1276): the question of the first Sunday. */
   trip_question: TripQuestionTally;
 }
 
@@ -203,8 +208,6 @@ export interface TripQuestionTally {
   already_spent: number;
   /** The gate said `sent` and the mark failed: the month stays open. */
   mark_failed: number;
-  /** `trip_question_audience` failed on a page: those Saturday rows went with the usual piece. */
-  audience_failed: number;
 }
 
 export class WeeklyClaimError extends Error {
@@ -241,28 +244,7 @@ async function finish(deps: WeeklyPushDeps, sendId: number, outcome: WeeklyPushO
   return true;
 }
 
-/**
- * Who among the first-Saturday rows of a page gets the question. An error is logged and counted,
- * and nobody gets it: the usual piece goes (3.u is a replacement, never a send of its own).
- */
-async function tripQuestionAudience(deps: WeeklyPushDeps, rows: WeeklyPushRow[], tally: TripQuestionTally): Promise<Set<string>> {
-  const ids = [...new Set(rows.filter(mayAskTrip).map((r) => r.userId))];
-  if (ids.length === 0) return new Set();
-  let answer: { data: unknown; error: { code?: string } | null };
-  try {
-    answer = await deps.drive.rpc('trip_question_audience', { p_channel: 'push', p_user_ids: ids });
-  } catch (error) {
-    answer = { data: null, error: { code: (error as Error)?.name ?? 'Error' } };
-  }
-  if (answer.error) {
-    tally.audience_failed += 1;
-    deps.log(`[weekly-local-push] trip question audience failed: ${answer.error.code ?? 'unknown'}; the usual piece goes`);
-    return new Set();
-  }
-  return audienceIds(answer.data);
-}
-
-/** Whether a reminder can reach a push person: read once per run, `false` when unreadable. */
+/** Whether a reminder can reach a push person: read once per run, only when a question is due; `false` when unreadable. */
 async function readPushReminder(deps: WeeklyPushDeps): Promise<boolean> {
   try {
     const { data, error } = await deps.drive.rpc('cms_get_trip_settings');
@@ -308,23 +290,24 @@ export async function runWeeklyLocalPush(deps: WeeklyPushDeps): Promise<WeeklyPu
     outcomes: { sent: 0, denied: 0, not_delivered: 0, failed: 0 },
     invalid: 0,
     unfinished: 0,
-    trip_question: { asked: 0, marked: 0, already_spent: 0, mark_failed: 0, audience_failed: 0 },
+    trip_question: { asked: 0, marked: 0, already_spent: 0, mark_failed: 0 },
   };
   const tally = report.trip_question;
   let pushReminder: Promise<boolean> | null = null;
 
-  const handle = async (raw: unknown, parsed: WeeklyPushRow | { invalid: string }, asked: Set<string>) => {
+  const handle = async (raw: unknown) => {
+    const reminder = isTripQuestionRow(raw) && (await (pushReminder ??= readPushReminder(deps)));
+    const row = parseClaimRow(raw, reminder);
     let sendId: number | null;
     let outcome: WeeklyPushOutcome;
-    if ('invalid' in parsed) {
+    if ('invalid' in row) {
       report.invalid += 1;
       sendId = readSendId(raw);
       outcome = 'failed';
-      deps.log(`[weekly-local-push] row ${sendId ?? '?'} not sent: invalid ${parsed.invalid}`);
+      deps.log(`[weekly-local-push] row ${sendId ?? '?'} not sent: invalid ${row.invalid}`);
     } else {
-      sendId = parsed.sendId;
-      const ask = mayAskTrip(parsed) && asked.has(parsed.userId);
-      const row = ask ? withTripQuestion(parsed, await (pushReminder ??= readPushReminder(deps))) : parsed;
+      sendId = row.sendId;
+      const ask = row.piece === TRIP_QUESTION_PIECE;
       if (ask) tally.asked += 1;
       outcome = await deliver(deps, row);
       if (ask && outcome === 'sent') await markTripQuestion(deps, row, tally);
@@ -344,11 +327,8 @@ export async function runWeeklyLocalPush(deps: WeeklyPushDeps): Promise<WeeklyPu
 
     const rows: unknown[] = Array.isArray(data) ? data : [];
     report.claimed += rows.length;
-    const parsed = rows.map(parseClaimRow);
-    const valid = parsed.filter((p): p is WeeklyPushRow => !('invalid' in p));
-    const asked = await tripQuestionAudience(deps, valid, tally);
     for (let i = 0; i < rows.length; i += SEND_CONCURRENCY) {
-      await Promise.all(rows.slice(i, i + SEND_CONCURRENCY).map((raw, j) => handle(raw, parsed[i + j], asked)));
+      await Promise.all(rows.slice(i, i + SEND_CONCURRENCY).map(handle));
     }
 
     if (rows.length < CLAIM_PAGE_SIZE) break;

@@ -30,6 +30,7 @@ export type PushKind =
   | 'cms_direct'
   | 'weekly_thursday_local'
   | 'weekly_saturday_local'
+  | 'weekly_first_sunday_local'
   | 'daily_summary'
   | 'first_story'
   | 'route_revision'
@@ -96,6 +97,9 @@ export const PUSH_KINDS: Readonly<Record<PushKind, PushKindPolicy>> = {
   // `weekly-local-push` (`_shared/weekly-local-push.ts`).
   weekly_thursday_local: { requested: false, requiresActive: false, vacancyPriority: 4, outsideCaps: false },
   weekly_saturday_local: { requested: false, requiresActive: false, vacancyPriority: 4, outsideCaps: false },
+  // Item 3.u.3 (#1276): the trip question of the first Sunday, a weekly piece with a slot of its own
+  // in item 4.1 (`drive.weekly_push_pieces.own_week_cap`), so it never takes Thursday's or Saturday's.
+  weekly_first_sunday_local: { requested: false, requiresActive: false, vacancyPriority: 4, outsideCaps: false },
   // Item 3.i (#1071): the summary of yesterday, at the local morning hour, to whoever used the app
   // the day before. Outside every cap; the vacancy order never compares it. Sender:
   // `daily-gamification-orchestrator`.

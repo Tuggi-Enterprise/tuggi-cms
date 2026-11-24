@@ -1,13 +1,14 @@
 /**
  * The trip question out of the app (BR-COMUNICACAO-019 3.u, #1276, epic #1272): "Quando é sua
  * próxima viagem?" goes back, by push and by e-mail, to whoever has no active trip, once per
- * calendar month counting both channels, and never as one push more.
+ * calendar month counting both channels; the push is a piece of its own, on the first Sunday.
  *
- * The database decides WHO (`drive.trip_question_audience`, 3.u.1 and the spent month of 3.u.2)
- * and keeps the month (`drive.mark_trip_question_sent`, called only after the FCM accepted the push
- * or the e-mail left). Contract: `docs/contracts/viagem-marcada-e-lembrete.md`, Parte 4. This file
- * holds what both senders share: the piece name, the link the app opens, the first Saturday, the
- * reading of the reminder switches and the push words.
+ * The database decides WHO and WHEN (`drive.trip_question_audience`, 3.u.1 and the spent month of
+ * 3.u.2; `drive.claim_weekly_push` for the first Sunday at 19h, 3.u.3) and keeps the month
+ * (`drive.mark_trip_question_sent`, called only after the FCM accepted the push or the e-mail left).
+ * Contract: `docs/contracts/viagem-marcada-e-lembrete.md`, Parte 4. This file holds what both senders
+ * share: the piece name, the link the app opens, the reading of the reminder switches and the push
+ * words.
  *
  * Pure: no remote import and no `Deno` global.
  */
@@ -25,21 +26,6 @@ export const TRIP_QUESTION_PIECE = 'trip_next_ask';
 export const TRIP_ASK_DEEPLINK = `${TRIP_DEEPLINK}?ask=1`;
 
 export type TripQuestionChannel = 'push' | 'email';
-
-const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
-
-/**
- * 3.u.3: the push goes only on the first Saturday of the month. `localDate` is the local date of the
- * claim row (`YYYY-MM-DD`, zone of 3.m.6); a date that is not a Saturday in days 1 to 7 is not it.
- */
-export function isFirstSaturday(localDate: string | null | undefined): boolean {
-  const m = DATE_RE.exec(String(localDate ?? ''));
-  if (!m) return false;
-  const day = Number(m[3]);
-  if (day < 1 || day > 7) return false;
-  const date = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, day));
-  return date.getUTCDate() === day && date.getUTCDay() === 6;
-}
 
 /**
  * Whether a reminder can reach the person by `channel`, read from `drive.cms_get_trip_settings`
