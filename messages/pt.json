@@ -7394,9 +7394,17 @@
       "empty": "Nenhuma viagem marcada ainda.",
       "wishes": "Desejos de destino",
       "wishes_heading": "Desejos de destino",
-      "wishes_intro": "Lugares que quem respondeu \"ainda não sei\" quer conhecer. Não são viagens e não entram nas contagens acima. Só contagem, nunca a pessoa.",
+      "wishes_intro": "Lugares que quem respondeu \"ainda não sei\" quer conhecer, com o mês quando a pessoa disse. Não são viagens e não entram nas contagens acima. Só contagem, nunca a pessoa.",
       "wishes_column": "Desejos",
-      "wishes_empty": "Nenhum desejo de destino ainda."
+      "wishes_month": "Quando quer ir",
+      "wishes_no_month": "Sem mês",
+      "wishes_empty": "Nenhum desejo de destino ainda.",
+      "now_hours_heading": "Horas de quem está viajando agora",
+      "now_hours_intro": "Contas que ganharam horas ao responder \"estou viajando agora\", uma por linha. Aqui aparece o e-mail da conta, nunca o destino. Quem ganhou estas horas não recebe as boas-vindas.",
+      "now_hours_account": "Conta",
+      "now_hours_credited_on": "Dia do crédito",
+      "now_hours_hours": "Horas",
+      "now_hours_empty": "Nenhuma conta ganhou horas por \"estou viajando agora\" ainda."
     }
   },
   "PartnerBrand": {
