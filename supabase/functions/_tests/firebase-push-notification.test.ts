@@ -10,6 +10,7 @@
 import { assert, assertEquals } from './assert.ts';
 import { fetchBodies, fetchCalls, loadHandler, network, scenario } from './harness.ts';
 import { routeRevisionSendBody } from '../_shared/route-revision-push.ts';
+import { PUSH_KINDS } from '../_shared/push-gate.ts';
 
 const USER = '55555555-5555-4555-8555-555555555555';
 const INBOX_ID = '66666666-6666-4666-8666-666666666666';
@@ -389,4 +390,9 @@ Deno.test('BR-COMUNICACAO-019 3.r.2 (#1182): /send refuses account_welcome, whic
   assertEquals(body.error, 'ACCOUNT_WELCOME_NEEDS_ROW');
   assertEquals(inboxInserts(), []);
   assertEquals(fcmSends(), []);
+});
+
+Deno.test('BR-COMUNICACAO-019 (operator, 2026-11-24): the CMS direct push leaves the cap, the broadcast keeps it', () => {
+  assertEquals(PUSH_KINDS.cms_direct.requested, true);
+  assertEquals(PUSH_KINDS.cms_broadcast.requested, false);
 });

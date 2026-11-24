@@ -84,9 +84,12 @@ export const PUSH_KINDS: Readonly<Record<PushKind, PushKindPolicy>> = {
   // Item 3.p (#1136): the link stays true tomorrow and is on the Caravan, so it yields to the ranking
   // pieces and beats only the CMS. Sender: tuggi-drive-v2 `referral-activation-push`.
   caravan_joined: { requested: false, requiresActive: true, vacancyPriority: 4, outsideCaps: false },
-  // Item 3.l: the CMS push counts against the cap and comes last.
+  // Item 3.l: the CMS broadcast counts against the cap and comes last.
   cms_broadcast: { requested: false, requiresActive: false, vacancyPriority: 5, outsideCaps: false },
-  cms_direct: { requested: false, requiresActive: false, vacancyPriority: 5, outsideCaps: false },
+  // Operator, 2026-11-24: a push typed in the CMS for named people is sent by hand, so it leaves
+  // the cap and the quiet hours like a requested push. Consent still applies (push_allowed with
+  // p_requested = true answers consent only). The automatic senders and the broadcast keep the cap.
+  cms_direct: { requested: true, requiresActive: false, vacancyPriority: 5, outsideCaps: false },
   // Item 3.m (#1046, #1047): the weekly pieces reach whoever has push on, using the app or not. They
   // have their own cap (item 4.1) and stay out of the item 7 dispute: `drive.push_allowed` counts
   // them apart, so their priority is never compared with the kinds above. Sender:
