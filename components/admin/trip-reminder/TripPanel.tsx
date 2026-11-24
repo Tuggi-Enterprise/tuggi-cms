@@ -6,11 +6,13 @@
  * person and no phone number, and this block prints nothing that is not a count, a month, a
  * destination, a length band or a channel. #1238: an account may have many trips, each counted, and
  * every row and total is split by the band the person picked (BR-MONETIZACAO-091 2.a).
+ * #1275/#1276: the wished destinations of whoever answered "unsure" (BR-USUARIO-055 item 11) are a
+ * block of their own, never mixed with the trips: a wish is not a trip.
  */
 
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslations } from 'next-intl'
-import { CalendarClock, CalendarDays, Hourglass, MailX, MapPin, Users } from 'lucide-react'
+import { CalendarClock, CalendarDays, Heart, Hourglass, MailX, MapPin, Users } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { CountryFlag } from '@/components/ui/CountryFlag'
 import { StatCard, StatCardRow } from '@/components/ui/StatCard'
@@ -69,7 +71,7 @@ export function TripPanel() {
     )
   }
 
-  const { totals, answers, by_destination_month: rows, contacts_by_channel: contacts } = load.data
+  const { totals, answers, by_destination_month: rows, contacts_by_channel: contacts, wishes_by_destination: wishes } = load.data
   const n = (value: number | undefined) => countFormat.format(Number(value ?? 0))
   const bandName = (band: string | null) =>
     band === null || band === 'none' ? t('panel.no_duration') : isDurationBand(band) ? t(`panel.bands.${band}`) : band
@@ -160,6 +162,50 @@ export function TripPanel() {
           </div>
         ) : (
           <p className={`text-sm ${DIM}`}>{t('panel.empty')}</p>
+        )}
+      </section>
+
+      <section aria-labelledby="trip-wishes">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 id="trip-wishes" className="text-lg font-bold text-gray-900 dark:text-gray-100">
+            {t('panel.wishes_heading')}
+          </h2>
+          <span className="inline-flex items-center gap-1 text-sm font-semibold tabular-nums text-gray-900 dark:text-gray-100">
+            <Heart className="h-4 w-4" aria-hidden="true" />
+            {t('panel.wishes')}: {n(totals?.wishes)}
+          </span>
+        </div>
+        <p className={`mb-2 text-sm ${DIM}`}>{t('panel.wishes_intro')}</p>
+        {wishes?.length ? (
+          <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
+            <table className="w-full border-collapse">
+              <thead>
+                <tr>
+                  <th className={HEAD_SOLO}>{t('panel.destination')}</th>
+                  <th className={HEAD_SOLO_NUM}>{t('panel.wishes_column')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {wishes.map((row, index) => (
+                  <tr key={`${row.country_code}-${row.city}-${index}`} className="border-t border-gray-100 dark:border-gray-800">
+                    <td className={CELL}>
+                      {row.country_code ? (
+                        <span className="inline-flex flex-wrap items-center gap-x-2">
+                          <CountryFlag code={row.country_code} withName />
+                          {row.city ? <span>· {row.city}</span> : null}
+                        </span>
+                      ) : (
+                        <span className={DIM}>{t('panel.no_destination')}</span>
+                      )}
+                    </td>
+                    <td className={NUM}>{n(row.wishes)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className={`text-sm ${DIM}`}>{t('panel.wishes_empty')}</p>
         )}
       </section>
 

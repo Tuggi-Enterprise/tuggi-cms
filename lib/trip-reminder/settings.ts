@@ -255,7 +255,11 @@ export interface PlannedTripsPanel {
     accounts: number
     trip_hours_credited: number
     by_duration_band: Record<DurationBand | 'none', number>
+    /** #1275 BR-USUARIO-055 item 11: accounts with a wished destination, apart from the trips. */
+    wishes: number
   }
+  /** #1275 BR-USUARIO-055 items 6.c and 11: wished destinations, counts only. `city` null is a country. */
+  wishes_by_destination: { country_code: string | null; city: string | null; wishes: number }[]
   answers: Record<'now' | 'planned' | 'unsure', number>
   contacts_by_channel: { channel: string | null; delivery_state: string; stopped: boolean; contacts: number }[]
   email_reminders_stopped: number
@@ -294,7 +298,13 @@ export function normalizePlannedTripsPanel(data: unknown): PlannedTripsPanel {
       accounts: count(totals.accounts),
       trip_hours_credited: count(totals.trip_hours_credited),
       by_duration_band: { short: count(bands.short), week: count(bands.week), long: count(bands.long), none: count(bands.none) },
+      wishes: count(totals.wishes),
     },
+    wishes_by_destination: rows(d.wishes_by_destination).map((r) => ({
+      country_code: text(r.country_code),
+      city: text(r.city),
+      wishes: count(r.wishes),
+    })),
     answers: { now: count(answers.now), planned: count(answers.planned), unsure: count(answers.unsure) },
     contacts_by_channel: rows(d.contacts_by_channel).map((r) => ({
       channel: text(r.channel),

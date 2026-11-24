@@ -7375,7 +7375,12 @@
         "no_channel": "Sem canal que entregue",
         "undeliverable": "Não entrega"
       },
-      "empty": "Nenhuma viagem marcada ainda."
+      "empty": "Nenhuma viagem marcada ainda.",
+      "wishes": "Desejos de destino",
+      "wishes_heading": "Desejos de destino",
+      "wishes_intro": "Lugares que quem respondeu \"ainda não sei\" quer conhecer. Não são viagens e não entram nas contagens acima. Só contagem, nunca a pessoa.",
+      "wishes_column": "Desejos",
+      "wishes_empty": "Nenhum desejo de destino ainda."
     }
   }
 }

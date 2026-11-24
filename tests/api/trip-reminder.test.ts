@@ -446,7 +446,7 @@ test('#1238 BR-MONETIZACAO-091 2.a and 2.d: one amount per length band, shortest
   assert.equal(rewards.validateRewardValue(62, 'minutes', 'planned_trip.minutes_week'), 'not_multiple_of_5')
 })
 
-test('#1238 BR-USUARIO-055 item 6.c: the panel hands counts by destination, month and band, and nothing a later column adds about a person', async () => {
+test('#1238 #1276 BR-USUARIO-055 items 6.c and 11: the panel hands counts by destination, month and band, the wished destinations apart, and nothing a later column adds about a person', async () => {
   answers.cms_get_planned_trips_panel = {
     data: {
       by_destination_month: [
@@ -461,7 +461,12 @@ test('#1238 BR-USUARIO-055 item 6.c: the panel hands counts by destination, mont
         trip_hours_credited: 1,
         by_duration_band: { short: 0, week: 0, long: 2, none: 1 },
         emails: ['ana@example.com'],
+        wishes: 3,
       },
+      wishes_by_destination: [
+        { country_code: 'IT', city: 'Roma', wishes: 2, user_id: 'u-person-1' },
+        { country_code: 'JP', city: null, wishes: 1, emails: ['ana@example.com'] },
+      ],
       answers: { now: 0, planned: 1, unsure: 0 },
       contacts_by_channel: [{ channel: null, delivery_state: 'pending', stopped: false, contacts: 1, phone_e164: '+5511987654321' }],
       email_reminders_stopped: 0,
@@ -483,7 +488,12 @@ test('#1238 BR-USUARIO-055 item 6.c: the panel hands counts by destination, mont
       accounts: 1,
       trip_hours_credited: 1,
       by_duration_band: { short: 0, week: 0, long: 2, none: 1 },
+      wishes: 3,
     },
+    wishes_by_destination: [
+      { country_code: 'IT', city: 'Roma', wishes: 2 },
+      { country_code: 'JP', city: null, wishes: 1 },
+    ],
     answers: { now: 0, planned: 1, unsure: 0 },
     contacts_by_channel: [{ channel: null, delivery_state: 'pending', stopped: false, contacts: 1 }],
     email_reminders_stopped: 0,
@@ -494,6 +504,8 @@ test('#1238 BR-USUARIO-055 item 6.c: the panel hands counts by destination, mont
   const empty = await (await panelRoute.GET(req('GET', '/panel'), ctx)).json()
   assert.deepEqual(empty.totals.by_duration_band, { short: 0, week: 0, long: 0, none: 0 })
   assert.deepEqual(empty.by_destination_month, [])
+  // #1275/#1276 BR-USUARIO-055 item 11: a read from before the wishes still draws, with zero wishes.
+  assert.deepEqual([empty.totals.wishes, empty.wishes_by_destination], [0, []])
 })
 
 test('#1233 BR-COMUNICACAO-024 item 5: the confirmation of the number is tested only on a phone channel', () => {
