@@ -15,6 +15,7 @@ import { AlertCircle, AlertTriangle, CheckCircle, ImagePlus, Loader2, Trash2, X 
 import { useTranslations } from 'next-intl'
 import { CharCount } from '@/components/ui/CharCount'
 import {
+  CAMPAIGN_AUDIENCES,
   CAMPAIGN_DESTINATIONS,
   CAMPAIGN_FORMATS,
   CAMPAIGN_IMAGE_SPEC,
@@ -22,12 +23,14 @@ import {
   CAMPAIGN_TEXT_FIELDS,
   CAMPAIGN_TEXT_MAX,
   CAMPAIGN_THEMES,
+  PARTNER_GIFT_THEME,
   buildActionPath,
   destinationKey,
   parseActionPath,
   parseCampaignInput,
   type AppCampaign,
   type CampaignActionType,
+  type CampaignAudience,
   type CampaignDestination,
   type CampaignError,
   type CampaignFormat,
@@ -37,6 +40,7 @@ import {
   type CampaignTheme,
 } from '@/lib/campaigns/app-campaigns'
 import { formatCouponGrant } from '@/lib/coupons/grant'
+import { fromLocalInput, toLocalInput } from '@/lib/format/datetime-local'
 import type { Coupon } from '@/types/coupons'
 import { AppCampaignPreview } from './AppCampaignPreview'
 import { useCampaignErrorText } from './useCampaignErrorText'
@@ -51,6 +55,7 @@ interface FormState {
   internal_name: string
   format: CampaignFormat
   theme: CampaignTheme
+  audience: CampaignAudience
   priority: string
   countries: string
   content: Record<CampaignLanguage, CampaignText>
@@ -76,30 +81,13 @@ function emptyContent(): Record<CampaignLanguage, CampaignText> {
   return Object.fromEntries(CAMPAIGN_LANGUAGES.map((l) => [l, { ...EMPTY_TEXT }])) as Record<CampaignLanguage, CampaignText>
 }
 
-function pad(n: number): string {
-  return String(n).padStart(2, '0')
-}
-
-/** ISO → the `datetime-local` value, in the browser's zone. */
-function toLocalInput(iso: string | null): string {
-  if (!iso) return ''
-  const d = new Date(iso)
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
-
-/** The `datetime-local` value → ISO with the zone; `null` when empty. */
-function fromLocalInput(value: string): string | null {
-  if (!value) return null
-  const d = new Date(value)
-  return Number.isNaN(d.getTime()) ? value : d.toISOString()
-}
-
 function stateFromCampaign(c: AppCampaign | null): FormState {
   if (!c) {
     return {
       internal_name: '',
       format: 'map_carousel',
       theme: 'default',
+      audience: 'everyone',
       priority: '0',
       countries: '',
       content: emptyContent(),
@@ -125,6 +113,7 @@ function stateFromCampaign(c: AppCampaign | null): FormState {
     format: c.format,
     // A value this screen does not know reads as the app reads it: `default`.
     theme: CAMPAIGN_THEMES.includes(c.theme) ? c.theme : 'default',
+    audience: c.audience === 'partner_referred' ? 'partner_referred' : 'everyone',
     priority: String(c.priority),
     countries: c.countries.join(', '),
     content,
@@ -149,6 +138,7 @@ function payloadFromState(f: FormState): Record<string, unknown> {
     internal_name: f.internal_name,
     format: f.format,
     theme: f.theme,
+    audience: f.audience,
     priority: f.priority.trim() === '' ? 0 : Number(f.priority),
     countries: f.countries
       .split(/[\s,;]+/)
@@ -167,7 +157,7 @@ function payloadFromState(f: FormState): Record<string, unknown> {
 
 /** Which of the guide's three examples fits what is being written. */
 function exampleKey(f: FormState): 'plans' | 'gift' | 'caravan' {
-  if (f.action_type === 'redeem_coupon') return 'gift'
+  if (f.action_type === 'redeem_coupon' || f.action_type === 'partner_gift') return 'gift'
   if (f.destination === '/stamps') return 'caravan'
   return 'plans'
 }
@@ -206,6 +196,14 @@ export function AppCampaignFormDrawer({ campaign, onClose, onSaved }: AppCampaig
   }, [])
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) => setForm((prev) => ({ ...prev, [key]: value }))
+  // #1257: the partner audience carries its action and its theme; leaving it gives the form back.
+  const setAudience = (audience: CampaignAudience) =>
+    setForm((prev) =>
+      audience === 'partner_referred'
+        ? { ...prev, audience, action_type: 'partner_gift', theme: PARTNER_GIFT_THEME }
+        : { ...prev, audience, action_type: prev.action_type === 'partner_gift' ? 'open_path' : prev.action_type }
+    )
+  const partnerAudience = form.audience === 'partner_referred'
   const setText = (lang: CampaignLanguage, field: CampaignTextField, value: string) =>
     setForm((prev) => ({ ...prev, content: { ...prev.content, [lang]: { ...prev.content[lang], [field]: value } } }))
 
@@ -342,14 +340,19 @@ export function AppCampaignFormDrawer({ campaign, onClose, onSaved }: AppCampaig
               <label htmlFor="campaign-theme" className={LABEL}>
                 {t('form.theme')}
               </label>
-              <select id="campaign-theme" value={form.theme} onChange={(e) => set('theme', e.target.value as CampaignTheme)} className={INPUT}>
+              <select
+                id="campaign-theme"
+                value={form.theme}
+                disabled={partnerAudience}
+                onChange={(e) => set('theme', e.target.value as CampaignTheme)}
+                className={`${INPUT} disabled:opacity-60`}>
                 {CAMPAIGN_THEMES.map((theme) => (
                   <option key={theme} value={theme}>
                     {t(`themes.${theme}`)}
                   </option>
                 ))}
               </select>
-              <p className={HELP}>{t('form.themeHelp')}</p>
+              <p className={HELP}>{partnerAudience ? t('form.themePartnerHelp') : t('form.themeHelp')}</p>
             </div>
             <div>
               <label htmlFor="campaign-countries" className={LABEL}>
@@ -365,6 +368,25 @@ export function AppCampaignFormDrawer({ campaign, onClose, onSaved }: AppCampaig
               />
               <p className={HELP}>{t('form.countriesHelp')}</p>
             </div>
+          </div>
+
+          {/* Audience (#1257) */}
+          <div>
+            <label htmlFor="campaign-audience" className={LABEL}>
+              {t('form.audience')}
+            </label>
+            <select
+              id="campaign-audience"
+              value={form.audience}
+              onChange={(e) => setAudience(e.target.value as CampaignAudience)}
+              className={`${INPUT} md:max-w-md`}>
+              {CAMPAIGN_AUDIENCES.map((audience) => (
+                <option key={audience} value={audience}>
+                  {t(`audiences.${audience}`)}
+                </option>
+              ))}
+            </select>
+            <p className={HELP}>{partnerAudience ? t('form.audiencePartnerHelp') : t('form.audienceHelp')}</p>
           </div>
 
           {/* Texts per language, with the preview beside them */}
@@ -488,6 +510,10 @@ export function AppCampaignFormDrawer({ campaign, onClose, onSaved }: AppCampaig
           {/* Action */}
           <div>
             <p className={LABEL}>{t('form.action')}</p>
+            {partnerAudience ? (
+              <p className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">{t('form.actionPartnerGift')}</p>
+            ) : (
+            <>
             <div className="mb-3 flex gap-4 text-sm text-gray-700">
               {(['open_path', 'redeem_coupon'] as const).map((type) => (
                 <label key={type} className="inline-flex items-center gap-2">
@@ -567,6 +593,8 @@ export function AppCampaignFormDrawer({ campaign, onClose, onSaved }: AppCampaig
                 </p>
                 {selectedCoupon && <p className={HELP}>{t('form.couponNumberHelp')}</p>}
               </div>
+            )}
+            </>
             )}
           </div>
 

@@ -274,7 +274,7 @@ test('#1192 BR-IDIOMA-001: every refusal code has a sentence in pt, en and es, a
     'invalid_body', 'invalid_internal_name', 'invalid_format', 'invalid_theme', 'invalid_priority', 'invalid_countries', 'invalid_content',
     'incomplete_language', 'text_too_long', 'invalid_image_url', 'invalid_action', 'invalid_action_path', 'missing_coupon',
     'coupon_not_found', 'invalid_date', 'invalid_window', 'not_found', 'coupon_sync_failed', 'coupon_release_failed', 'write_failed',
-    'invalid_image', 'image_too_large', 'upload_failed',
+    'invalid_image', 'image_too_large', 'upload_failed', 'invalid_audience', 'partner_gift_audience', 'partner_gift_theme',
   ]
   const keys = (o: unknown, p = ''): string[] =>
     o && typeof o === 'object' ? Object.entries(o).flatMap(([k, v]) => keys(v, p ? `${p}.${k}` : k)) : [p]
@@ -328,6 +328,59 @@ test('#1193: the chosen theme is written on create and on edit, and a body witho
     for (const theme of lib.CAMPAIGN_THEMES) assert.ok(messages[l].AppCampaigns.themes[theme], `${l} ${theme}`)
   }
   assert.equal(tPt('themes.tuggi_blue'), 'Azul Tuggi')
+})
+
+// ─── Audience (#1257) ────────────────────────────────────────────────────────────────────────
+
+const PARTNER_GIFT = { ...OPEN_PATH, audience: 'partner_referred', action_type: 'partner_gift', action_path: null, coupon_id: null }
+
+test('#1257 BR-B2B-071: a partner_referred campaign with redeem_coupon or open_path is refused before the database, and the other way round too', async () => {
+  const bad: Record<string, unknown>[] = [
+    { ...PARTNER_GIFT, action_type: 'redeem_coupon', coupon_id: COUPON_ID },
+    { ...PARTNER_GIFT, action_type: 'open_path', action_path: '/plans' },
+    // partner_gift without the partner audience, or with a body that names none.
+    { ...OPEN_PATH, audience: 'everyone', action_type: 'partner_gift', action_path: null },
+    { ...OPEN_PATH, action_type: 'partner_gift', action_path: null },
+  ]
+  for (const body of bad) {
+    ops = []
+    const res = await listRoute.POST(json('POST', body), noCtx)
+    assert.equal(res.status, 400, JSON.stringify(body.action_type))
+    assert.deepEqual((await res.json()).error, { code: 'partner_gift_audience' })
+    assert.equal((await itemRoute.PATCH(json('PATCH', body, `/${CAMPAIGN_ID}`), idCtx)).status, 400)
+    assert.deepEqual(ops, [])
+  }
+  assert.match(tPt('errors.partner_gift_audience'), /só quem veio por parceiro/)
+})
+
+test('#1257 BR-B2B-071: the partner gift is written with no coupon, no path and the tuggi_blue theme; another theme is refused', async () => {
+  const res = await listRoute.POST(json('POST', { ...PARTNER_GIFT, coupon_id: COUPON_ID, action_path: '/plans' }), noCtx)
+  assert.equal(res.status, 201)
+  const [insert] = writes('in_app_campaigns')
+  const payload = insert.payload as Record<string, unknown>
+  assert.equal(payload.audience, 'partner_referred')
+  assert.equal(payload.action_type, 'partner_gift')
+  assert.equal(payload.coupon_id, null)
+  assert.equal(payload.action_path, null)
+  assert.equal(payload.theme, 'tuggi_blue')
+  // No coupon to follow: the gift campaign never writes drive.coupons.
+  assert.deepEqual(writes('coupons'), [])
+
+  ops = []
+  const other = await listRoute.POST(json('POST', { ...PARTNER_GIFT, theme: 'black_friday' }), noCtx)
+  assert.equal(other.status, 400)
+  assert.deepEqual((await other.json()).error, { code: 'partner_gift_theme' })
+  assert.deepEqual(ops, [])
+
+  // A value outside the list is refused as the CHECK would, and a body without audience leaves the column alone.
+  assert.deepEqual((await (await listRoute.POST(json('POST', { ...OPEN_PATH, audience: 'vip' }), noCtx)).json()).error, { code: 'invalid_audience' })
+  ops = []
+  assert.equal((await listRoute.POST(json('POST', OPEN_PATH), noCtx)).status, 201)
+  assert.equal('audience' in (writes('in_app_campaigns')[0].payload as object), false)
+  assert.match(lib.CAMPAIGN_SELECT, /\baudience\b/)
+  for (const l of ['pt', 'en', 'es']) {
+    for (const a of lib.CAMPAIGN_AUDIENCES) assert.ok(messages[l].AppCampaigns.audiences[a], `${l} ${a}`)
+  }
 })
 
 test('#1192: a malformed campaign never reaches the database', async () => {

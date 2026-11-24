@@ -4581,7 +4581,12 @@
       "create": "Create campaign",
       "save": "Save",
       "created": "Campaign created.",
-      "saved": "Campaign saved."
+      "saved": "Campaign saved.",
+      "audience": "Audience",
+      "audienceHelp": "Who sees the campaign. The server decides; the app filters nothing.",
+      "audiencePartnerHelp": "Shown only to people who came through a partner that chose a days package, with the pilot running and the platform switch on. The action is the gift of days, no coupon, in the Tuggi Blue theme.",
+      "themePartnerHelp": "The gift is from Tuggi: Tuggi Blue theme, without the partner colour.",
+      "actionPartnerGift": "Partner gift of days: the number of days is the package the partner chose, once per account."
     },
     "examples": {
       "plans": {
@@ -4645,8 +4650,16 @@
       "invalid_image": "Upload a JPEG, PNG or WebP image.",
       "image_too_large": "The image is over 2 MB. Make it smaller and upload again.",
       "upload_failed": "Could not upload the image. Try again.",
-      "network": "No connection to the server. Try again."
-    }
+      "network": "No connection to the server. Try again.",
+      "invalid_audience": "Pick an audience from the list.",
+      "partner_gift_audience": "The audience \"only people who came through a partner\" goes only with the partner gift of days, with no coupon and no destination.",
+      "partner_gift_theme": "The partner campaign uses the Tuggi Blue theme."
+    },
+    "audiences": {
+      "everyone": "Everyone",
+      "partner_referred": "Only people who came through a partner"
+    },
+    "actionPartnerGift": "Partner gift of days"
   },
   "Coupons": {
     "list": {

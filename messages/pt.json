@@ -5244,7 +5244,12 @@
       "create": "Criar campanha",
       "save": "Salvar",
       "created": "Campanha criada.",
-      "saved": "Campanha salva."
+      "saved": "Campanha salva.",
+      "audience": "Público",
+      "audienceHelp": "Quem vê a campanha. Quem decide é o servidor; o app não filtra nada.",
+      "audiencePartnerHelp": "Só aparece para quem chegou por um parceiro que escolheu um pacote de dias, com o piloto no ar e a chave da plataforma ligada. A ação é o presente de dias, sem cupom, no tema Azul Tuggi.",
+      "themePartnerHelp": "O presente é do Tuggi: tema Azul Tuggi, sem a cor do parceiro.",
+      "actionPartnerGift": "Presente de dias do parceiro: o número de dias é o do pacote que o parceiro escolheu, uma vez por conta."
     },
     "examples": {
       "plans": {
@@ -5308,8 +5313,16 @@
       "invalid_image": "Envie uma imagem JPEG, PNG ou WebP.",
       "image_too_large": "A imagem passa de 2 MB. Diminua e envie de novo.",
       "upload_failed": "Não deu para enviar a imagem. Tente de novo.",
-      "network": "Sem conexão com o servidor. Tente de novo."
-    }
+      "network": "Sem conexão com o servidor. Tente de novo.",
+      "invalid_audience": "Escolha um público da lista.",
+      "partner_gift_audience": "O público \"só quem veio por parceiro\" anda só com o presente de dias do parceiro, sem cupom e sem destino.",
+      "partner_gift_theme": "A campanha do parceiro usa o tema Azul Tuggi."
+    },
+    "audiences": {
+      "everyone": "Todo mundo",
+      "partner_referred": "Só quem veio por parceiro"
+    },
+    "actionPartnerGift": "Presente de dias do parceiro"
   },
   "Coupons": {
     "list": {

@@ -33,7 +33,22 @@ export const CAMPAIGN_IMAGE_SPEC: Record<CampaignFormat, { ratio: '1:1' | '16:9'
   launch_modal: { ratio: '16:9', width: 1200, height: 675 },
 }
 
-export type CampaignActionType = 'open_path' | 'redeem_coupon'
+/**
+ * `partner_gift` (#1257, contract `docs/contracts/tuggi-do-parceiro.md` §5 and §8): the gift days of a
+ * partner, no coupon and no path. It exists only with the audience `partner_referred`, and that
+ * audience only with it, in both directions (`in_app_campaigns_action_ck`).
+ */
+export type CampaignActionType = 'open_path' | 'redeem_coupon' | 'partner_gift'
+
+/**
+ * #1257: who sees the campaign (`in_app_campaigns_audience_ck`). `partner_referred` is decided by the
+ * server: the person came through a partner with a package chosen and the pilot running.
+ */
+export const CAMPAIGN_AUDIENCES = ['everyone', 'partner_referred'] as const
+export type CampaignAudience = (typeof CAMPAIGN_AUDIENCES)[number]
+
+/** The theme of the partner gift (spec #1252 §6): the gift is Tuggi's, the partner colour stays out. */
+export const PARTNER_GIFT_THEME = 'tuggi_blue' satisfies CampaignTheme
 
 /**
  * #1193: the closed list of `in_app_campaigns_theme_ck`. The palette lives in the app build, so a
@@ -52,6 +67,7 @@ export interface AppCampaign {
   internal_name: string
   format: CampaignFormat
   theme: CampaignTheme
+  audience: CampaignAudience
   is_active: boolean
   starts_at: string | null
   ends_at: string | null
@@ -79,7 +95,7 @@ export interface CampaignCouponSummary {
 
 /** The columns the list reads, coupon included (FK `in_app_campaigns_coupon_id_fkey`). */
 export const CAMPAIGN_SELECT =
-  'id, internal_name, format, theme, is_active, starts_at, ends_at, priority, countries, content, image_url, action_type, action_path, coupon_id, created_at, updated_at, coupon:coupons(id, code, grant_kind, grant_minutes, duration_days, is_active, valid_until)'
+  'id, internal_name, format, theme, audience, is_active, starts_at, ends_at, priority, countries, content, image_url, action_type, action_path, coupon_id, created_at, updated_at, coupon:coupons(id, code, grant_kind, grant_minutes, duration_days, is_active, valid_until)'
 
 // ─── Destinations ────────────────────────────────────────────────────────────────────────────
 
@@ -183,6 +199,9 @@ export type CampaignErrorCode =
   | 'invalid_internal_name'
   | 'invalid_format'
   | 'invalid_theme'
+  | 'invalid_audience'
+  | 'partner_gift_audience'
+  | 'partner_gift_theme'
   | 'invalid_priority'
   | 'invalid_countries'
   | 'invalid_content'
@@ -214,6 +233,8 @@ export interface CampaignWriteFields {
   format: CampaignFormat
   /** Absent when the body carries none: the column keeps its value (`default` on insert). */
   theme?: CampaignTheme
+  /** Absent when the body carries none: the column keeps its value (`everyone` on insert). */
+  audience?: CampaignAudience
   priority: number
   countries: string[]
   content: CampaignContent
@@ -261,7 +282,18 @@ export function parseCampaignInput(body: unknown): CampaignParse {
   // A body without `theme` (a tab opened before #1193) leaves the column alone; a present value
   // outside the list is refused, empty included, as the CHECK would.
   if (b.theme !== undefined && !CAMPAIGN_THEMES.includes(b.theme as CampaignTheme)) return fail('invalid_theme')
-  const theme = b.theme as CampaignTheme | undefined
+  let theme = b.theme as CampaignTheme | undefined
+
+  // #1257: same rule as the theme, a body without audience leaves the column alone.
+  if (b.audience !== undefined && !CAMPAIGN_AUDIENCES.includes(b.audience as CampaignAudience)) return fail('invalid_audience')
+  const audience = b.audience as CampaignAudience | undefined
+  const partnerReferred = audience === 'partner_referred'
+  // The database refuses the two halves apart (23514); here the screen learns it before the trip.
+  if (partnerReferred !== (b.action_type === 'partner_gift')) return fail('partner_gift_audience')
+  if (partnerReferred) {
+    if (theme !== undefined && theme !== PARTNER_GIFT_THEME) return fail('partner_gift_theme')
+    theme = PARTNER_GIFT_THEME
+  }
 
   const priority = b.priority ?? 0
   if (typeof priority !== 'number' || !Number.isInteger(priority) || Math.abs(priority) > INT4_MAX) {
@@ -309,6 +341,8 @@ export function parseCampaignInput(body: unknown): CampaignParse {
   } else if (b.action_type === 'redeem_coupon') {
     if (!isUuid(b.coupon_id)) return fail('missing_coupon')
     couponId = b.coupon_id.toLowerCase()
+  } else if (b.action_type === 'partner_gift') {
+    // No coupon and no path: the days come from the package the partner chose.
   } else {
     return fail('invalid_action')
   }
@@ -327,6 +361,7 @@ export function parseCampaignInput(body: unknown): CampaignParse {
       internal_name: internalName,
       format,
       ...(theme ? { theme } : {}),
+      ...(audience ? { audience } : {}),
       priority,
       countries,
       content,
@@ -348,6 +383,7 @@ const CONSTRAINT_ERRORS: Record<string, CampaignErrorCode> = {
   internal_name_ck: 'invalid_internal_name',
   format_ck: 'invalid_format',
   theme_ck: 'invalid_theme',
+  audience_ck: 'invalid_audience',
   window_ck: 'invalid_window',
   countries_ck: 'invalid_countries',
   content_ck: 'invalid_content',

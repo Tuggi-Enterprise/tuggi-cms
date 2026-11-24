@@ -53,6 +53,7 @@ export function AppCampaignsList({
   const t = useTranslations('AppCampaigns')
 
   const actionText = (c: AppCampaign): string => {
+    if (c.action_type === 'partner_gift') return t('actionPartnerGift')
     if (c.action_type === 'redeem_coupon') {
       const coupon = c.coupon
       const label = coupon ? `${coupon.code} · ${formatCouponGrant(coupon, t('form.days'))}` : UNKNOWN_VALUE
@@ -124,7 +125,12 @@ export function AppCampaignsList({
                     className="cursor-pointer hover:bg-gray-50/50"
                     onClick={() => onEdit(c)}
                     title={t('clickToEdit')}>
-                    <td className="px-4 py-3 font-semibold text-gray-900">{c.internal_name}</td>
+                    <td className="px-4 py-3 font-semibold text-gray-900">
+                      {c.internal_name}
+                      {c.audience === 'partner_referred' ? (
+                        <span className="mt-0.5 block text-xs font-normal text-gray-600">{t('audiences.partner_referred')}</span>
+                      ) : null}
+                    </td>
                     <td className="px-4 py-3 text-gray-700">{t(`formats.${c.format}`)}</td>
                     <td className="px-4 py-3">
                       <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${STATUS_STYLE[status]}`}>

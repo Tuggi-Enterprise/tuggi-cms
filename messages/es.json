@@ -4563,7 +4563,12 @@
       "create": "Crear campaña",
       "save": "Guardar",
       "created": "Campaña creada.",
-      "saved": "Campaña guardada."
+      "saved": "Campaña guardada.",
+      "audience": "Público",
+      "audienceHelp": "Quién ve la campaña. Decide el servidor; la app no filtra nada.",
+      "audiencePartnerHelp": "Solo aparece para quien llegó por un socio que eligió un paquete de días, con el piloto en marcha y el interruptor de la plataforma encendido. La acción es el regalo de días, sin cupón, en el tema Azul Tuggi.",
+      "themePartnerHelp": "El regalo es de Tuggi: tema Azul Tuggi, sin el color del socio.",
+      "actionPartnerGift": "Regalo de días del socio: el número de días es el del paquete que eligió el socio, una vez por cuenta."
     },
     "examples": {
       "plans": {
@@ -4627,8 +4632,16 @@
       "invalid_image": "Sube una imagen JPEG, PNG o WebP.",
       "image_too_large": "La imagen pasa de 2 MB. Redúcela y súbela de nuevo.",
       "upload_failed": "No se pudo subir la imagen. Inténtalo de nuevo.",
-      "network": "Sin conexión con el servidor. Inténtalo de nuevo."
-    }
+      "network": "Sin conexión con el servidor. Inténtalo de nuevo.",
+      "invalid_audience": "Elige un público de la lista.",
+      "partner_gift_audience": "El público \"solo quien llegó por un socio\" va solo con el regalo de días del socio, sin cupón y sin destino.",
+      "partner_gift_theme": "La campaña del socio usa el tema Azul Tuggi."
+    },
+    "audiences": {
+      "everyone": "Todos",
+      "partner_referred": "Solo quien llegó por un socio"
+    },
+    "actionPartnerGift": "Regalo de días del socio"
   },
   "Coupons": {
     "list": {
