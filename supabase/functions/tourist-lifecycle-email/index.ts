@@ -21,6 +21,12 @@
 // The RPCs are called over PostgREST with `fetch`, not supabase-js, so this file has no remote
 // import and the whole handler runs under Node in `tests/api/tourist-lifecycle-email.test.ts`.
 //
+// The trip question (BR-COMUNICACAO-019 3.u.4, #1276): after the reservation, the reengagement
+// recipients go to `drive.trip_question_audience('email', ids)`; whoever comes back gets the block
+// (`data.trip_question`), and `drive.mark_trip_question_sent` spends the month once
+// `send-transactional` accepted the e-mail. When the audience cannot be read, the e-mails go
+// without the block. Contract: `docs/contracts/viagem-marcada-e-lembrete.md`, Parte 4.
+//
 // Logs carry counts and the request id only: no address, no user id (PII).
 //
 // Secrets: SUPABASE_URL, the ef secret key (`_shared/secret-key.ts`),
@@ -42,7 +48,10 @@ import {
   type LifecycleCandidateRow,
   type LifecycleClaimVerdict,
   type LifecycleRecipient,
+  tripQuestionUserIds,
+  withTripQuestion,
 } from '../_shared/tourist-lifecycle-email.ts';
+import { audienceIds, reminderReachable } from '../_shared/trip-question.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -192,6 +201,54 @@ async function claim(ctx: Ctx, r: LifecycleRecipient): Promise<LifecycleClaimVer
   return 'claim_failed';
 }
 
+interface TripQuestionTally {
+  /** E-mails handed to `send-transactional` carrying the block. */
+  asked: number;
+  marked: number;
+  already_spent: number;
+  mark_failed: number;
+  audience_failed: number;
+}
+
+/** The reserved recipients with the trip question on the ones the audience returns. Never throws. */
+async function attachTripQuestion(
+  ctx: Ctx,
+  recipients: LifecycleRecipient[],
+  tally: TripQuestionTally,
+  requestId: string
+): Promise<LifecycleRecipient[]> {
+  const ids = tripQuestionUserIds(recipients);
+  if (ids.length === 0) return recipients;
+  let asked: Set<string>;
+  try {
+    asked = audienceIds(await rpc<unknown>(ctx, 'trip_question_audience', { p_channel: 'email', p_user_ids: ids }, 'drive'));
+  } catch (e) {
+    tally.audience_failed += 1;
+    console.warn(`[${requestId}] trip question audience failed: ${(e as Error).message}; the e-mails go without it`);
+    return recipients;
+  }
+  if (asked.size === 0) return recipients;
+  let reminder = false;
+  try {
+    reminder = reminderReachable(await rpc<unknown>(ctx, 'cms_get_trip_settings', {}, 'drive'), 'email');
+  } catch (e) {
+    console.warn(`[${requestId}] trip settings unreadable: ${(e as Error).message}; the block promises no reminder`);
+  }
+  return withTripQuestion(recipients, asked, reminder);
+}
+
+/** 3.u.2: spends the month after the e-mail left. Never throws. */
+async function markTripQuestion(ctx: Ctx, userId: string, tally: TripQuestionTally, requestId: string): Promise<void> {
+  try {
+    const spent = await rpc<unknown>(ctx, 'mark_trip_question_sent', { p_user_id: userId, p_channel: 'email' }, 'drive');
+    if (spent === true) tally.marked += 1;
+    else tally.already_spent += 1;
+  } catch (e) {
+    tally.mark_failed += 1;
+    console.warn(`[${requestId}] trip question mark failed: ${(e as Error).message}`);
+  }
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
@@ -253,11 +310,13 @@ Deno.serve(async (req: Request) => {
   }
 
   const reserved = await claimTouristLifecycleEmails(plan, (r) => claim(ctx, r));
+  const tripQuestion: TripQuestionTally = { asked: 0, marked: 0, already_spent: 0, mark_failed: 0, audience_failed: 0 };
+  const recipients = await attachTripQuestion(ctx, reserved.recipients, tripQuestion, requestId);
 
   let sent = 0;
   let failed = 0;
   let nextAt = 0;
-  for (const r of reserved.recipients) {
+  for (const r of recipients) {
     const wait = nextAt - Date.now();
     if (wait > 0) await sleep(wait);
     nextAt = Date.now() + MIN_INTERVAL_MS;
@@ -267,21 +326,26 @@ Deno.serve(async (req: Request) => {
         headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ type: r.type, to: r.email, lang: r.lang, data: r.data }),
       });
+      if (r.data.trip_question) tripQuestion.asked += 1;
       // The slot is NOT given back on failure: a retry could deliver twice (see the plan module).
-      if (res.ok) sent += 1;
-      else failed += 1;
+      if (res.ok) {
+        sent += 1;
+        if (r.data.trip_question) await markTripQuestion(ctx, r.user_id, tripQuestion, requestId);
+      } else failed += 1;
     } catch {
       failed += 1;
     }
   }
 
   console.log(
-    `[${requestId}] tourist e-mail: ${lifecycleAuditLine(reserved, false)} sent=${sent} failed=${failed}`
+    `[${requestId}] tourist e-mail: ${lifecycleAuditLine(reserved, false)} sent=${sent} failed=${failed} ` +
+      `trip_question=${JSON.stringify(tripQuestion)}`
   );
   return json({
     dry_run: false,
     sent,
     failed,
+    trip_question: tripQuestion,
     by_type: countByType(reserved.recipients),
     discarded: reserved.discarded,
     candidates: reserved.candidates,

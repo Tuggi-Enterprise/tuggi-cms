@@ -59,7 +59,7 @@ import {
 } from '../_shared/partner-i18n.ts';
 import { requireAdmin } from '../_shared/auth-middleware.ts';
 import { renderEmail, renderText } from '../_shared/emailLayout.ts';
-import { isTouristEmailType, renderTouristEmail, type TouristEmailType } from '../_shared/tourist-email.ts';
+import { isTouristEmailType, isTripQuestionMode, renderTouristEmail, type TouristEmailType } from '../_shared/tourist-email.ts';
 import { buildOneClickUrl, buildUnsubscribeUrl, unsubscribeHeaders } from '../_shared/unsubscribe-link.ts';
 import { getSecretKey } from '../_shared/secret-key.ts';
 
@@ -468,6 +468,8 @@ async function renderTourist(
     balance_minutes: typeof data.balance_minutes === 'number' ? data.balance_minutes : null,
     timezone: typeof data.timezone === 'string' ? data.timezone : null,
     eve: data.eve === true,
+    // BR-COMUNICACAO-019 3.u.4 (#1276): a closed value, never a sentence; anything else is no block.
+    trip_question: isTripQuestionMode(data.trip_question) ? data.trip_question : null,
   });
   if (!rendered) return null;
 

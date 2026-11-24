@@ -297,6 +297,58 @@ const REENGAGEMENT_30 = {
   },
 } satisfies Record<string, Copy>;
 
+/**
+ * The trip question in the reengagement e-mails (BR-COMUNICACAO-019 3.u.4, #1276), for whoever
+ * `drive.trip_question_audience('email')` returns. Copy `proxima-viagem-de-novo-1274-2026-11.md` §2:
+ * after the stage paragraphs, `cta` in place of the usual button. The 30-day one has its own line
+ * and preheader, because it says it is the last. `_no_reminder` when a reminder cannot leave.
+ * No destination and no hours (3.u.5).
+ */
+const TRIP_QUESTION = {
+  question: {
+    pt: 'Já tem a próxima viagem em vista? Marque a data no Tuggi e a gente te lembra de levar o app. Assim, nenhuma história do caminho fica sem ninguém contar.',
+    en: "Got your next trip in mind? Add the date in Tuggi and we'll remind you to take the app along, so no story on the way goes untold.",
+    es: '¿Ya tienes tu próximo viaje en mente? Añade la fecha en Tuggi y te recordaremos llevar la app, para que ninguna historia del camino pase de largo.',
+    fr: "Un prochain voyage en vue\u00a0? Note la date dans Tuggi et on te rappellera d'emporter l'appli, pour qu'aucune histoire de la route ne passe inaperçue.",
+    it: "Hai già in vista il prossimo viaggio? Segna la data su Tuggi e ti ricorderemo di portare l'app con te, così nessuna storia lungo la strada passa inosservata.",
+  },
+  question_last: {
+    pt: 'Se tiver uma viagem em vista, marque a data no Tuggi e a gente te lembra, antes dela, de levar o app junto.',
+    en: "If you have a trip in mind, add the date in Tuggi and we'll remind you before it to take the app along.",
+    es: 'Si tienes un viaje en mente, añade la fecha en Tuggi y te recordaremos, antes de salir, llevar la app.',
+    fr: "Si tu as un voyage en vue, note la date dans Tuggi et on te rappellera, avant le départ, d'emporter l'appli.",
+    it: "Se hai un viaggio in vista, segna la data su Tuggi e ti ricorderemo, prima di partire, di portare l'app con te.",
+  },
+  question_no_reminder: {
+    pt: 'Já tem a próxima viagem em vista? Marque a data no Tuggi e ela fica no seu Passaporte.',
+    en: 'Got your next trip in mind? Add the date in Tuggi and it stays in your Passport.',
+    es: '¿Ya tienes tu próximo viaje en mente? Añade la fecha en Tuggi y queda en tu Pasaporte.',
+    fr: 'Un prochain voyage en vue\u00a0? Note la date dans Tuggi et elle restera dans ton Passeport.',
+    it: 'Hai già in vista il prossimo viaggio? Segna la data su Tuggi e resta nel tuo Passaporto.',
+  },
+  preheader_last: {
+    pt: 'Depois dele, só se você pedir.',
+    en: 'After this one, only if you ask.',
+    es: 'Después de este, solo si tú lo pides.',
+    fr: 'Après celui-ci, seulement si tu le demandes.',
+    it: 'Dopo questo, solo se sei tu a chiederlo.',
+  },
+  cta: {
+    pt: 'Marcar minha viagem',
+    en: 'Add my trip',
+    es: 'Añadir mi viaje',
+    fr: 'Ajouter mon voyage',
+    it: 'Aggiungi il mio viaggio',
+  },
+} satisfies Record<string, Copy>;
+
+/** `reminder`: a trip reminder can reach the reader; `no_reminder`: the words promise none. */
+export type TripQuestionMode = 'reminder' | 'no_reminder';
+
+export function isTripQuestionMode(value: unknown): value is TripQuestionMode {
+  return value === 'reminder' || value === 'no_reminder';
+}
+
 /** Every sentence this file can emit, for the copy guards of the test. */
 export const TOURIST_EMAIL_CATALOGUE = {
   GREETING,
@@ -309,6 +361,7 @@ export const TOURIST_EMAIL_CATALOGUE = {
   REENGAGEMENT_7,
   REENGAGEMENT_14,
   REENGAGEMENT_30,
+  TRIP_QUESTION,
 } as const;
 
 /** What the caller sends in `data`. Numbers and dates only; no sentence and no link. */
@@ -324,6 +377,8 @@ export interface TouristEmailData {
   timezone?: string | null;
   /** hours_expiring: the eve of a short concession (BR-COMUNICACAO-019 3.h.2): "tomorrow", no count. */
   eve?: boolean;
+  /** reengagement: the trip question block (BR-COMUNICACAO-019 3.u.4); absent or null, no block. */
+  trip_question?: TripQuestionMode | null;
 }
 
 export interface RenderedTouristEmail {
@@ -411,6 +466,15 @@ export function renderTouristEmail(
     body.push(REENGAGEMENT_30.paragraph[lang], REENGAGEMENT_30.closing[lang]);
   }
 
+  // 3.u.4: the trip question rides only on the reengagement e-mails, after the stage paragraphs.
+  const ask = !service && isTripQuestionMode(data.trip_question) ? data.trip_question : null;
+  if (ask) {
+    const last = type === 'tourist_reengagement_30';
+    if (ask === 'no_reminder') body.push(TRIP_QUESTION.question_no_reminder[lang]);
+    else body.push((last ? TRIP_QUESTION.question_last : TRIP_QUESTION.question)[lang]);
+    if (last) preheader = TRIP_QUESTION.preheader_last[lang];
+  }
+
   if (!subject || !preheader || body.some((p) => p === null)) return null;
 
   return {
@@ -418,7 +482,8 @@ export function renderTouristEmail(
       subject,
       preheader,
       paragraphs: [GREETING[lang], ...(body as string[])],
-      cta_label: BUTTON[lang],
+      // One action per e-mail: the question's button replaces "Abrir o Tuggi" (copy §2).
+      cta_label: ask ? TRIP_QUESTION.cta[lang] : BUTTON[lang],
       cta_url: TOURIST_APP_LINK,
     },
     footerNote: service ? SERVICE_FOOTER_NOTE[lang] : REENGAGEMENT_FOOTER_NOTE[lang],

@@ -283,6 +283,38 @@ export async function claimTouristLifecycleEmails(
   return { ...plan, recipients: reserved, discarded };
 }
 
+// ===============================================================================================
+// THE TRIP QUESTION IN THE REENGAGEMENT E-MAILS (BR-COMUNICACAO-019 3.u.4, #1276)
+// ===============================================================================================
+//
+// Same e-mails, same people, same ceiling: the database answers who among the reserved
+// reengagement recipients is in the audience of 3.u.1 with the month still open (3.u.2), and those
+// get the block. The month is spent only after `send-transactional` accepted the e-mail.
+
+const REENGAGEMENT_TYPES: ReadonlySet<TouristEmailType> = new Set([
+  'tourist_reengagement_7',
+  'tourist_reengagement_14',
+  'tourist_reengagement_30',
+]);
+
+/** The accounts to ask `trip_question_audience('email', ...)` about: the reengagement recipients. */
+export function tripQuestionUserIds(recipients: readonly LifecycleRecipient[]): string[] {
+  return [...new Set(recipients.filter((r) => REENGAGEMENT_TYPES.has(r.type)).map((r) => r.user_id))];
+}
+
+/** The recipients, with the block on each reengagement e-mail whose account is in `asked`. */
+export function withTripQuestion(
+  recipients: readonly LifecycleRecipient[],
+  asked: ReadonlySet<string>,
+  reminder: boolean
+): LifecycleRecipient[] {
+  return recipients.map((r) =>
+    REENGAGEMENT_TYPES.has(r.type) && asked.has(r.user_id)
+      ? { ...r, data: { ...r.data, trip_question: reminder ? 'reminder' : 'no_reminder' } }
+      : r
+  );
+}
+
 /** Counts by type. The audit trail of a run: no address, no id. */
 export function countByType(recipients: readonly LifecycleRecipient[]): Record<string, number> {
   const out: Record<string, number> = {};

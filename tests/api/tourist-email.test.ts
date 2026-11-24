@@ -163,3 +163,68 @@ test('BR-COMUNICACAO-020 item 2: the two service e-mails carry the fact and no c
     'Na próxima saída, ligue o guia antes de começar.'
   ))
 })
+
+// ---- #1276, BR-COMUNICACAO-019 3.u.4: the trip question block in the reengagement e-mails ----
+
+test('BR-COMUNICACAO-019 3.u.4: the 7 and 14-day e-mails carry the question after the stage paragraphs, with its button', () => {
+  for (const type of ['tourist_reengagement_7', 'tourist_reengagement_14'] as const) {
+    const plain = mod.renderTouristEmail(type, 'pt', (DATA as any)[type], NOW)
+    const asked = mod.renderTouristEmail(type, 'pt', { ...(DATA as any)[type], trip_question: 'reminder' }, NOW)
+    assert.deepEqual(asked.content.paragraphs.slice(0, -1), plain.content.paragraphs, `${type}: the stage paragraphs changed`)
+    assert.equal(
+      asked.content.paragraphs.at(-1),
+      'Já tem a próxima viagem em vista? Marque a data no Tuggi e a gente te lembra de levar o app. Assim, nenhuma história do caminho fica sem ninguém contar.'
+    )
+    assert.equal(asked.content.cta_label, 'Marcar minha viagem')
+    assert.equal(asked.content.cta_url, plain.content.cta_url)
+    assert.equal(asked.content.subject, plain.content.subject)
+    assert.equal(asked.content.preheader, plain.content.preheader)
+  }
+})
+
+test('BR-COMUNICACAO-019 3.u.4: the 30-day e-mail asks conditionally and changes only its preheader', () => {
+  const plain = mod.renderTouristEmail('tourist_reengagement_30', 'pt', {}, NOW)
+  const asked = mod.renderTouristEmail('tourist_reengagement_30', 'pt', { trip_question: 'reminder' }, NOW)
+  assert.equal(
+    asked.content.paragraphs.at(-1),
+    'Se tiver uma viagem em vista, marque a data no Tuggi e a gente te lembra, antes dela, de levar o app junto.'
+  )
+  assert.equal(asked.content.preheader, 'Depois dele, só se você pedir.')
+  assert.equal(asked.content.subject, plain.content.subject)
+  assert.deepEqual(asked.content.paragraphs.slice(0, -1), plain.content.paragraphs)
+})
+
+test('BR-COMUNICACAO-023 item 5: without a reminder that can leave, the block promises none', () => {
+  for (const type of ['tourist_reengagement_7', 'tourist_reengagement_14', 'tourist_reengagement_30'] as const) {
+    const r = mod.renderTouristEmail(type, 'pt', { trip_question: 'no_reminder' }, NOW)
+    assert.equal(r.content.paragraphs.at(-1), 'Já tem a próxima viagem em vista? Marque a data no Tuggi e ela fica no seu Passaporte.')
+    assert.doesNotMatch(r.content.paragraphs.at(-1), /lembra/)
+  }
+  const fr = mod.renderTouristEmail('tourist_reengagement_14', 'fr', { trip_question: 'no_reminder' }, NOW)
+  assert.equal(fr.content.paragraphs.at(-1), 'Un prochain voyage en vue ? Note la date dans Tuggi et elle restera dans ton Passeport.')
+})
+
+test('BR-COMUNICACAO-019 3.u.4: no flag, an unknown flag or a service e-mail carry no block', () => {
+  for (const flag of [undefined, null, 'yes', true, 'Quer viajar para Lisboa?']) {
+    const r = mod.renderTouristEmail('tourist_reengagement_14', 'pt', { trip_question: flag }, NOW)
+    assert.equal(r.content.cta_label, 'Abrir o Tuggi', String(flag))
+    assert.doesNotMatch(all(r), /viagem em vista|Lisboa/, String(flag))
+  }
+  for (const type of ['tourist_hours_earned', 'tourist_hours_expiring'] as const) {
+    const r = mod.renderTouristEmail(type, 'pt', { ...(DATA as any)[type], trip_question: 'reminder' }, NOW)
+    assert.doesNotMatch(all(r), /viagem em vista/, type)
+  }
+})
+
+test('BR-COMUNICACAO-019 3.u.5: the block exists in the five languages, names no destination and sells no hours', () => {
+  const block = (mod.TOURIST_EMAIL_CATALOGUE as any).TRIP_QUESTION
+  for (const lang of LANGS) {
+    for (const [key, words] of Object.entries(block) as [string, Record<string, string>][]) {
+      assert.ok(words[lang]?.trim(), `${key}/${lang} is empty`)
+      assert.doesNotMatch(words[lang], /\{\{|\d|\bhoras?\b|\bhours?\b|\bheures?\b|\bore\b/iu, `${key}/${lang}`)
+    }
+    const r = mod.renderTouristEmail('tourist_reengagement_7', lang, { trip_question: 'reminder' }, NOW)
+    assert.equal(r.content.paragraphs.at(-1), block.question[lang])
+    assert.equal(r.content.cta_label, block.cta[lang])
+  }
+})

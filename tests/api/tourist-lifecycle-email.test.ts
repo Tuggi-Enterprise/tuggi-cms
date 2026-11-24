@@ -205,6 +205,18 @@ let candidates: unknown[]
 let claimAnswer: unknown
 /** What `marketing.email_unsubscribes` answers for the address `send-transactional` looks up. */
 let unsubscribeAnswer: { status: number; body: unknown }
+/** #1276: what `drive.trip_question_audience`, `cms_get_trip_settings` and the mark answer. */
+let audienceAnswer: { status: number; body: unknown }
+let settingsAnswer: { status: number; body: unknown }
+let markAnswer: { status: number; body: unknown }
+let sendStatus: number
+const REMINDER_ON = {
+  switches: [
+    { key: 'trip_reminder.enabled', is_on: true },
+    { key: 'channel.push', is_on: true },
+    { key: 'channel.email', is_on: true },
+  ],
+}
 
 beforeEach(() => {
   env = {
@@ -217,12 +229,20 @@ beforeEach(() => {
   candidates = [row({ email_opt_in: true, last_used_at: new Date(Date.now() - 8 * DAY).toISOString() })]
   claimAnswer = true
   unsubscribeAnswer = { status: 200, body: [] }
+  audienceAnswer = { status: 200, body: [] }
+  settingsAnswer = { status: 200, body: REMINDER_ON }
+  markAnswer = { status: 200, body: true }
+  sendStatus = 200
   globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
     const u = String(url)
     const body = init?.body ? JSON.parse(String(init.body)) : null
     calls.push({ url: u, body })
     if (u.endsWith('/rpc/get_tourist_lifecycle_email_candidates')) return new Response(JSON.stringify(candidates))
     if (u.endsWith('/rpc/claim_tourist_lifecycle_email')) return new Response(JSON.stringify(claimAnswer))
+    if (u.endsWith('/rpc/trip_question_audience')) return new Response(JSON.stringify(audienceAnswer.body), { status: audienceAnswer.status })
+    if (u.endsWith('/rpc/cms_get_trip_settings')) return new Response(JSON.stringify(settingsAnswer.body), { status: settingsAnswer.status })
+    if (u.endsWith('/rpc/mark_trip_question_sent')) return new Response(JSON.stringify(markAnswer.body), { status: markAnswer.status })
+    if (u.endsWith('/send-transactional/send')) return new Response('{"id":"resend-1"}', { status: sendStatus })
     if (u.includes('/rest/v1/email_unsubscribes?')) {
       return new Response(JSON.stringify(unsubscribeAnswer.body), { status: unsubscribeAnswer.status })
     }
@@ -258,13 +278,14 @@ test('the real run reserves BEFORE it sends, and sends through send-transactiona
   const out = await (await post('lifecycle', '/run', { dry_run: false })).json()
   assert.equal(out.sent, 1)
   const names = calls.map((c) => c.url.split('/').pop())
-  assert.deepEqual(names, ['get_tourist_lifecycle_email_candidates', 'claim_tourist_lifecycle_email', 'send'])
+  assert.deepEqual(names, ['get_tourist_lifecycle_email_candidates', 'claim_tourist_lifecycle_email', 'trip_question_audience', 'send'])
   assert.equal(calls[1].body.p_kind, 'tourist_reengagement_7')
-  assert.match(calls[2].url, /\/functions\/v1\/send-transactional\/send$/)
+  assert.match(calls[3].url, /\/functions\/v1\/send-transactional\/send$/)
   assert.deepEqual(
-    { type: calls[2].body.type, to: calls[2].body.to, lang: calls[2].body.lang },
+    { type: calls[3].body.type, to: calls[3].body.to, lang: calls[3].body.lang },
     { type: 'tourist_reengagement_7', to: 'ana@example.com', lang: 'pt' }
   )
+  assert.equal(calls[3].body.data.trip_question, undefined, 'outside the audience, the e-mail of always')
 })
 
 test('a slot the database refuses, or cannot prove, sends nothing', async () => {
@@ -337,4 +358,107 @@ test('BR-COMUNICACAO-020 item 4: send-transactional refuses, unsent, a tourist e
     assert.equal(unknown.status, 503)
     assert.ok(!calls.some((c) => c.url.startsWith('https://api.resend.com')), `list ${answer.status} still sent`)
   }
+})
+
+// ===============================================================================================
+// #1276, BR-COMUNICACAO-019 3.u.4 and 3.u.2: THE TRIP QUESTION IN THE REENGAGEMENT E-MAILS
+// ===============================================================================================
+
+const idleRow = (user: string, email: string, days: number) =>
+  row({ user_id: user, email, email_opt_in: true, last_used_at: new Date(Date.now() - days * DAY).toISOString() })
+
+test('BR-COMUNICACAO-019 3.u.4 and 3.u.2: the 7, 14 and 30-day e-mails carry the block to the audience, and the month is spent after the send', async () => {
+  for (const [days, type] of [[8, 'tourist_reengagement_7'], [15, 'tourist_reengagement_14'], [31, 'tourist_reengagement_30']] as const) {
+    calls = []
+    candidates = [idleRow('u1', 'ana@example.com', days), idleRow('u2', 'bia@example.com', days)]
+    audienceAnswer = { status: 200, body: [{ user_id: 'u1' }] }
+    const out = await (await post('lifecycle', '/run', { dry_run: false })).json()
+    assert.equal(out.sent, 2, type)
+
+    const audience = calls.find((c) => c.url.endsWith('/rpc/trip_question_audience'))!
+    assert.deepEqual(audience.body, { p_channel: 'email', p_user_ids: ['u1', 'u2'] })
+    const sends = calls.filter((c) => c.url.endsWith('/send-transactional/send'))
+    const toAna = sends.find((c) => c.body.to === 'ana@example.com')!
+    const toBia = sends.find((c) => c.body.to === 'bia@example.com')!
+    assert.equal(toAna.body.type, type)
+    assert.equal(toAna.body.data.trip_question, 'reminder', `${type}: the audience got no block`)
+    assert.equal(toBia.body.data.trip_question, undefined, `${type}: outside the audience got the block`)
+
+    const marks = calls.filter((c) => c.url.endsWith('/rpc/mark_trip_question_sent'))
+    assert.deepEqual(marks.map((c) => c.body), [{ p_user_id: 'u1', p_channel: 'email' }])
+    assert.ok(calls.indexOf(marks[0]) > calls.indexOf(toAna), 'the month was spent before the e-mail left')
+    assert.deepEqual(out.trip_question, { asked: 1, marked: 1, already_spent: 0, mark_failed: 0, audience_failed: 0 })
+  }
+})
+
+test('BR-COMUNICACAO-019 3.u.2: an e-mail send-transactional refused spends nothing', async () => {
+  candidates = [idleRow('u1', 'ana@example.com', 8)]
+  audienceAnswer = { status: 200, body: [{ user_id: 'u1' }] }
+  sendStatus = 502
+  const out = await (await post('lifecycle', '/run', { dry_run: false })).json()
+  assert.equal(out.failed, 1)
+  assert.ok(!calls.some((c) => c.url.endsWith('/rpc/mark_trip_question_sent')), 'a refused e-mail spent the month')
+  assert.equal(out.trip_question.marked, 0)
+})
+
+test('BR-COMUNICACAO-019 3.u.2: a month already spent by the push is counted, and the e-mail still left', async () => {
+  candidates = [idleRow('u1', 'ana@example.com', 8)]
+  audienceAnswer = { status: 200, body: [{ user_id: 'u1' }] }
+  markAnswer = { status: 200, body: false }
+  const out = await (await post('lifecycle', '/run', { dry_run: false })).json()
+  assert.equal(out.sent, 1)
+  assert.deepEqual(out.trip_question, { asked: 1, marked: 0, already_spent: 1, mark_failed: 0, audience_failed: 0 })
+})
+
+test('BR-COMUNICACAO-019 3.u.4: an audience that cannot be read sends the e-mail of always, without the block', async () => {
+  candidates = [idleRow('u1', 'ana@example.com', 8)]
+  audienceAnswer = { status: 404, body: { code: 'PGRST202' } }
+  const out = await (await post('lifecycle', '/run', { dry_run: false })).json()
+  assert.equal(out.sent, 1)
+  const send = calls.find((c) => c.url.endsWith('/send-transactional/send'))!
+  assert.equal(send.body.data.trip_question, undefined)
+  assert.equal(out.trip_question.audience_failed, 1)
+  assert.ok(!calls.some((c) => c.url.endsWith('/rpc/mark_trip_question_sent')))
+})
+
+test('BR-COMUNICACAO-023 item 5: with the reminder or the e-mail channel off, or unreadable, the block promises no reminder', async () => {
+  const off = [
+    { status: 200, body: { switches: [{ key: 'trip_reminder.enabled', is_on: false }, { key: 'channel.email', is_on: true }] } },
+    { status: 200, body: { switches: [{ key: 'trip_reminder.enabled', is_on: true }, { key: 'channel.email', is_on: false }] } },
+    { status: 500, body: { code: '42501' } },
+  ]
+  for (const answer of off) {
+    calls = []
+    candidates = [idleRow('u1', 'ana@example.com', 8)]
+    audienceAnswer = { status: 200, body: [{ user_id: 'u1' }] }
+    settingsAnswer = answer
+    await post('lifecycle', '/run', { dry_run: false })
+    const send = calls.find((c) => c.url.endsWith('/send-transactional/send'))!
+    assert.equal(send.body.data.trip_question, 'no_reminder', JSON.stringify(answer.body))
+  }
+})
+
+test('BR-COMUNICACAO-019 3.u.4: only reengagement e-mails ask the audience; a service e-mail never carries the block', async () => {
+  candidates = [row({ expiring_minutes: 45, expiring_at: new Date(Date.now() + 2 * DAY + 23 * 3600_000).toISOString() })]
+  audienceAnswer = { status: 200, body: [{ user_id: 'u1' }] }
+  const out = await (await post('lifecycle', '/run', { dry_run: false })).json()
+  assert.equal(out.sent, 1)
+  assert.ok(!calls.some((c) => c.url.endsWith('/rpc/trip_question_audience')), 'a service e-mail asked the audience')
+  const send = calls.find((c) => c.url.endsWith('/send-transactional/send'))!
+  assert.equal(send.body.type, 'tourist_hours_expiring')
+  assert.equal(send.body.data.trip_question, undefined)
+})
+
+test('BR-COMUNICACAO-019 3.u.4: send-transactional renders the block for a closed flag and ignores anything else', async () => {
+  const asked = await post('transactional', '/send', { type: 'tourist_reengagement_14', to: 'ana@example.com', lang: 'pt', data: { trip_question: 'reminder' } })
+  assert.equal(asked.status, 200)
+  const first = calls.filter((c) => c.url === 'https://api.resend.com/emails').slice(-1)[0].body
+  assert.match(first.html, /Já tem a próxima viagem em vista\?/)
+  assert.match(first.html, /Marcar minha viagem/)
+  calls = []
+  const forged = await post('transactional', '/send', { type: 'tourist_reengagement_14', to: 'ana@example.com', lang: 'pt', data: { trip_question: '<b>Lisboa</b>' } })
+  assert.equal(forged.status, 200)
+  const second = calls.find((c) => c.url === 'https://api.resend.com/emails')!.body
+  assert.doesNotMatch(second.html, /viagem em vista|Lisboa/)
+  assert.match(second.html, /Abrir o Tuggi/)
 })
