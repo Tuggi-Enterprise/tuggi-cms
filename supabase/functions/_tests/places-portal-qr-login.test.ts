@@ -199,7 +199,7 @@ async function deployed() {
 
 Deno.test('index.ts: no secret or a wrong one is a 401 before any database call', async () => {
   const h = await deployed();
-  for (const headers of [{}, { 'x-places-secret': 'wrong' }]) {
+  for (const headers of [{}, { 'x-places-secret': 'wrong' }] as Record<string, string>[]) {
     const res = await h(post({ action: 'create' }, headers));
     assertEquals(res.status, 401);
     await res.body?.cancel();
@@ -217,5 +217,141 @@ Deno.test('index.ts: with the secret, create reaches portal_qr_login_create', as
     assertEquals(scenario.calls, ['rpc:portal_qr_login_create']);
   } finally {
     delete scenario.rpcs.portal_qr_login_create;
+  }
+});
+
+// --- #1303: the app opens the portal already signed in (`app_open`) -----------------------------
+
+const JWT = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1In0.c2lnbmF0dXJl';
+
+interface AccountFake {
+  get?: { data: unknown; error: Err };
+  approve?: { data: unknown; error: Err };
+}
+
+async function runAsApp(body: unknown, f: Fake & AccountFake = {}, authorization: string | null = `Bearer ${JWT}`) {
+  const { calls, db } = fakeDb(f);
+  const tokens: string[] = [];
+  const account = (jwt: string) => {
+    tokens.push(jwt);
+    return {
+      schema: (name: string) => ({
+        rpc: (fn: string, args: Record<string, unknown>) => {
+          calls.push({ fn, schema: name, args });
+          const a = fn === 'get_portal_qr_login_v1' ? f.get : fn === 'approve_portal_qr_login_v1' ? f.approve : undefined;
+          return Promise.resolve(a ?? { data: null, error: null });
+        },
+      }),
+    };
+  };
+  const headers: Record<string, string> = authorization ? { authorization } : {};
+  const res = await handlePortalQrLogin(post(body, headers), {
+    isAuthorized: () => false,
+    db,
+    asAccount: account as never,
+  });
+  const raw = await res.text();
+  return { status: res.status, raw, json: JSON.parse(raw), calls, tokens };
+}
+
+const mayGo = { data: { state: 'invalid', user_agent: null, city: null, expires_at: null }, error: null };
+const created = { data: [{ code: CODE, poll_token: POLL, expires_at: '2026-11-25T15:02:00Z' }], error: null };
+
+Deno.test('BR-B2B-069 4.g and 4.h, #1303: app_open creates the request and approves it AS the app account, and answers the poll token', async () => {
+  const r = await runAsApp({ action: 'app_open' }, { get: mayGo, create: created, approve: { data: { ok: true, reason: null }, error: null } });
+  assertEquals(r.status, 200);
+  assertEquals(r.json, { state: 'ready', handoff_token: POLL });
+  assertEquals(r.tokens, [JWT]);
+  assertEquals(
+    r.calls.map((c) => `${c.schema}.${c.fn}`),
+    ['drive.get_portal_qr_login_v1', 'partner.portal_qr_login_create', 'drive.approve_portal_qr_login_v1'],
+  );
+  // Nobody is asked a question about this request: no browser, no city.
+  assertEquals(r.calls[1].args, { p_user_agent: null, p_city: null });
+  assertEquals(r.calls[2].args, { p_code: CODE });
+  // The code never leaves: only the poll token, which the portal spends once.
+  assert(!r.raw.includes(CODE));
+});
+
+Deno.test('BR-B2B-069 4.g and 4.h, #1303: an account or a session that may not approve gets its state, and no request is created', async () => {
+  for (const state of ['not_eligible', 'not_a_partner', 'needs_email_link']) {
+    const r = await runAsApp({ action: 'app_open' }, { get: { data: { state }, error: null }, create: created });
+    assertEquals(r.status, 200);
+    assertEquals(r.json, { state });
+    assertEquals(r.calls.map((c) => c.fn), ['get_portal_qr_login_v1']);
+  }
+});
+
+Deno.test('#1303: the approve that refuses after the get (the account changed) answers the refusal, never a token', async () => {
+  const r = await runAsApp(
+    { action: 'app_open' },
+    { get: mayGo, create: created, approve: { data: { ok: false, reason: 'needs_email_link' }, error: null } },
+  );
+  assertEquals(r.json, { state: 'needs_email_link' });
+  assert(!r.raw.includes(POLL));
+});
+
+Deno.test('#1303: no session or a JWT PostgREST refuses is a 401, before any request exists', async () => {
+  for (const code of ['42501', 'PGRST301', 'PGRST303']) {
+    const r = await runAsApp({ action: 'app_open' }, { get: { data: null, error: { code } }, create: created });
+    assertEquals(r.status, 401);
+    assertEquals(r.calls.map((c) => c.fn), ['get_portal_qr_login_v1']);
+  }
+});
+
+Deno.test('#1303: without a bearer JWT nothing runs; with one, only app_open exists', async () => {
+  for (const authorization of [null, 'Bearer not-a-jwt', `Basic ${JWT}`]) {
+    const r = await runAsApp({ action: 'app_open' }, { get: mayGo, create: created }, authorization);
+    assertEquals(r.status, 401);
+    assertEquals(r.calls, []);
+  }
+  for (const action of ['create', 'poll']) {
+    const r = await runAsApp({ action, poll_token: POLL }, { get: mayGo, create: created });
+    assertEquals(r.status, 401);
+    assertEquals(r.calls, []);
+  }
+});
+
+Deno.test('#1303: the Worker with the secret cannot call app_open', async () => {
+  const { calls, db } = fakeDb({ create: created });
+  const res = await handlePortalQrLogin(post({ action: 'app_open' }), { isAuthorized: () => true, db, asAccount: () => { throw new Error('no account'); } });
+  assertEquals(res.status, 400);
+  assertEquals(calls, []);
+});
+
+Deno.test('#1303: a database failure or another shape is a 502, with no code, token or JWT in the log', async () => {
+  const lines: string[] = [];
+  const original = console.error;
+  console.error = (...args: unknown[]) => lines.push(args.map(String).join(' '));
+  try {
+    assertEquals((await runAsApp({ action: 'app_open' }, { get: { data: null, error: { code: 'XX000' } } })).status, 502);
+    assertEquals((await runAsApp({ action: 'app_open' }, { get: { data: { state: 'pending' }, error: null } })).status, 502);
+    assertEquals((await runAsApp({ action: 'app_open' }, { get: mayGo, create: { data: null, error: { code: 'XX000' } } })).status, 502);
+    assertEquals((await runAsApp({ action: 'app_open' }, { get: mayGo, create: { data: [{ code: CODE }], error: null } })).status, 502);
+    assertEquals((await runAsApp({ action: 'app_open' }, { get: mayGo, create: created, approve: { data: null, error: { code: 'XX000' } } })).status, 502);
+    assertEquals((await runAsApp({ action: 'app_open' }, { get: mayGo, create: created, approve: { data: { ok: 'x' }, error: null } })).status, 502);
+  } finally {
+    console.error = original;
+  }
+  assertEquals(lines.length, 6);
+  for (const line of lines) {
+    for (const secret of [CODE, POLL, JWT]) assert(!line.includes(secret), `log leaks: ${line}`);
+  }
+});
+
+Deno.test('index.ts, #1303: app_open with the app JWT reaches the get, the create and the approve', async () => {
+  const h = await deployed();
+  scenario.rpcs.get_portal_qr_login_v1 = mayGo;
+  scenario.rpcs.portal_qr_login_create = created;
+  scenario.rpcs.approve_portal_qr_login_v1 = { data: { ok: true, reason: null }, error: null };
+  try {
+    const res = await h(post({ action: 'app_open' }, { authorization: `Bearer ${JWT}` }));
+    assertEquals(res.status, 200);
+    assertEquals(await res.json(), { state: 'ready', handoff_token: POLL });
+    assertEquals(scenario.calls, ['rpc:get_portal_qr_login_v1', 'rpc:portal_qr_login_create', 'rpc:approve_portal_qr_login_v1']);
+  } finally {
+    delete scenario.rpcs.get_portal_qr_login_v1;
+    delete scenario.rpcs.portal_qr_login_create;
+    delete scenario.rpcs.approve_portal_qr_login_v1;
   }
 });
