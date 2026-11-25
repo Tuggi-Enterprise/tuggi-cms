@@ -5551,6 +5551,17 @@
       "done_linked": "Suggestion linked to the point. It goes to the end of the partner list.",
       "done_created": "Point created in review and linked to the suggestion. It goes to the end of the partner list and reaches the app once it is live.",
       "done_refused": "Suggestion refused. The partner sees the reason in the portal."
+    },
+    "routePartner": {
+      "title": "Curation routes",
+      "label": "Route partner",
+      "none": "None",
+      "takenOption": "{name} (of another partner)",
+      "hint": "The public routes on the air of this route partner show as \"Roteiros de @parceiro\" to the people this partner brought. Route partners are created in the route editor.",
+      "saved": "Route partner linked.",
+      "cleared": "Route partner unlinked.",
+      "readFailed": "Could not load the route partners.",
+      "saveFailed": "Could not save. Try again."
     }
   }
 }

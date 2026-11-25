@@ -168,14 +168,32 @@ test('#1261: TGB86 (answered or cancelled meanwhile) reads as the sentence and t
   await expect.poll(() => s.reads.length).toBeGreaterThan(before)
 })
 
-test('#1261: the Marca tab of the record reads only the suggestions of its partner', async ({ mount, page }) => {
+test('#1261: the Marca tab of the record reads only the suggestions of its partner, and ties its route partner', async ({ mount, page }) => {
   await stubBrand(page)
   const s = await stubSuggestions(page)
+  const patches: unknown[] = []
+  await page.route('**/api/routes/partners', (r) => {
+    if (r.request().method() === 'PATCH') {
+      patches.push(r.request().postDataJSON())
+      return json(r, { partner: {} })
+    }
+    return json(r, {
+      partners: [
+        { id: 'rp-1', name: 'Costa do Sol', short_description: null, logo_url: null, client_id: null },
+        { id: 'rp-2', name: 'Canto do Mar', short_description: null, logo_url: null, client_id: null },
+        { id: 'rp-3', name: 'Hotel Mar Azul', short_description: null, logo_url: null, client_id: CLIENT_ID },
+      ],
+    })
+  })
   const c = await mount(<BrandTabHost clientId={OTHER_CLIENT} />)
   await expect(card(c, S2)).toBeVisible()
   await expect(card(c, S1)).toHaveCount(0)
   expect(s.reads).toContain(`?client_id=${OTHER_CLIENT}`)
+  await expect(c.getByRole('option', { name: 'Hotel Mar Azul (de outro parceiro)' })).toBeDisabled()
   await shoot(page, 'c01-brand-tab')
+  await c.getByLabel('Parceiro de roteiro').selectOption('rp-2')
+  await expect.poll(() => patches.length).toBe(1)
+  expect(patches[0]).toEqual({ id: 'rp-2', client_id: OTHER_CLIENT })
 })
 
 // ─── Route review ────────────────────────────────────────────────────────────────────────────

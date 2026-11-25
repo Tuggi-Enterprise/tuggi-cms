@@ -3,7 +3,8 @@
 /**
  * Marca tab of the client record (#1257, BR-B2B-070 items 2 and 9): the logo on the air, the one
  * waiting for a decision (the same card as the queue of /admin/partner-brand), the last refusal, the
- * place suggestions of this partner (#1261, BR-B2B-073 item 3.b, the same queue), and the pilot. Without a pilot the partner does not have the product; extending it is
+ * place suggestions of this partner (#1261, BR-B2B-073 item 3.b, the same queue), the route partner
+ * whose routes are this partner's (#1261, item 6), and the pilot. Without a pilot the partner does not have the product; extending it is
  * changing the end date here.
  *
  * Dates go out as ISO with the browser's offset, as in the campaign form: a curator in Brazil who
@@ -18,6 +19,7 @@ import { fromLocalInput, toLocalInput } from '@/lib/format/datetime-local'
 import { Logo, PendingLogoCard } from '@/components/admin/partner-brand/PendingLogoCard'
 import { usePartnerBrandErrorText } from '@/components/admin/partner-brand/usePartnerBrandErrorText'
 import { PlaceSuggestionQueue } from '@/components/admin/partner-brand/PlaceSuggestionQueue'
+import { RoutePartnerLink } from '@/components/admin/partner-brand/RoutePartnerLink'
 import type { ClientEditorTabProps } from './ProfileTab'
 
 const INPUT =
@@ -128,6 +130,13 @@ export function BrandTab({ clientId }: ClientEditorTabProps) {
               {t('suggestions.queueTitle')}
             </h3>
             <PlaceSuggestionQueue clientId={brand.client_id} />
+          </section>
+
+          <section aria-labelledby="brand-routes" className="space-y-3 rounded-lg border border-gray-200 bg-white p-4">
+            <h3 id="brand-routes" className="text-sm font-bold uppercase tracking-wider text-gray-700">
+              {t('routePartner.title')}
+            </h3>
+            <RoutePartnerLink clientId={brand.client_id} />
           </section>
 
           <section aria-labelledby="brand-pilot" className="space-y-3 rounded-lg border border-gray-200 bg-white p-4">

@@ -25,6 +25,7 @@ async function stub(page: Page, opts: { decision?: (r: Route) => Promise<void> }
   let queueReads = 0
   // The place suggestions (#1261) share the page; empty here.
   await page.route('**/api/admin/partner-brand/suggestions**', (r) => json(r, { suggestions: [] }))
+  await page.route('**/api/routes/partners', (r) => json(r, { partners: [] }))
   await page.route('**/api/admin/partner-brand/logos', (r) => {
     if (r.request().method() === 'POST') return opts.decision ? opts.decision(r) : json(r, { decision: {} })
     queueReads += 1
@@ -123,7 +124,7 @@ test('#1257 BR-B2B-070: the record tab shows both logos and refuses a pilot that
     return r.fallback()
   })
   const c = await mount(<BrandTabHost clientId={CLIENT_ID} />)
-  await expect(c.getByText('No ar')).toBeVisible()
+  await expect(c.getByText('No ar', { exact: true })).toBeVisible()
   await expect(c.getByText('512 × 512 px', { exact: true })).toBeVisible()
   await shoot(page, 'brand-tab')
   await c.getByLabel('Fim').fill('2026-11-01T10:00')

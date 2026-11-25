@@ -25,6 +25,8 @@ export interface RoutePartner {
   name: string;
   short_description: string | null;
   logo_url: string | null;
+  /** The Tuggi partner (`partner.clients`) this route partner is (#1261); `null` when none. */
+  client_id?: string | null;
 }
 
 export type RouteOwnershipPatch = { travel_mode?: TravelMode; partner_id?: string | null }

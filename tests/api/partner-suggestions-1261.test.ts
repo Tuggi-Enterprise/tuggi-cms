@@ -7,7 +7,8 @@
  * `partner.cms_decide_partner_pick_suggestion` with the session's user as `p_actor`; `created` makes
  * the POI by the common path at the partner's pin first and then marks the suggestion with it; a
  * refusal without a reason, or above 1,000 characters, never reaches the database; TGB86, TGB80 and
- * TGB81 come back as precise answers; the route review marks the author who publishes for a partner.
+ * TGB81 come back as precise answers; the route review marks the author who publishes for a partner;
+ * the CMS ties a route partner to the Tuggi partner it is (`custom_route_partners.client_id`, §10.4).
  * Nothing here calls production: every database call is a fake.
  *
  * Run with: npx tsx --import ./tests/api/setup/console-to-stderr.mjs --experimental-test-module-mocks --test tests/api/partner-suggestions-1261.test.ts
@@ -91,6 +92,9 @@ function defaultAnswer(op: Op): Answer {
       ],
     }
   }
+  if (op.table === 'custom_route_partners' && op.op === 'update') {
+    return { data: { id: 'rp-1', name: 'Hotel Mar Azul', short_description: null, logo_url: null, ...(op.payload as object) } }
+  }
   if (op.table === 'profiles') return { data: [{ id: 'place-acc', client_id: OTHER_CLIENT }] }
   if (op.table === 'clients') {
     return {
@@ -164,6 +168,7 @@ function client() {
 /* eslint-disable @typescript-eslint/no-explicit-any */
 let route: any
 let queueRoute: any
+let routePartners: any
 let lib: any
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
@@ -181,6 +186,7 @@ before(async () => {
   })
   route = await import('@/app/api/admin/partner-brand/suggestions/route')
   queueRoute = await import('@/app/api/route-revisions/route')
+  routePartners = await import('@/app/api/routes/partners/route')
   lib = await import('@/lib/partner-brand/suggestions')
 })
 
@@ -377,4 +383,45 @@ test('#1261: a failed partner read leaves the route queue without the badge, nev
   const { items } = await res.json()
   assert.equal(items.length, 3)
   assert.ok(items.every((i: { author_partner: unknown }) => i.author_partner === null))
+})
+
+// ─── Route partner of the curation (§10.4) ───────────────────────────────────────────────────
+
+const RP = '12121212-1111-4222-8333-444444444444'
+const patchRp = (body: unknown) => routePartners.PATCH(req('PATCH', body, 'http://localhost/api/routes/partners'), noCtx)
+
+test('#1261 BR-B2B-073 item 6: the CMS ties a route partner to the Tuggi partner, and unties it with null', async () => {
+  const res = await patchRp({ id: RP, client_id: CLIENT_ID })
+  assert.equal(res.status, 200)
+  const [write] = ops
+  assert.equal(write.schema, 'core')
+  assert.equal(write.table, 'custom_route_partners')
+  assert.equal(write.op, 'update')
+  assert.deepEqual(write.payload, { client_id: CLIENT_ID })
+  assert.deepEqual(write.filters, [['eq', 'id', RP]])
+  assert.equal((await res.json()).partner.client_id, CLIENT_ID)
+
+  ops = []
+  assert.equal((await patchRp({ id: RP, client_id: null })).status, 200)
+  assert.deepEqual(ops[0].payload, { client_id: null })
+})
+
+test('#1261: only an admin ties a route partner, a bad body never reaches the database, and the effect is the proof', async () => {
+  role = 'client'
+  assert.equal((await patchRp({ id: RP, client_id: CLIENT_ID })).status, 403)
+  role = 'admin'
+  for (const body of [{ id: 'x', client_id: CLIENT_ID }, { id: RP }, { id: RP, client_id: 'x' }, null]) {
+    assert.equal((await patchRp(body)).status, 400, JSON.stringify(body))
+  }
+  assert.deepEqual(ops, [])
+
+  respond = (op) => (op.table === 'custom_route_partners' ? { data: null } : defaultAnswer(op))
+  const missing = await patchRp({ id: RP, client_id: CLIENT_ID })
+  assert.equal(missing.status, 404)
+  assert.equal((await missing.json()).error, 'route_partner_not_found')
+
+  respond = (op) => (op.table === 'custom_route_partners' ? { error: { code: '23503', message: 'fk' } } : defaultAnswer(op))
+  const fk = await patchRp({ id: RP, client_id: CLIENT_ID })
+  assert.equal(fk.status, 404)
+  assert.equal((await fk.json()).error, 'client_not_found')
 })

@@ -7559,6 +7559,17 @@
       "done_linked": "Sugestão ligada ao ponto. Ele entra no fim da lista do parceiro.",
       "done_created": "Ponto criado em revisão e ligado à sugestão. Ele entra no fim da lista do parceiro e chega ao app quando estiver no ar.",
       "done_refused": "Sugestão recusada. O parceiro vê o motivo no portal."
+    },
+    "routePartner": {
+      "title": "Roteiros da curadoria",
+      "label": "Parceiro de roteiro",
+      "none": "Nenhum",
+      "takenOption": "{name} (de outro parceiro)",
+      "hint": "Os roteiros públicos e no ar deste parceiro de roteiro aparecem como \"Roteiros de @parceiro\" para quem ele trouxe. O parceiro de roteiro se cria no editor de rotas.",
+      "saved": "Parceiro de roteiro ligado.",
+      "cleared": "Parceiro de roteiro desligado.",
+      "readFailed": "Não foi possível carregar os parceiros de roteiro.",
+      "saveFailed": "Não foi possível salvar. Tente de novo."
     }
   }
 }

@@ -5533,6 +5533,17 @@
       "done_linked": "Sugerencia vinculada al punto. Entra al final de la lista del socio.",
       "done_created": "Punto creado en revisión y vinculado a la sugerencia. Entra al final de la lista del socio y llega a la app cuando esté publicado.",
       "done_refused": "Sugerencia rechazada. El socio ve el motivo en el portal."
+    },
+    "routePartner": {
+      "title": "Rutas de la curaduría",
+      "label": "Socio de ruta",
+      "none": "Ninguno",
+      "takenOption": "{name} (de otro socio)",
+      "hint": "Las rutas públicas y publicadas de este socio de ruta aparecen como \"Roteiros de @parceiro\" para quien él trajo. El socio de ruta se crea en el editor de rutas.",
+      "saved": "Socio de ruta vinculado.",
+      "cleared": "Socio de ruta desvinculado.",
+      "readFailed": "No se pudieron cargar los socios de ruta.",
+      "saveFailed": "No se pudo guardar. Inténtalo de nuevo."
     }
   }
 }
