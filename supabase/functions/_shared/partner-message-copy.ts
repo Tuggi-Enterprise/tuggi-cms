@@ -22,9 +22,10 @@ type Copy = Record<PartnerMessageLang, string>;
 
 /**
  * The version of the footer text, recorded with the act "no" when the person leaves by the e-mail
- * (`drive.stop_partner_messages_by_link`, BR-B2B-072 item 3). A new footer text gets a new version.
+ * (`drive.stop_partner_messages_by_link`, BR-B2B-072 item 3), in the form the app uses for the other
+ * ways out (`com-026.inbox.v1`, `com-026.settings.v1`). A new footer text gets a new version.
  */
-export const PARTNER_MESSAGE_FOOTER_VERSION = 'partner-message-email-2026-11';
+export const PARTNER_MESSAGE_FOOTER_VERSION = 'com-026.email.v1';
 
 /** The Android channel the app creates with IMPORTANCE_LOW (BR-COMUNICACAO-026 item 3.b). */
 export const PARTNER_MESSAGE_ANDROID_CHANNEL = 'partner_messages';
