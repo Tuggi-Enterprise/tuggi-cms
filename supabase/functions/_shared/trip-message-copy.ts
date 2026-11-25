@@ -445,6 +445,14 @@ export const TRIP_EMAIL_COPY = {
     fr: "C'est fait, on n'envoie plus de rappels de voyage à cette adresse. Bon voyage.",
     it: 'Fatto, non mandiamo più promemoria di viaggio a questa e-mail. Buon viaggio.',
   },
+  // Provisional until `copy` reviews it (#1264 security): what a GET of the List-Unsubscribe URL answers.
+  stop_header_get: {
+    pt: 'Para parar os lembretes de viagem, use o link no fim do e-mail.',
+    en: 'To stop the trip reminders, use the link at the end of the email.',
+    es: 'Para parar los recordatorios de viaje, usa el enlace al final del correo.',
+    fr: "Pour arrêter les rappels de voyage, utilise le lien en bas de l'e-mail.",
+    it: "Per fermare i promemoria di viaggio, usa il link in fondo all'e-mail.",
+  },
 } satisfies Record<string, Five>;
 
 /** §3: the day ask's subject keeps the destination while the push title fits in this. */

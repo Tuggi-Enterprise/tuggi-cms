@@ -31,7 +31,7 @@ export const PARTNER_MESSAGE_FOOTER_VERSION = 'com-026.email.v1';
 export const PARTNER_MESSAGE_ANDROID_CHANNEL = 'partner_messages';
 
 export const PARTNER_EMAIL_COPY: Record<
-  'eyebrow' | 'footer_why' | 'footer_reply' | 'footer_stop_partner' | 'stop_done' | 'stop_error',
+  'eyebrow' | 'footer_why' | 'footer_reply' | 'footer_stop_partner' | 'stop_done' | 'stop_header_get' | 'stop_error',
   Copy
 > = {
   eyebrow: {
@@ -63,6 +63,13 @@ export const PARTNER_EMAIL_COPY: Record<
     en: "Done. You won't get messages from @{{handle}} anymore. Your other Tuggi notifications stay as they were.",
     es: 'Listo. Ya no recibirás mensajes de @{{handle}}. Los demás avisos de Tuggi siguen igual.',
     it: 'Fatto. Non riceverai più messaggi di @{{handle}}. Gli altri avvisi di Tuggi restano come prima.',
+  },
+  // Provisional until `copy` reviews it (#1264 security): what a GET of the List-Unsubscribe URL answers.
+  stop_header_get: {
+    pt: 'Para parar estas mensagens, use o link no fim do e-mail.',
+    en: 'To stop these messages, use the link at the end of the email.',
+    es: 'Para parar estos mensajes, usa el enlace al final del correo.',
+    it: "Per fermare questi messaggi, usa il link in fondo all'e-mail.",
   },
   stop_error: {
     pt: 'Não deu para registrar agora. Abra o link de novo daqui a pouco, ou pare pelo app, nos Ajustes.',

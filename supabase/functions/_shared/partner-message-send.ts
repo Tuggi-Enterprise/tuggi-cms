@@ -35,7 +35,7 @@ import {
 } from './partner-message-copy.ts';
 import { singleGateOutcome, type DriveRpc } from './push-gate.ts';
 import { SERVICE_UNSUBSCRIBE, TOURIST_APP_LINK } from './tourist-email.ts';
-import { buildUnsubscribeUrl, signScopedId, unsubscribeHeaders, verifyScopedId } from './unsubscribe-link.ts';
+import { buildUnsubscribeUrl, isOneClickProbe, signScopedId, stopLinkHeaders, verifyScopedId } from './unsubscribe-link.ts';
 
 export const PARTNER_MESSAGE_PUSH_KIND = 'partner_message';
 export const PARTNER_MESSAGE_TYPE = 'partner_message';
@@ -280,8 +280,8 @@ export async function renderPartnerMessageEmail(
     subject: r.subject,
     html: renderEmail(content, opts),
     text: renderText(content, opts),
-    // RFC 8058: the one-click POST lands on the same `/stop`, which answers POST.
-    headers: unsubscribeHeaders(stopUrl),
+    // RFC 8058: the header URL is `/stop` marked `o=1`; there only the one-click POST writes.
+    headers: stopLinkHeaders(stopUrl),
   };
 }
 
@@ -389,6 +389,7 @@ const text = (body: string, status: number) =>
  *   GET|POST /stop?r=&s=&lang=   signed, public -> 200 the confirmation; 400 a link we did not sign;
  *                      404 the recipient is gone (account deleted); 500 the write failed.
  *                      GET is the footer link (one tap, no login); POST is RFC 8058 one-click.
+ *                      GET with `o=1` is the header URL fetched by anti-spam: 200, writes nothing.
  *   GET /click?r=&u=&s=          signed, public -> 302 to `u`; 400 a link we did not sign.
  */
 export async function handlePartnerMessageRequest(req: Request, deps: PartnerMessageHttpDeps): Promise<Response> {
@@ -400,6 +401,7 @@ export async function handlePartnerMessageRequest(req: Request, deps: PartnerMes
     const lang = partnerMessageLang(url.searchParams.get('lang'));
     const recipient = await verifyScopedId('partner_message', url.searchParams.get('r'), url.searchParams.get('s'), deps.secret);
     if (!recipient) return json({ error: 'invalid_link' }, 400);
+    if (isOneClickProbe(req, url)) return text(PARTNER_EMAIL_COPY.stop_header_get[lang], 200);
     const { data, error } = await deps.drive().rpc('stop_partner_messages_by_link', {
       p_recipient_id: recipient,
       p_text_version: PARTNER_MESSAGE_FOOTER_VERSION,

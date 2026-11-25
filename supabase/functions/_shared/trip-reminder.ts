@@ -37,7 +37,7 @@ import { ladderDeps, type MessageDeps } from './phone-confirmation.ts';
 import { singleGateOutcome } from './push-gate.ts';
 import { phoneVars, copyPieceOf, tripReminderEmail, tripReminderPush, type TripFacts, type TripPiece } from './trip-message-copy.ts';
 import { TOURIST_APP_LINK } from './tourist-email.ts';
-import { buildScopedStopUrl, unsubscribeHeaders } from './unsubscribe-link.ts';
+import { buildScopedStopUrl, stopLinkHeaders } from './unsubscribe-link.ts';
 
 export const TRIP_REMINDER_TYPE = 'trip_reminder';
 export const TRIP_REMINDER_DEEPLINK = 'tuggi://map';
@@ -210,8 +210,8 @@ export async function renderTripReminderEmail(
     subject: copy.subject,
     html: renderEmail(content, opts),
     text: renderText(content, opts),
-    // RFC 8058: the one-click POST lands on the same `trip-reminder/stop`, which answers POST.
-    headers: unsubscribeHeaders(stopUrl),
+    // RFC 8058: the header URL is `trip-reminder/stop` marked `o=1`; there only the one-click POST writes.
+    headers: stopLinkHeaders(stopUrl),
   };
 }
 

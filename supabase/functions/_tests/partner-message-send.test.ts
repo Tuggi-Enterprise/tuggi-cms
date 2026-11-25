@@ -214,7 +214,7 @@ Deno.test('BR-COMUNICACAO-026 items 5.d and 6.c: sender and reply of the Tuggi, 
   assertEquals(mail.to, [EMAIL]);
   assertEquals(mail.subject, ROW.subject);
   const stop = await buildStopUrl(ROW, 'pt', CONFIG);
-  assertEquals(mail.headers['List-Unsubscribe'], `<${stop}>`);
+  assertEquals(mail.headers['List-Unsubscribe'], `<${stop}&o=1>`);
   assertEquals(mail.headers['List-Unsubscribe-Post'], 'List-Unsubscribe=One-Click');
   assert(mail.html.includes('Mensagem de parceiro'));
   assert(mail.html.includes('aceitou as mensagens de @viladomar pelo Tuggi em 20 de novembro de 2026'));
@@ -308,6 +308,29 @@ Deno.test('BR-COMUNICACAO-026 item 5.d: the footer link stops that partner in on
     assertEquals(await res.text(), 'Pronto. Você não recebe mais as mensagens de @viladomar. Os outros avisos do Tuggi continuam como estavam.');
     assertEquals(f.calls, [{ fn: 'stop_partner_messages_by_link', args: { p_recipient_id: RECIPIENT, p_text_version: PARTNER_MESSAGE_FOOTER_VERSION } }]);
   }
+});
+
+Deno.test('#1264 security, RFC 8058 §1: a GET of the List-Unsubscribe URL (o=1) answers 200 and writes nothing; only the one-click POST writes', async () => {
+  const stop = await buildStopUrl(ROW, 'pt', CONFIG);
+  const mail = await renderPartnerMessageEmail(ROW, CONFIG);
+  const header = new URL(mail!.headers['List-Unsubscribe'].slice(1, -1));
+  assertEquals(header.href, `${stop}&o=1`);
+
+  const probe = fakeHttp();
+  const get = await handlePartnerMessageRequest(at(`/stop${header.search}`), probe.deps);
+  assertEquals(get.status, 200);
+  assertEquals(await get.text(), 'Para parar estas mensagens, use o link no fim do e-mail.');
+  assertEquals(probe.calls, []);
+
+  const oneClick = fakeHttp();
+  const post = await handlePartnerMessageRequest(at(`/stop${header.search}`, 'POST'), oneClick.deps);
+  assertEquals(post.status, 200);
+  assertEquals(oneClick.calls, [{ fn: 'stop_partner_messages_by_link', args: { p_recipient_id: RECIPIENT, p_text_version: PARTNER_MESSAGE_FOOTER_VERSION } }]);
+
+  // The mark does not open a link we did not sign.
+  const forged = new URL(header.href);
+  forged.searchParams.set('s', 'forged');
+  assertEquals((await handlePartnerMessageRequest(at(`/stop${forged.search}`, 'POST'), fakeHttp().deps)).status, 400);
 });
 
 Deno.test('#1264 security: a stop link we did not sign is refused before the database (invalid HMAC, other recipient, click scope)', async () => {

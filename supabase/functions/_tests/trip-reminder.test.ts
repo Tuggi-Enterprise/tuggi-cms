@@ -436,6 +436,27 @@ Deno.test('trip-reminder /stop: a signed link stops the reminder e-mails of that
   assertEquals(post.status, 200);
 });
 
+Deno.test('#1264 security, RFC 8058 §1: trip-reminder /stop answers a GET of the List-Unsubscribe URL (o=1) without writing; only the one-click POST writes', async () => {
+  const stops: unknown[] = [];
+  scenario.rpcs = { stop_trip_reminder_emails: (a) => (stops.push(a), { data: 1, error: null }) };
+  const f = fakeDeps({ reminders: [{ ...BEFORE, push: false, phone: null }] });
+  await runTripReminders(f.deps);
+  const mail = f.mails[0] as { headers: Record<string, string> };
+  const header = new URL(mail.headers['List-Unsubscribe'].slice(1, -1));
+  assertEquals(header.searchParams.get('o'), '1');
+  const local = `http://edge.test/trip-reminder/stop${header.search}`;
+
+  const get = await reminderHandler(new Request(local, { method: 'GET' }));
+  assertEquals(get.status, 200);
+  assertEquals(await get.text(), 'Para parar os lembretes de viagem, use o link no fim do e-mail.');
+  assertEquals(stops, []);
+
+  const post = await reminderHandler(new Request(local, { method: 'POST', body: 'List-Unsubscribe=One-Click' }));
+  assertEquals(post.status, 200);
+  assertEquals(await post.text(), 'Pronto, não mandamos mais lembretes de viagem para este e-mail. Boa viagem.');
+  assertEquals(stops, [{ p_email: 'ana@example.com' }]);
+});
+
 Deno.test('trip-reminder /stop: a link we did not sign, or without the scope, writes nothing', async () => {
   const stops: unknown[] = [];
   scenario.rpcs = { stop_trip_reminder_emails: (a) => (stops.push(a), { data: 1, error: null }) };

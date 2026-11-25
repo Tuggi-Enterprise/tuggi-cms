@@ -7,6 +7,7 @@
  *   GET|POST /stop?e=&s=&scope=trip_reminder&lang=   public, signed (`unsubscribe-link.ts`)
  *                     -> 200 text, the confirmation in the reader's language   400 for a link we did not sign
  *                     GET is the footer link (one tap, no login, §9.b); POST is RFC 8058 one-click.
+ *                     GET with `o=1` is the header URL fetched by anti-spam: 200, writes nothing.
  *
  * Deploy with `--no-verify-jwt`: the cron presents `ef_secret_key`, which is not a JWT, and the stop
  * link is opened from a mail client. The work is `_shared/trip-reminder.ts`.
@@ -21,7 +22,7 @@ import { getSecretKey } from '../_shared/secret-key.ts';
 import { normalizeTouristLang } from '../_shared/tourist-email.ts';
 import { TRIP_EMAIL_COPY } from '../_shared/trip-message-copy.ts';
 import { runTripReminders, TripReminderClaimError, type EmailConfig } from '../_shared/trip-reminder.ts';
-import { verifyScopedStop } from '../_shared/unsubscribe-link.ts';
+import { isOneClickProbe, verifyScopedStop } from '../_shared/unsubscribe-link.ts';
 
 const json = (body: unknown, status: number) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
@@ -43,17 +44,17 @@ Deno.serve(async (req: Request) => {
       env('NEWSLETTER_SECRET')
     );
     if (!email) return json({ error: 'invalid_link' }, 400);
+    const lang = normalizeTouristLang(url.searchParams.get('lang'));
+    const answer = (body: string) =>
+      new Response(body, { status: 200, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' } });
+    if (isOneClickProbe(req, url)) return answer(TRIP_EMAIL_COPY.stop_header_get[lang]);
     const supabase = createClient(supabaseUrl, machineKey, { auth: { autoRefreshToken: false, persistSession: false } });
     const { error } = await supabase.schema('drive').rpc('stop_trip_reminder_emails', { p_email: email });
     if (error) {
       console.error(`[trip-reminder] stop failed: ${error.code ?? 'unknown'}`);
       return json({ error: 'server_error' }, 500);
     }
-    const lang = normalizeTouristLang(url.searchParams.get('lang'));
-    return new Response(TRIP_EMAIL_COPY.stop_done[lang], {
-      status: 200,
-      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-    });
+    return answer(TRIP_EMAIL_COPY.stop_done[lang]);
   }
 
   if (path !== '/run') return json({ error: 'not_found' }, 404);

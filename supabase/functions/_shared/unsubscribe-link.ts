@@ -86,6 +86,24 @@ export function unsubscribeHeaders(oneClickUrl: string): Record<string, string> 
 }
 
 /**
+ * The headers of a stop link that writes on GET (`partner-message-send/stop`, `trip-reminder/stop`).
+ *
+ * The footer link stops in one tap, no login (BR-COMUNICACAO-026 item 5.d; copy §9.b of #1229). The
+ * same URL in the header would stop people who clicked nothing: RFC 8058 §1 says anti-spam software
+ * fetches the header URIs on its own. So the header carries the URL marked `o=1`, and the route
+ * answers a GET with that mark without writing (`isOneClickProbe`); only the one-click POST writes.
+ * `send-newsletter/unsubscribe` needs no mark: it refuses GET altogether.
+ */
+export function stopLinkHeaders(stopUrl: string): Record<string, string> {
+  return unsubscribeHeaders(`${stopUrl}${stopUrl.includes('?') ? '&' : '?'}o=1`);
+}
+
+/** A GET of the header URL (`stopLinkHeaders`): a scanner or a preview, never a decision. */
+export function isOneClickProbe(req: Request, url: URL): boolean {
+  return req.method === 'GET' && url.searchParams.get('o') === '1';
+}
+
+/**
  * A link with a SCOPE (#1231): it stops one kind of message and nothing else, and the general link
  * above cannot be replayed as a scoped one, nor the other way round, because the signed text differs
  * (`<scope>:<address>` against the bare address). Same secret, `NEWSLETTER_SECRET`.
