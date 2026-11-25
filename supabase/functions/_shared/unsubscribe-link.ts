@@ -17,9 +17,8 @@ const toBase64Url = (bytes: Uint8Array): string => {
 export const encodeEmail = (email: string): string =>
   toBase64Url(new TextEncoder().encode(email.toLowerCase().trim()));
 
-// Assinatura HMAC-SHA256 do email (stateless): permite descadastro sem
-// pré-popular linhas no banco e impede unsubscribe de emails arbitrários.
-export async function signEmail(email: string, secret: string): Promise<string> {
+/** HMAC-SHA256 of the exact text, base64url. The one signer of every link below. */
+async function hmac(text: string, secret: string): Promise<string> {
   const key = await crypto.subtle.importKey(
     'raw',
     new TextEncoder().encode(secret),
@@ -27,8 +26,14 @@ export async function signEmail(email: string, secret: string): Promise<string> 
     false,
     ['sign']
   );
-  const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(email.toLowerCase().trim()));
+  const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(text));
   return toBase64Url(new Uint8Array(sig));
+}
+
+// HMAC-SHA256 signature of the address (stateless): unsubscribe without pre-populated rows,
+// and no unsubscribe of an arbitrary address.
+export function signEmail(email: string, secret: string): Promise<string> {
+  return hmac(email.toLowerCase().trim(), secret);
 }
 
 // O unsubscribe é hospedado no site público (tuggi.app), cujos locales são
@@ -127,4 +132,40 @@ export async function verifyScopedStop(
   if (!/^[^\s@]{1,128}@[^\s@]{1,253}$/.test(email)) return null;
   const expected = await signScopedEmail(scope, email, secret);
   return constantTimeEqual(expected, signature) ? email.toLowerCase().trim() : null;
+}
+
+/**
+ * Links signed over a ROW ID instead of an address (#1264, BR-COMUNICACAO-026 item 5.d). The
+ * partner message e-mail carries no account id and no address in its links
+ * (`docs/contracts/tuggi-do-parceiro.md` §11.3): the id is the `recipient_id` of
+ * `drive.partner_message_recipients`, one per message and person.
+ *
+ * - `partner_message`: the footer "stop messages from @partner" and the `List-Unsubscribe` header.
+ *   Signed text `partner_message:<recipient_id>`.
+ * - `partner_message_click`: the button. Signed text `partner_message_click:<recipient_id>\n<url>`,
+ *   so the redirect goes only to the URL this sender put in the e-mail, never to one typed in the
+ *   query string (no open redirect).
+ *
+ * The scope is inside the signed text, so a stop link cannot be replayed as a click nor the other
+ * way round, and none of them as the address-signed links above. Same secret, `NEWSLETTER_SECRET`.
+ */
+export type SignedIdScope = 'partner_message' | 'partner_message_click';
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function signScopedId(scope: SignedIdScope, id: string, secret: string, extra = ''): Promise<string> {
+  return hmac(`${scope}:${id.toLowerCase()}${extra ? `\n${extra}` : ''}`, secret);
+}
+
+/** The id when the link was signed by us for that scope (and `extra`), `null` otherwise. */
+export async function verifyScopedId(
+  scope: SignedIdScope,
+  id: string | null,
+  signature: string | null,
+  secret: string,
+  extra = ''
+): Promise<string | null> {
+  if (!id || !signature || !secret || !UUID_RE.test(id)) return null;
+  const expected = await signScopedId(scope, id, secret, extra);
+  return constantTimeEqual(expected, signature) ? id.toLowerCase() : null;
 }

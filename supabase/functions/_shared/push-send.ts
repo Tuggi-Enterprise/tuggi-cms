@@ -115,6 +115,53 @@ function deliveryErrorOf(codes: string[]): string {
   return [...clean].sort().join(',') || 'UNKNOWN';
 }
 
+// The FCM v1 message of one notification, for every platform. Pure, so a test reads it.
+//
+// `notification.silent` (#1264, BR-COMUNICACAO-026 item 3.b): no sound and no vibration. Android
+// takes `notification.androidChannelId`, a channel the app creates with IMPORTANCE_LOW ("Makes
+// no sound", developer.android.com, Create and manage notification channels), and no `sound`
+// key. iOS takes `interruption-level: passive`, which Apple documents as "The system adds the
+// notification to the notification list without lighting up the screen or playing a sound"
+// (UNNotificationInterruptionLevel.passive), and no `sound` key either.
+export function buildFcmMessage(notification: any, priority: string, ttl: number) {
+  const silent = notification.silent === true;
+  return {
+    notification: {
+      title: notification.title,
+      body: notification.body,
+      ...(notification.imageUrl && { image: notification.imageUrl }),
+    },
+    // Coerced, because FCM's data map takes strings only — see `stringifyData`.
+    data: stringifyData(notification.data),
+    android: {
+      priority: priority === 'high' ? 'high' : 'normal',
+      ttl: `${ttl}s`,
+      notification: {
+        ...(silent ? {} : { sound: 'default' }),
+        ...(typeof notification.androidChannelId === 'string' && { channel_id: notification.androidChannelId }),
+        ...(notification.badge !== undefined && { notificationCount: notification.badge }),
+      },
+    },
+    apns: {
+      headers: { 
+        'apns-priority': priority === 'high' ? '10' : '5',
+        'apns-push-type': 'alert'
+      },
+      payload: {
+        aps: {
+          alert: {
+            title: notification.title,
+            body: notification.body,
+          },
+          'mutable-content': 1,
+          ...(silent ? { 'interruption-level': 'passive' } : { sound: 'default' }),
+          ...(notification.badge !== undefined && { badge: notification.badge }),
+        },
+      },
+    },
+  };
+}
+
 /** What `/send` answers: the HTTP status and the JSON body, the same for both callers. */
 export interface PushSendAnswer {
   status: number;
@@ -228,44 +275,6 @@ export function createPushSender(supabase: any, requestId: string) {
     return data.access_token;
   };
 
-  // Helper: Construct Multi-platform Message
-  const constructMessage = (notification: any, priority: string, ttl: number) => {
-    return {
-      notification: {
-        title: notification.title,
-        body: notification.body,
-        ...(notification.imageUrl && { image: notification.imageUrl }),
-      },
-      // Coerced, because FCM's data map takes strings only — see `stringifyData`.
-      data: stringifyData(notification.data),
-      android: {
-        priority: priority === 'high' ? 'high' : 'normal',
-        ttl: `${ttl}s`,
-        notification: {
-          sound: 'default',
-          ...(notification.badge !== undefined && { notificationCount: notification.badge }),
-        },
-      },
-      apns: {
-        headers: { 
-          'apns-priority': priority === 'high' ? '10' : '5',
-          'apns-push-type': 'alert'
-        },
-        payload: {
-          aps: {
-            alert: {
-              title: notification.title,
-              body: notification.body,
-            },
-            'mutable-content': 1,
-            sound: 'default',
-            ...(notification.badge !== undefined && { badge: notification.badge }),
-          },
-        },
-      },
-    };
-  };
-
   // One OAuth exchange per run. The gated send calls `sendNotification` once per person, and a
   // token exchange per person would cost one Google round trip for each of them.
   let accessTokenPromise: Promise<string> | null = null;
@@ -299,7 +308,7 @@ export function createPushSender(supabase: any, requestId: string) {
       // routes turn it into a non-2xx so the caller does not record a send.
       aborted: null as string | null,
     };
-    const baseMessage = constructMessage(notification, priority, ttl);
+    const baseMessage = buildFcmMessage(notification, priority, ttl);
 
     // A payload FCM rejects fails EVERY token with the same INVALID_ARGUMENT,
     // so the loop has to be able to stop itself instead of hammering FCM with

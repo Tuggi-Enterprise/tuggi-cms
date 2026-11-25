@@ -258,20 +258,22 @@ test('BR-COMUNICACAO-019 items 3.e, 3.j, 3.l, 3.m.1: who is unrequested and who 
   const reachesEveryone = (kind: string) =>
     kind.startsWith('cms_') || kind.endsWith('_local') || kind === 'daily_summary' || kind === 'first_story' ||
     kind === 'route_revision' || kind === 'account_welcome' || kind === 'hours_expiring' ||
-    kind === 'trip_reminder'
+    kind === 'trip_reminder' || kind === 'partner_message'
   for (const [kind, policy] of Object.entries(gate.PUSH_KINDS) as Array<[string, any]>) {
-    // 3.s (#1231): the trip reminder is the one push the person asked for.
-    assert.equal(policy.requested, kind === 'trip_reminder', `${kind}: requested`)
+    // 3.s (#1231): the trip reminder is the push the person asked for; the push typed in the CMS
+    // for named people is sent by hand and counts as asked for (operator, 2026-11-24).
+    assert.equal(policy.requested, kind === 'trip_reminder' || kind === 'cms_direct', `${kind}: requested`)
     assert.equal(policy.requiresActive, !reachesEveryone(kind), kind)
   }
 })
 
-test('BR-COMUNICACAO-019 items 3.h.2.e, 3.i, 3.n, 3.r, 3.s, 4, 4.1 and 7, BR-ROTA-006 item 3: only the eve of a short concession, the summary, the first story, the version answer, the welcome and the trip reminder are outside every cap', () => {
+test('BR-COMUNICACAO-019 items 3.h.2.e, 3.i, 3.n, 3.r, 3.s, 4, 4.1 and 7, BR-ROTA-006 item 3, BR-COMUNICACAO-026 item 4.d: only the eve of a short concession, the summary, the first story, the version answer, the welcome, the trip reminder and the partner message are outside every cap', () => {
   const outside = Object.entries(gate.PUSH_KINDS as Record<string, { outsideCaps: boolean }>)
     .filter(([, policy]) => policy.outsideCaps)
     .map(([kind]) => kind)
     .sort()
-  assert.deepEqual(outside, ['account_welcome', 'daily_summary', 'first_story', 'hours_expiring', 'route_revision', 'trip_reminder'])
+  // BR-COMUNICACAO-026 item 4.d (#1264): the partner message has its own cap, outside the ones of 019.
+  assert.deepEqual(outside, ['account_welcome', 'daily_summary', 'first_story', 'hours_expiring', 'partner_message', 'route_revision', 'trip_reminder'])
   for (const [kind, policy] of Object.entries(gate.PUSH_KINDS) as Array<[string, any]>) {
     assert.equal(typeof policy.outsideCaps, 'boolean', kind)
   }

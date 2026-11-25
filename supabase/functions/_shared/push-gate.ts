@@ -38,7 +38,8 @@ export type PushKind =
   | 'caravan_joined'
   | 'hours_gifted'
   | 'hours_expiring'
-  | 'trip_reminder';
+  | 'trip_reminder'
+  | 'partner_message';
 
 export interface PushKindPolicy {
   /**
@@ -125,6 +126,12 @@ export const PUSH_KINDS: Readonly<Record<PushKind, PushKindPolicy>> = {
   // Requested, as 3.a: outside every cap and the quiet hours, consent only. Sender: `trip-reminder`
   // (`_shared/trip-reminder.ts`).
   trip_reminder: { requested: true, requiresActive: false, vacancyPriority: 4, outsideCaps: true },
+  // BR-COMUNICACAO-026 item 4.d (#1264): the partner message is outside the caps of 019 (items 4 and
+  // 4.1) and out of the item 7 dispute; its own cap, its window in the person's zone and the yes of
+  // BR-B2B-072 are applied by `drive.claim_partner_message_recipients`. Here, consent only. The
+  // Correio row is written by the claim and handed over. Sender: `partner-message-send`
+  // (`_shared/partner-message-send.ts`).
+  partner_message: { requested: false, requiresActive: false, vacancyPriority: 4, outsideCaps: true },
 };
 
 /** `null` for anything that is not a known kind: an unknown kind is refused, never defaulted. */

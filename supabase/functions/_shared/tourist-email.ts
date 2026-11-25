@@ -106,7 +106,8 @@ const SERVICE_FOOTER_NOTE: Copy = {
   fr: 'Tu reçois cet e-mail parce que tu as un compte Tuggi.',
   it: 'Ricevi questa e-mail perché hai un account Tuggi.',
 };
-const SERVICE_UNSUBSCRIBE: Copy = {
+/** §3.1, the general unsubscribe link of a service e-mail; also the second footer link of the partner message (#1264). */
+export const SERVICE_UNSUBSCRIBE: Copy = {
   pt: 'Parar de receber avisos e novidades do Tuggi',
   en: 'Stop all Tuggi alerts and news',
   es: 'Dejar de recibir avisos y novedades de Tuggi',

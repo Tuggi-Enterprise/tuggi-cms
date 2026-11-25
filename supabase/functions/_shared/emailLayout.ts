@@ -25,6 +25,8 @@ export interface NewsletterContent {
   cta_url?: string;
   hero_image_url?: string;
   hero_alt?: string; // texto alternativo (acessibilidade + imagens bloqueadas)
+  /** #1264: a short label above the body ("Mensagem de parceiro"), legacy layout only. */
+  eyebrow?: string;
 }
 
 export interface RenderEmailOptions {
@@ -35,6 +37,12 @@ export interface RenderEmailOptions {
   // BR-COMUNICACAO-020) and the service class names its own link. Without them, the newsletter footer.
   footerNote?: string;
   unsubscribeLabel?: string;
+  /**
+   * #1264: more footer links after the unsubscribe one, in order. The partner message e-mail stops
+   * that partner with the main link and carries the general unsubscribe of BR-COMUNICACAO-020
+   * item 4 here (BR-COMUNICACAO-026 item 5.d). Same rule as every href: http(s) or mailto only.
+   */
+  extraLinks?: { label: string; url: string }[];
 }
 
 // Cores da marca (ver tailwind.config tuggi.*)
@@ -182,6 +190,7 @@ export function renderText(content: NewsletterContent, opts: RenderEmailOptions)
       else if (b.type === 'divider') lines.push('---', '');
     }
   } else {
+    if (content.eyebrow) lines.push(content.eyebrow, '');
     if (content.title) lines.push(content.title, '');
     for (const p of content.paragraphs || []) lines.push(inlineToText(p), '');
     if (content.cta_label && content.cta_url) lines.push(`${content.cta_label}: ${appendUtm(content.cta_url, opts.utmCampaign)}`, '');
@@ -192,6 +201,7 @@ export function renderText(content: NewsletterContent, opts: RenderEmailOptions)
   lines.push('—');
   if (opts.footerNote) lines.push(opts.footerNote);
   lines.push(`Tuggi · ${opts.unsubscribeLabel || footer.unsubscribe}: ${opts.unsubscribeUrl}`);
+  for (const link of opts.extraLinks ?? []) lines.push(`${link.label}: ${link.url}`);
   return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
@@ -236,6 +246,7 @@ export function renderEmail(content: NewsletterContent, opts: RenderEmailOptions
   const bodyRows = useBlocks
     ? renderBlocks(content.blocks as EmailBlock[], opts)
     : `${hero}
+       ${content.eyebrow ? `<tr><td style="padding:0 0 8px 0;"><p style="margin:0;font-size:12px;line-height:1.4;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:${COLORS.muted};">${escapeHtml(content.eyebrow)}</p></td></tr>` : ''}
        ${title ? `<tr><td style="padding:0 0 16px 0;"><h1 style="margin:0;font-size:24px;line-height:1.3;color:${COLORS.text};font-weight:800;">${title}</h1></td></tr>` : ''}
        <tr><td>${paragraphs}</td></tr>
        ${cta}`;
@@ -273,7 +284,7 @@ export function renderEmail(content: NewsletterContent, opts: RenderEmailOptions
           <tr>
             <td style="padding:24px;border-top:1px solid ${COLORS.border};">
               ${opts.footerNote ? `<p style="margin:0 0 8px 0;font-size:12px;line-height:1.5;color:${COLORS.muted};text-align:center;">
-                ${escapeHtml(opts.footerNote)}
+                ${escapeHtml(opts.footerNote).replace(/\r?\n/g, '<br/>')}
               </p>` : ''}
               <p style="margin:0 0 8px 0;font-size:12px;line-height:1.5;color:${COLORS.muted};text-align:center;">
                 ${escapeHtml(footer.rights)}
@@ -283,6 +294,9 @@ export function renderEmail(content: NewsletterContent, opts: RenderEmailOptions
                   ${escapeHtml(opts.unsubscribeLabel || footer.unsubscribe)}
                 </a>
               </p>
+              ${(opts.extraLinks ?? []).map((link) => `<p style="margin:8px 0 0 0;font-size:12px;line-height:1.5;color:${COLORS.muted};text-align:center;">
+                <a href="${safeUrl(link.url)}" target="_blank" style="color:${COLORS.muted};text-decoration:underline;">${escapeHtml(link.label)}</a>
+              </p>`).join('')}
             </td>
           </tr>
         </table>
