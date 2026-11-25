@@ -85,8 +85,8 @@ export function PendingPlaceSuggestionCard({ suggestion, title, onDone }: Pendin
         <span className="text-xs text-gray-500">{t('submittedAt', { date: new Date(s.created_at).toLocaleString() })}</span>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <section className="space-y-2">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <section className="min-w-0 space-y-2">
           <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-600">{t('sent')}</h4>
           <dl className="grid grid-cols-[6rem_1fr] gap-x-3 gap-y-1 text-sm">
             <dt className="text-gray-600">{t('place')}</dt>
@@ -106,7 +106,7 @@ export function PendingPlaceSuggestionCard({ suggestion, title, onDone }: Pendin
           <p className="text-xs text-gray-500">{t('counts', { picks: s.picks_count, pending: s.pending_count })}</p>
         </section>
 
-        <section className="space-y-2">
+        <section className="min-w-0 space-y-2">
           <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-600">{t('nearbyTitle', { radius: NEARBY_POI_RADIUS_M })}</h4>
           {s.nearby.length === 0 ? (
             <p className="rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-600">{t('nearbyNone', { radius: NEARBY_POI_RADIUS_M })}</p>
