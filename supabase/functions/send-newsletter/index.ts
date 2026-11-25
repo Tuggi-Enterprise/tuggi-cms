@@ -308,7 +308,8 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
 
   const requestId = crypto.randomUUID();
-  console.log(`[${requestId}] 🚀 send-newsletter: ${req.method} ${req.url}`);
+  // The path only: the query of `/unsubscribe` carries the address (`e=`, base64), which no log may hold.
+  console.log(`[${requestId}] 🚀 send-newsletter: ${req.method} ${new URL(req.url).pathname}`);
 
   try {
     const url = new URL(req.url);
