@@ -194,6 +194,10 @@ export type AuditAction =
   // #1261, BR-B2B-073 item 3.b: the curator answers a partner's place suggestion (link, created,
   // refuse). Ids and the answer in the description, never the refusal reason.
   | 'DECIDE_PARTNER_PICK_SUGGESTION'
+  // #1264, BR-COMUNICACAO-026 items 6.a and 6.b: the curator writes, approves, refuses, schedules,
+  // unschedules or cancels a partner message. Ids and the act only, never a text or a reason.
+  | 'SAVE_PARTNER_MESSAGE'
+  | 'DECIDE_PARTNER_MESSAGE'
 
 export type AuditEntity = 'USER' | 'POI' | 'AUTH' | 'CLIENT' | 'PARTNER_PROPOSAL' | 'FINANCE'
 

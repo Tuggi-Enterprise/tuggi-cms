@@ -41,7 +41,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
 import { CharCount } from '@/components/ui/CharCount';
-import { Bell, Send, Layout, History, Sparkles, Clock, Eye, User, Search, CheckCircle2, Zap, AlertTriangle } from 'lucide-react';
+import { Bell, Send, Layout, History, Sparkles, Clock, Eye, User, Search, CheckCircle2, Zap, AlertTriangle, Store } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useLocale, useTranslations } from 'next-intl';
 import { cn } from '@/lib/utils';
@@ -49,6 +49,7 @@ import { AudienceFilter } from '../shared/AudienceFilter';
 import { TemplateManager } from './TemplateManager';
 import { NotificationHistory } from './NotificationHistory';
 import { SendConfirmDialog } from './SendConfirmDialog';
+import { PartnerMessagePanel } from './PartnerMessagePanel';
 import { useCmsUser } from '@/lib/hooks/useCmsUser';
 import { directPushNotSent } from '@/lib/notifications/direct-push-outcome';
 import {
@@ -84,6 +85,7 @@ const emptyContent = () => ({ title: '', body: '' });
 export function NotificationManager() {
   const t = useTranslations('Pages.Notifications');
   const tAudience = useTranslations('Pages.Marketing.Audience');
+  const tPartner = useTranslations('PartnerMessages');
   const locale = useLocale();
 
   const [activeTab, setActiveTab] = useState('broadcast');
@@ -371,6 +373,8 @@ export function NotificationManager() {
     { id: 'direct', label: t('tabs.direct'), icon: User },
     { id: 'templates', label: t('tabs.templates'), icon: Layout },
     { id: 'history', label: t('tabs.history'), icon: History },
+    // #1264, BR-COMUNICACAO-026: the partner's message, its own flow and its own numbers.
+    { id: 'partner', label: tPartner('tab'), icon: Store },
   ];
 
   const languageName = (l: PushLanguage) => tAudience(`language.${l}`);
@@ -391,7 +395,7 @@ export function NotificationManager() {
       </div>
 
       {/* Tabs Navigation */}
-      <div className="flex space-x-1 bg-gray-100 dark:bg-gray-800/50 p-1.5 rounded-2xl w-fit border border-gray-200 dark:border-gray-700">
+      <div className="flex flex-wrap gap-1 bg-gray-100 dark:bg-gray-800/50 p-1.5 rounded-2xl w-fit max-w-full border border-gray-200 dark:border-gray-700">
         {tabs.map((tab) => {
           const Icon = tab.icon;
           return (
@@ -926,6 +930,12 @@ export function NotificationManager() {
         {activeTab === 'history' && (
           <div className="animate-in slide-in-from-bottom-4 duration-500">
             <NotificationHistory />
+          </div>
+        )}
+
+        {activeTab === 'partner' && (
+          <div className="animate-in slide-in-from-bottom-4 duration-500">
+            <PartnerMessagePanel />
           </div>
         )}
       </div>
