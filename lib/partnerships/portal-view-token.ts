@@ -119,6 +119,7 @@ const READS = {
   portal_get_place_media: ['p_submission_id'],
   portal_get_place_profile: ['p_submission_id'],
   portal_get_partner_picks: ['p_submission_id'],
+  portal_get_partner_messages: ['p_submission_id'],
   portal_search_partner_pick_candidates: ['p_south', 'p_west', 'p_north', 'p_east', 'p_query', 'p_limit', 'p_submission_id'],
   portal_get_terms: ['p_submission_id', 'p_version'],
   portal_quote: ['p_billing_period', 'p_voucher_code'],

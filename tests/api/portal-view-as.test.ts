@@ -275,6 +275,24 @@ test('#996: a session reads the /status of its own submission through partner.po
   ])
 })
 
+test('#1264 BR-COMUNICACAO-026 item 6.e: the view reads the partner message numbers of its own submission, and of no other', async () => {
+  const session = await openedSession()
+  const panel = { monthly_cap: 2, used_this_month: 0, messages: [] }
+  scenario.rpcAnswer = { data: panel, error: null }
+  const res = await view({ action: 'read', session, fn: 'portal_get_partner_messages', args: { p_submission_id: SUBMISSION } })
+  assert.equal(res.status, 200)
+  assert.deepEqual(await res.json(), { data: panel })
+  assert.deepEqual(scenario.rpcCalls, [
+    { fn: 'portal_view_call', args: { p_submission_id: SUBMISSION, p_fn: 'portal_get_partner_messages', p_args: { p_submission_id: SUBMISSION } } },
+  ])
+  scenario.rpcCalls.length = 0
+  for (const args of [{ p_submission_id: OTHER }, { p_submission_id: null }, {}]) {
+    const refused = await view({ action: 'read', session, fn: 'portal_get_partner_messages', args })
+    assert.equal(refused.status, 403, JSON.stringify(args))
+  }
+  assert.equal(scenario.rpcCalls.length, 0)
+})
+
 test('#996: the owner list shows only the viewed submission', async () => {
   const session = await openedSession()
   scenario.rpcAnswer = { data: [{ submission_id: OTHER }, { submission_id: SUBMISSION }], error: null }
