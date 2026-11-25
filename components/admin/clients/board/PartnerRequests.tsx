@@ -2,7 +2,7 @@
 
 /**
  * The queue of requests of partners without a place from the app, above the partners board
- * (#1139, BR-B2B-066 items 2 and 5, BR-USUARIO-052 item 4.d).
+ * (#1139, BR-B2B-066 items 2 and 5, BR-USUARIO-052 items 4.a and 4.d; the content block since #1297).
  *
  * Only requests with the acceptance reach it (the database filters). The repeated document is
  * NOT refused (5.a): it arrives marked, and the curator sees the mark before deciding. The record
@@ -23,7 +23,13 @@ import { formatDate } from '@/components/admin/partner-proposals/format'
 import {
   REFUSAL_REASON_MAX,
   approvalKeepsRequest,
+  channelHref,
+  countryName,
   formatDocument,
+  isContentRequest,
+  isContentTopic,
+  isSocialNetwork,
+  languageName,
   publishesHref,
   refusalReasonOf,
   whatsappHref,
@@ -48,6 +54,7 @@ export interface PartnerRequestsQueueProps {
 }
 
 const CELL = 'px-3 py-2 align-top'
+const LINK = 'text-primary-800 underline-offset-4 hover:underline dark:text-tuggi-blue'
 
 export function PartnerRequestsQueue({ requests, status, busyId, notice, onApprove, onRefuse }: PartnerRequestsQueueProps) {
   const t = useTranslations('Clients.board.requests')
@@ -186,14 +193,20 @@ export function PartnerRequestsQueue({ requests, status, busyId, notice, onAppro
                           </a>
                         </td>
                         <td className={CELL}>
-                          {link ? (
-                            <a href={link} target="_blank" rel="noopener noreferrer" className="block max-w-[14rem] truncate text-primary-800 underline-offset-4 hover:underline dark:text-tuggi-blue">
-                              {request.publishesAt}
-                            </a>
+                          {isContentRequest(request) ? (
+                            <ContentCell request={request} />
                           ) : (
-                            <p>{request.publishesAt ?? '—'}</p>
+                            <>
+                              {link ? (
+                                <a href={link} target="_blank" rel="noopener noreferrer" className={`block max-w-[14rem] truncate ${LINK}`}>
+                                  {request.publishesAt}
+                                </a>
+                              ) : (
+                                <p>{request.publishesAt ?? '—'}</p>
+                              )}
+                              <p className="text-xs text-gray-700 dark:text-gray-300">{request.region}</p>
+                            </>
                           )}
-                          <p className="text-xs text-gray-700 dark:text-gray-300">{request.region}</p>
                         </td>
                         <td className={CELL}>
                           <p className="whitespace-nowrap">{formatDate(request.acceptedAt)}</p>
@@ -209,6 +222,63 @@ export function PartnerRequestsQueue({ requests, status, busyId, notice, onAppro
         </div>
       )}
     </section>
+  )
+}
+
+/**
+ * The request of the new builds (#1297, BR-USUARIO-052 item 4.a.i): country and region, then the
+ * content block. The 4 networks link to the profile with the band beside it (declared, nobody
+ * checks it, only the curator sees it); `site` opens apart without the opener; `other` is free text
+ * and stays text.
+ */
+function ContentCell({ request }: { request: PartnerRequestRow }) {
+  const t = useTranslations('Clients.board.requests.content')
+  const channels = request.channels ?? []
+  const languages = request.contentLanguages ?? []
+  const topics = request.contentTopics ?? []
+  const contentOptional = request.partnerType === 'driver' || request.partnerType === 'tour_guide'
+  return (
+    <div className="max-w-[18rem] space-y-1">
+      <p>{t('place', { country: countryName(request.country ?? ''), region: request.region })}</p>
+      {request.createsContent === false ? (
+        <p className="text-xs text-gray-700 dark:text-gray-300">{t('noContent')}</p>
+      ) : (
+        <>
+          {contentOptional && <p className="text-xs text-gray-700 dark:text-gray-300">{t('createsContent')}</p>}
+          {channels.length > 0 && (
+            <ul className="space-y-0.5">
+              {channels.map((channel) => {
+                const href = channelHref(channel)
+                const shown = isSocialNetwork(channel.network) ? t('handle', { handle: channel.value }) : channel.value
+                return (
+                  <li key={channel.network} className="text-xs">
+                    <span className="font-semibold">{t(`networks.${channel.network}`)}</span>{' '}
+                    {href ? (
+                      <a href={href} target="_blank" rel="noopener noreferrer" className={`break-all ${LINK}`}>
+                        {shown}
+                      </a>
+                    ) : (
+                      <span className="break-all">{shown}</span>
+                    )}
+                    {channel.audience && (
+                      <span className="text-gray-700 dark:text-gray-300"> · {t(`audiences.${channel.audience}`)}</span>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+          {languages.length > 0 && (
+            <p className="text-xs text-gray-700 dark:text-gray-300">{t('languages', { list: languages.map(languageName).join(', ') })}</p>
+          )}
+          {topics.length > 0 && (
+            <p className="text-xs text-gray-700 dark:text-gray-300">
+              {t('topicsLine', { list: topics.map((topic) => (isContentTopic(topic) ? t(`topics.${topic}`) : topic)).join(', ') })}
+            </p>
+          )}
+        </>
+      )}
+    </div>
   )
 }
 

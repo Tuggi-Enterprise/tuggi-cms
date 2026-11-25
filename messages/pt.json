@@ -4884,7 +4884,7 @@
           "person": "Quem pede",
           "document": "Documento",
           "contact": "Contato",
-          "publishes": "Onde publica e cidade",
+          "publishes": "Conteúdo e região",
           "acceptance": "Aceite",
           "decision": "Decisão"
         },
@@ -4911,6 +4911,40 @@
         "refuseConfirm": "Recusar com este motivo",
         "cancel": "Cancelar",
         "reasonCount": "{count} de {max}",
+        "content": {
+          "place": "{country} · {region}",
+          "createsContent": "Também cria conteúdo",
+          "noContent": "Não cria conteúdo",
+          "handle": "@{handle}",
+          "languages": "Idiomas: {list}",
+          "topicsLine": "Temas: {list}",
+          "networks": {
+            "instagram": "Instagram",
+            "tiktok": "TikTok",
+            "youtube": "YouTube",
+            "facebook": "Facebook",
+            "site": "Blog ou site",
+            "other": "Outro"
+          },
+          "audiences": {
+            "up_to_1k": "até 1 mil",
+            "1k_10k": "1 a 10 mil",
+            "10k_100k": "10 a 100 mil",
+            "100k_1m": "100 mil a 1 milhão",
+            "over_1m": "mais de 1 milhão"
+          },
+          "topics": {
+            "travel": "viagem",
+            "food": "gastronomia",
+            "adventure_nature": "aventura e natureza",
+            "culture_history": "cultura e história",
+            "family": "família",
+            "luxury": "luxo",
+            "budget_travel": "viagem econômica",
+            "lifestyle": "estilo de vida",
+            "other": "outro"
+          }
+        },
         "outcomes": {
           "approved": "Aprovado. Código {code}, comissão de {rate}.",
           "approvedNoRate": "Aprovado. Código {code}.",
