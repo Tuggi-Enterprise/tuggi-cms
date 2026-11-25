@@ -6,6 +6,8 @@
  *
  * - Logos to decide (BR-B2B-070 item 2): nothing of the partner reaches the tourist before a human
  *   approves it here.
+ * - Place suggestions to answer (#1261, BR-B2B-073 item 3.b), under the logos: link to a POI,
+ *   create it, or refuse with a reason (`PlaceSuggestionQueue`).
  * - The brand term in days (item 7) and the three switches (item 4 and the gift per platform). The
  *   writes go to the routes that already own them: `/api/admin/reward-settings` and
  *   `/api/admin/trip-reminder/switches`; this page only names the keys of this product.
@@ -20,11 +22,11 @@ import Link from 'next/link'
 import { AlertCircle, BadgeCheck } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { Container } from '@/components/ui/Container'
-import { CLIENT_DIRECTORY_PATH } from '@/lib/clients/directory-filter'
 import {
   BRAND_TERM_KEY,
   formatMoneyInput,
   parseMoneyInput,
+  partnerBrandHref,
   switchId,
   type GiftPackage,
   type PartnerBrandError,
@@ -34,6 +36,7 @@ import {
 } from '@/lib/partner-brand/brand'
 import { parseRewardValue, validateRewardValue } from '@/lib/rewards/settings'
 import { PendingLogoCard } from './PendingLogoCard'
+import { PlaceSuggestionQueue, type QueueNotice } from './PlaceSuggestionQueue'
 import { usePartnerBrandErrorText } from './usePartnerBrandErrorText'
 
 const SECTION = 'rounded-lg border border-gray-200 bg-white p-5'
@@ -55,7 +58,7 @@ export function PartnerBrandPageContent() {
   const [logos, setLogos] = useState<PendingLogo[] | null>(null)
   const [settings, setSettings] = useState<PartnerBrandSettings | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
+  const [notice, setNotice] = useState<QueueNotice | null>(null)
 
   const loadLogos = useCallback(async () => {
     try {
@@ -85,7 +88,7 @@ export function PartnerBrandPageContent() {
   }, [loadLogos, loadSettings])
 
   const onDecided = (outcome: 'approved' | 'rejected' | 'stale') => {
-    if (outcome !== 'stale') setNotice(t(`logo.done_${outcome}`))
+    if (outcome !== 'stale') setNotice({ ok: true, text: t(`logo.done_${outcome}`) })
     void loadLogos()
   }
 
@@ -106,8 +109,10 @@ export function PartnerBrandPageContent() {
           </div>
         )}
         {notice && (
-          <p role="status" className="rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800">
-            {notice}
+          <p
+            role={notice.ok ? 'status' : 'alert'}
+            className={`rounded-md border px-3 py-2 text-sm ${notice.ok ? 'border-green-200 bg-green-50 text-green-800' : 'border-red-200 bg-red-50 text-red-700'}`}>
+            {notice.text}
           </p>
         )}
 
@@ -132,7 +137,7 @@ export function PartnerBrandPageContent() {
                   submittedAt={logo.logo_submitted_at}
                   title={
                     <Link
-                      href={`${CLIENT_DIRECTORY_PATH}?${new URLSearchParams({ clientId: logo.client_id, tab: 'brand' }).toString()}`}
+                      href={partnerBrandHref(logo.client_id)}
                       className="underline-offset-2 hover:underline">
                       {logo.client_name ?? t('logo.noName')}
                     </Link>
@@ -142,6 +147,14 @@ export function PartnerBrandPageContent() {
               ))}
             </ul>
           )}
+        </section>
+
+        <section aria-labelledby="partner-suggestions" className="space-y-3">
+          <h2 id="partner-suggestions" className="text-lg font-bold text-gray-900">
+            {t('suggestions.queueTitle')}
+          </h2>
+          <p className="text-sm text-gray-600">{t('suggestions.queueIntro')}</p>
+          <PlaceSuggestionQueue onNotice={setNotice} />
         </section>
 
         {settings && (

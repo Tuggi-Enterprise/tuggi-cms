@@ -191,6 +191,9 @@ export type AuditAction =
   | 'DECIDE_PARTNER_LOGO'
   | 'SET_PARTNER_PILOT'
   | 'SET_GIFT_PACKAGE_PRICE'
+  // #1261, BR-B2B-073 item 3.b: the curator answers a partner's place suggestion (link, created,
+  // refuse). Ids and the answer in the description, never the refusal reason.
+  | 'DECIDE_PARTNER_PICK_SUGGESTION'
 
 export type AuditEntity = 'USER' | 'POI' | 'AUTH' | 'CLIENT' | 'PARTNER_PROPOSAL' | 'FINANCE'
 

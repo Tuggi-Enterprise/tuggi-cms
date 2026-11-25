@@ -58,6 +58,17 @@ export interface QueueItem {
   live_revision_no: number | null
   filter_flag_reason: string | null
   report_count: number
+  /** The partner the author publishes for (#1261); `null` for any other author. Added by the CMS. */
+  author_partner?: AuthorPartner | null
+}
+
+/** The partner record behind an author: the badge, the link to the record and the "Contado por" @. */
+export interface AuthorPartner {
+  client_id: string
+  /** `partner.clients.name`, the trade name. */
+  name: string | null
+  /** The @ of the partner page; `null` when the record has none. */
+  handle: string | null
 }
 
 /** One stop of a version, as `core.resolve_user_route_stops` writes it. */
@@ -308,34 +319,43 @@ export interface PromotionInput {
   photoKey: string | null
 }
 
-export type PromotionError =
-  | 'invalid_annotation' | 'name_required' | 'description_required' | 'city_required'
-  | 'country_required' | 'invalid_photo'
+export type PromotionError = 'invalid_annotation' | NewPoiFieldsError | 'invalid_photo'
 
-/** The body of the promotion. The text is the author's, corrected only (BR-ROTA-009 item 2). */
-export function parsePromotion(body: unknown): { ok: true; input: PromotionInput } | { ok: false; error: PromotionError } {
+/** The text of a POI the curator creates: name, description, city and country required, state optional. */
+export interface NewPoiFields {
+  name: string
+  description: string
+  city: string
+  country: string
+  state: string | null
+}
+
+export type NewPoiFieldsError = 'name_required' | 'description_required' | 'city_required' | 'country_required'
+
+/**
+ * The fields of a POI born from the CMS, trimmed. One check for the two doors that create one: the
+ * promotion of an annotation (BR-ROTA-009) and the partner's place suggestion (BR-B2B-073 item 3.b).
+ */
+export function parseNewPoiFields(body: unknown): { ok: true; fields: NewPoiFields } | { ok: false; error: NewPoiFieldsError } {
   const b = (body ?? {}) as Record<string, unknown>
-  if (!isUuid(b.annotationId)) return { ok: false, error: 'invalid_annotation' }
   const t = (v: unknown) => (typeof v === 'string' ? v.trim() : '')
   if (!t(b.name)) return { ok: false, error: 'name_required' }
   if (!t(b.description)) return { ok: false, error: 'description_required' }
   if (!t(b.city)) return { ok: false, error: 'city_required' }
   if (!t(b.country)) return { ok: false, error: 'country_required' }
+  return { ok: true, fields: { name: t(b.name), description: t(b.description), city: t(b.city), country: t(b.country), state: t(b.state) || null } }
+}
+
+/** The body of the promotion. The text is the author's, corrected only (BR-ROTA-009 item 2). */
+export function parsePromotion(body: unknown): { ok: true; input: PromotionInput } | { ok: false; error: PromotionError } {
+  const b = (body ?? {}) as Record<string, unknown>
+  if (!isUuid(b.annotationId)) return { ok: false, error: 'invalid_annotation' }
+  const fields = parseNewPoiFields(b)
+  if (!fields.ok) return fields
   if (b.photoKey !== undefined && b.photoKey !== null && (typeof b.photoKey !== 'string' || !b.photoKey)) {
     return { ok: false, error: 'invalid_photo' }
   }
-  return {
-    ok: true,
-    input: {
-      annotationId: b.annotationId,
-      name: t(b.name),
-      description: t(b.description),
-      city: t(b.city),
-      country: t(b.country),
-      state: t(b.state) || null,
-      photoKey: (b.photoKey as string | null | undefined) ?? null,
-    },
-  }
+  return { ok: true, input: { annotationId: b.annotationId, ...fields.fields, photoKey: (b.photoKey as string | null | undefined) ?? null } }
 }
 
 /** Whether an annotation can become a POI: it needs the author's text (BR-ROTA-009, edge case). */
@@ -361,12 +381,16 @@ export function photoContentType(path: string): string {
   return 'image/jpeg'
 }
 
-/** A POI next to an annotation, nearest first. */
+/** A POI next to an annotation or a suggested pin, nearest first. */
 export interface NearbyPoi {
   id: string
   name: string
   city: string | null
   country: string | null
+  /** `primary_category`, the slug of the catalog. */
+  category: string | null
+  /** `false` while the POI waits for the usual review: linked to a suggestion, it shows off the air. */
+  approved: boolean
   distance_m: number
 }
 

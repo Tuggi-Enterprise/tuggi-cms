@@ -2729,6 +2729,12 @@
         "done_photo_failed": "POI created under review, but the photo was not copied.",
         "already": "Already a POI",
         "cannot": "A note without text does not become a POI."
+      },
+      "partner": {
+        "badge": "Partner",
+        "no_name": "Partner without a name",
+        "what_changes": "Partner author. Once approved and public, the route goes out signed by them and highlighted for the people they brought, in the region and during the term. The review is the usual one.",
+        "told_by": "In the app the point shows \"Contado por @{handle}\"."
       }
     },
     "PublicNames": {
@@ -5505,7 +5511,46 @@
       "invalid_value": "The database refused the value. Check it and try again.",
       "forbidden": "Only an active CMS administrator can change this.",
       "read_failed": "Could not load. Reload the page.",
-      "write_failed": "Could not save. Try again."
+      "write_failed": "Could not save. Try again.",
+      "invalid_suggestion": "Invalid suggestion. Reload the page.",
+      "invalid_poi": "Invalid point. Check the id or the fields of the point.",
+      "suggestion_reason_too_long": "The reason has at most 1,000 characters.",
+      "suggestion_not_pending": "This suggestion no longer waits for an answer: someone already answered, or the partner cancelled it. The list was reloaded.",
+      "poi_not_found": "This point does not exist. Check the id.",
+      "own_poi": "This point already belongs to the partner and is on its page."
+    },
+    "suggestions": {
+      "queueTitle": "Place suggestions",
+      "queueIntro": "Places the partner wants to recommend that Tuggi does not have yet. Link to a point that exists, create the point, or refuse saying why.",
+      "queueEmpty": "No suggestion waiting for an answer.",
+      "submittedAt": "Sent on {date}",
+      "sent": "What the partner sent",
+      "place": "Place",
+      "note": "Note",
+      "noNote": "No note",
+      "pin": "Pin",
+      "openMap": "See on the map",
+      "counts": "The partner has {picks} picks and {pending} pending suggestions.",
+      "nearbyTitle": "Already near the pin? (up to {radius} m)",
+      "nearbyNone": "No point within {radius} m of the pin.",
+      "distance": "{meters} m from the pin",
+      "notApproved": "not approved",
+      "link": "Link to this",
+      "linkTo": "Link to {name}",
+      "linkById": "Link by point id",
+      "linkByIdSubmit": "Link",
+      "linkByIdHint": "For a point that exists far from the pin: copy its id from the list of points.",
+      "create": "Create the point",
+      "createHint": "The point is born not approved and follows the usual review. It belongs to the curation and carries no partner credit.",
+      "refuse": "Refuse",
+      "refuseLabel": "Reason for the refusal. The partner reads it in the portal as you write it.",
+      "refusePlaceholder": "E.g.: the place closed in October.",
+      "refuseSubmit": "Refuse suggestion",
+      "reasonRequired": "Write the reason: the partner reads it in the portal.",
+      "createdNotLinked": "The point was created in review and stays there, but the suggestion was not marked.",
+      "done_linked": "Suggestion linked to the point. It goes to the end of the partner list.",
+      "done_created": "Point created in review and linked to the suggestion. It goes to the end of the partner list and reaches the app once it is live.",
+      "done_refused": "Suggestion refused. The partner sees the reason in the portal."
     }
   }
 }

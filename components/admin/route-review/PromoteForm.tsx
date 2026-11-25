@@ -1,15 +1,20 @@
 'use client'
 
 /**
- * "Virar POI" for one annotation (#1106, BR-ROTA-009). The text starts as the author's and the
- * curator only corrects it (item 2); the POIs around the annotation are listed first, so a duplicate
- * is seen before it is created (item 1). The POI is born not approved and follows the usual review.
+ * The form of a POI the curator creates, born not approved and followed by the usual review.
+ *
+ * - "Virar POI" for one annotation (#1106, BR-ROTA-009): the text starts as the author's and the
+ *   curator only corrects it (item 2); the POIs around the annotation are listed first, so a
+ *   duplicate is seen before it is created (item 1). An author who is a partner gets the line that
+ *   the POI goes out with "Contado por @parceiro" (#1261, BR-B2B-073 item 8), in `notice`.
+ * - "Criar o ponto" of a partner's place suggestion (#1261, BR-B2B-073 item 3.b): the name the
+ *   partner sent; the POIs around the pin are already beside it, so `nearby` is left out.
  */
 
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useTranslations } from 'next-intl'
 import { Button } from '@/components/ui/button'
-import { NEARBY_POI_RADIUS_M, type NearbyPoi, type RevisionStop } from '@/lib/routes/route-revisions'
+import { NEARBY_POI_RADIUS_M, type NearbyPoi } from '@/lib/routes/route-revisions'
 
 export interface PromoteValues {
   name: string
@@ -21,9 +26,19 @@ export interface PromoteValues {
 }
 
 export interface PromoteFormProps {
-  stop: RevisionStop
-  nearby: NearbyPoi[]
-  photoUrls: Record<string, string>
+  /** What the form starts with; the curator corrects it. */
+  initial: Pick<PromoteValues, 'name' | 'description'> & Partial<Pick<PromoteValues, 'city' | 'country' | 'state'>>
+  /** POIs around the point, listed before the fields. Left out where the host already lists them. */
+  nearby?: NearbyPoi[]
+  /** Photos the POI may take (the annotation's), by storage key, with `photoUrls` to show them. */
+  photoKeys?: string[]
+  photoUrls?: Record<string, string>
+  /** Unique per form on the page: the name of the photo radio group. */
+  formId: string
+  /** The sentence above the fields; the annotation's by default. */
+  hint?: string
+  /** A line before the buttons (the "Contado por" of a partner author). */
+  notice?: ReactNode
   busy: boolean
   onSubmit: (values: PromoteValues) => void
   onCancel: () => void
@@ -32,14 +47,14 @@ export interface PromoteFormProps {
 const inputClass =
   'block w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-tuggi-blue focus:outline-none focus:ring-2 focus:ring-tuggi-blue/40'
 
-export function PromoteForm({ stop, nearby, photoUrls, busy, onSubmit, onCancel }: PromoteFormProps) {
+export function PromoteForm({ initial, nearby, photoKeys = [], photoUrls = {}, formId, hint, notice, busy, onSubmit, onCancel }: PromoteFormProps) {
   const t = useTranslations('Pages.RouteReview.promote')
   const [values, setValues] = useState<PromoteValues>({
-    name: stop.title ?? '',
-    description: stop.description ?? stop.title ?? '',
-    city: nearby[0]?.city ?? '',
-    country: nearby[0]?.country ?? '',
-    state: '',
+    name: initial.name,
+    description: initial.description,
+    city: initial.city ?? nearby?.[0]?.city ?? '',
+    country: initial.country ?? nearby?.[0]?.country ?? '',
+    state: initial.state ?? '',
     photoKey: null,
   })
   const set = (patch: Partial<PromoteValues>) => setValues((v) => ({ ...v, ...patch }))
@@ -53,23 +68,25 @@ export function PromoteForm({ stop, nearby, photoUrls, busy, onSubmit, onCancel 
         if (complete) onSubmit(values)
       }}
     >
-      <p className="text-xs text-gray-600">{t('hint')}</p>
+      <p className="text-xs text-gray-600">{hint ?? t('hint')}</p>
 
-      <div>
-        <p className="text-xs font-semibold text-gray-700">{t('nearby_title', { radius: NEARBY_POI_RADIUS_M })}</p>
-        {nearby.length === 0 ? (
-          <p className="text-xs text-gray-500">{t('nearby_none', { radius: NEARBY_POI_RADIUS_M })}</p>
-        ) : (
-          <ul className="mt-1 divide-y divide-gray-100 rounded border border-gray-200 bg-white text-xs">
-            {nearby.map((p) => (
-              <li key={p.id} className="flex justify-between gap-2 px-2 py-1">
-                <span className="font-medium text-gray-900">{p.name}</span>
-                <span className="tabular-nums text-gray-500">{t('distance', { meters: p.distance_m })}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+      {nearby && (
+        <div>
+          <p className="text-xs font-semibold text-gray-700">{t('nearby_title', { radius: NEARBY_POI_RADIUS_M })}</p>
+          {nearby.length === 0 ? (
+            <p className="text-xs text-gray-500">{t('nearby_none', { radius: NEARBY_POI_RADIUS_M })}</p>
+          ) : (
+            <ul className="mt-1 divide-y divide-gray-100 rounded border border-gray-200 bg-white text-xs">
+              {nearby.map((p) => (
+                <li key={p.id} className="flex justify-between gap-2 px-2 py-1">
+                  <span className="font-medium text-gray-900">{p.name}</span>
+                  <span className="tabular-nums text-gray-500">{t('distance', { meters: p.distance_m })}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-2">
         <label className="col-span-2 text-xs font-semibold text-gray-700">
@@ -94,17 +111,17 @@ export function PromoteForm({ stop, nearby, photoUrls, busy, onSubmit, onCancel 
         </label>
       </div>
 
-      {stop.photo_keys.length > 0 && (
+      {photoKeys.length > 0 && (
         <fieldset>
           <legend className="text-xs font-semibold text-gray-700">{t('photo')}</legend>
           <div className="mt-1 flex flex-wrap gap-2">
             <label className="flex items-center gap-1 text-xs">
-              <input type="radio" name={`photo-${stop.ref}`} checked={values.photoKey === null} onChange={() => set({ photoKey: null })} />
+              <input type="radio" name={`photo-${formId}`} checked={values.photoKey === null} onChange={() => set({ photoKey: null })} />
               {t('no_photo')}
             </label>
-            {stop.photo_keys.map((key, i) => (
+            {photoKeys.map((key, i) => (
               <label key={key} className="flex items-center gap-1 text-xs">
-                <input type="radio" name={`photo-${stop.ref}`} checked={values.photoKey === key} onChange={() => set({ photoKey: key })} />
+                <input type="radio" name={`photo-${formId}`} checked={values.photoKey === key} onChange={() => set({ photoKey: key })} />
                 {photoUrls[key] ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={photoUrls[key]} alt={t('photo_alt', { n: i + 1 })} className="h-12 w-12 rounded object-cover" />
@@ -116,6 +133,8 @@ export function PromoteForm({ stop, nearby, photoUrls, busy, onSubmit, onCancel 
           </div>
         </fieldset>
       )}
+
+      {notice}
 
       <div className="flex gap-2">
         <Button type="submit" variant="cta" size="sm" disabled={busy || !complete}>

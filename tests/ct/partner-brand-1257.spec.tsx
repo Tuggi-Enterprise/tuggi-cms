@@ -23,6 +23,8 @@ const json = (route: Route, body: unknown, status = 200) =>
 
 async function stub(page: Page, opts: { decision?: (r: Route) => Promise<void> } = {}) {
   let queueReads = 0
+  // The place suggestions (#1261) share the page; empty here.
+  await page.route('**/api/admin/partner-brand/suggestions**', (r) => json(r, { suggestions: [] }))
   await page.route('**/api/admin/partner-brand/logos', (r) => {
     if (r.request().method() === 'POST') return opts.decision ? opts.decision(r) : json(r, { decision: {} })
     queueReads += 1

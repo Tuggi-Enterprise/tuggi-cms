@@ -2716,6 +2716,12 @@
         "done_photo_failed": "POI creado en revisión, pero la foto no se copió.",
         "already": "Ya es un POI",
         "cannot": "Una anotación sin texto no se convierte en POI."
+      },
+      "partner": {
+        "badge": "Socio",
+        "no_name": "Socio sin nombre",
+        "what_changes": "Autor socio. Aprobada y pública, la ruta sale firmada por él y destacada para quien llegó por él, en la región y durante el plazo. La revisión es la de siempre.",
+        "told_by": "En la app el punto sale con \"Contado por @{handle}\"."
       }
     },
     "PublicNames": {
@@ -5487,7 +5493,46 @@
       "invalid_value": "La base de datos rechazó el valor. Revísalo e inténtalo de nuevo.",
       "forbidden": "Solo un administrador activo del CMS puede cambiar esto.",
       "read_failed": "No se pudo cargar. Recarga la página.",
-      "write_failed": "No se pudo guardar. Inténtalo de nuevo."
+      "write_failed": "No se pudo guardar. Inténtalo de nuevo.",
+      "invalid_suggestion": "Sugerencia inválida. Recarga la página.",
+      "invalid_poi": "Punto inválido. Revisa el id o los campos del punto.",
+      "suggestion_reason_too_long": "El motivo tiene como máximo 1.000 caracteres.",
+      "suggestion_not_pending": "Esta sugerencia ya no espera respuesta: alguien ya respondió, o el socio la canceló. La lista se recargó.",
+      "poi_not_found": "Este punto no existe. Revisa el id.",
+      "own_poi": "Este punto ya es del propio socio y está en su página."
+    },
+    "suggestions": {
+      "queueTitle": "Sugerencias de lugar",
+      "queueIntro": "Lugares que el socio quiere recomendar y que Tuggi todavía no tiene. Vincula a un punto que ya existe, crea el punto o rechaza diciendo por qué.",
+      "queueEmpty": "Ninguna sugerencia esperando respuesta.",
+      "submittedAt": "Enviada el {date}",
+      "sent": "Lo que envió el socio",
+      "place": "Lugar",
+      "note": "Nota",
+      "noNote": "Sin nota",
+      "pin": "Pin",
+      "openMap": "Ver en el mapa",
+      "counts": "El socio tiene {picks} recomendados y {pending} sugerencias pendientes.",
+      "nearbyTitle": "¿Ya existe cerca del pin? (hasta {radius} m)",
+      "nearbyNone": "Ningún punto a menos de {radius} m del pin.",
+      "distance": "{meters} m del pin",
+      "notApproved": "no aprobado",
+      "link": "Vincular a este",
+      "linkTo": "Vincular a {name}",
+      "linkById": "Vincular por id del punto",
+      "linkByIdSubmit": "Vincular",
+      "linkByIdHint": "Para el punto que existe lejos del pin: copia el id en la lista de puntos.",
+      "create": "Crear el punto",
+      "createHint": "El punto nace sin aprobar y sigue la revisión de siempre. Es de la curaduría y no lleva crédito del socio.",
+      "refuse": "Rechazar",
+      "refuseLabel": "Motivo del rechazo. El socio lo lee en el portal tal como lo escribas.",
+      "refusePlaceholder": "Ej.: el lugar cerró en octubre.",
+      "refuseSubmit": "Rechazar sugerencia",
+      "reasonRequired": "Escribe el motivo: el socio lo lee en el portal.",
+      "createdNotLinked": "El punto se creó en revisión y sigue allí, pero la sugerencia no se marcó.",
+      "done_linked": "Sugerencia vinculada al punto. Entra al final de la lista del socio.",
+      "done_created": "Punto creado en revisión y vinculado a la sugerencia. Entra al final de la lista del socio y llega a la app cuando esté publicado.",
+      "done_refused": "Sugerencia rechazada. El socio ve el motivo en el portal."
     }
   }
 }

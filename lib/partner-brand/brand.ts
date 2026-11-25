@@ -12,6 +12,8 @@
  * configuration, never a literal), item 9 (the pilot per partner, the price field empty for now).
  */
 
+import { CLIENT_DIRECTORY_PATH } from '@/lib/clients/directory-filter'
+
 /** Private bucket of the partner logos (§3). Read by a signed URL only: `getPublicUrl` does not serve. */
 export const PARTNER_LOGO_BUCKET = 'partner-logos'
 
@@ -46,6 +48,11 @@ export function isUuid(value: unknown): value is string {
   return typeof value === 'string' && UUID.test(value)
 }
 
+/** The Marca tab of a client record: where the queues of this product link the partner's name. */
+export function partnerBrandHref(clientId: string): string {
+  return `${CLIENT_DIRECTORY_PATH}?${new URLSearchParams({ clientId, tab: 'brand' }).toString()}`
+}
+
 /** `<client_id>/<uuid>.png`, lowercase uuid: the shape of `partner_brands_logo_path_ck`. */
 export function isPartnerLogoPath(clientId: string, path: unknown): path is string {
   if (typeof path !== 'string') return false
@@ -74,6 +81,12 @@ export type PartnerBrandErrorCode =
   | 'forbidden'
   | 'read_failed'
   | 'write_failed'
+  | 'invalid_suggestion'
+  | 'invalid_poi'
+  | 'suggestion_reason_too_long'
+  | 'suggestion_not_pending'
+  | 'poi_not_found'
+  | 'own_poi'
 
 export interface PartnerBrandError {
   code: PartnerBrandErrorCode
@@ -98,6 +111,12 @@ export const PARTNER_BRAND_ERROR_CODES: readonly PartnerBrandErrorCode[] = [
   'forbidden',
   'read_failed',
   'write_failed',
+  'invalid_suggestion',
+  'invalid_poi',
+  'suggestion_reason_too_long',
+  'suggestion_not_pending',
+  'poi_not_found',
+  'own_poi',
 ]
 
 export function partnerBrandErrorStatus(error: PartnerBrandError): number {
@@ -106,8 +125,11 @@ export function partnerBrandErrorStatus(error: PartnerBrandError): number {
       return 403
     case 'client_not_found':
     case 'package_not_found':
+    case 'poi_not_found':
       return 404
     case 'logo_not_pending':
+    case 'suggestion_not_pending':
+    case 'own_poi':
       return 409
     case 'read_failed':
     case 'write_failed':
@@ -119,13 +141,21 @@ export function partnerBrandErrorStatus(error: PartnerBrandError): number {
 
 /**
  * A refusal of the database, by SQLSTATE. `TGB71` is `cms_decide_partner_logo` saying the file is
- * not the pending one any more (a newer one arrived, or someone decided it first). `details` is
- * never read nor logged: it carries the failing row.
+ * not the pending one any more (a newer one arrived, or someone decided it first). From
+ * `cms_decide_partner_pick_suggestion` (#1261, contract §10.3): `TGB86` the suggestion is not
+ * pending (decided or cancelled meanwhile), `TGB80` the POI does not exist, `TGB81` the POI is the
+ * partner's own. `details` is never read nor logged: it carries the failing row.
  */
 export function classifyPartnerBrandError(error: { code?: string | null } | null | undefined): PartnerBrandError {
   switch (error?.code) {
     case 'TGB71':
       return { code: 'logo_not_pending' }
+    case 'TGB86':
+      return { code: 'suggestion_not_pending' }
+    case 'TGB80':
+      return { code: 'poi_not_found' }
+    case 'TGB81':
+      return { code: 'own_poi' }
     case '42501':
       return { code: 'forbidden' }
     case '23503':

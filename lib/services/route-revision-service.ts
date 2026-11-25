@@ -36,6 +36,7 @@ import {
   type LatLng,
   type NearbyPoi,
   type PromotionInput,
+  type AuthorPartner,
   type QueueItem,
   type RevisionActionError,
   type RevisionContent,
@@ -51,13 +52,55 @@ const fail = (code: string | undefined): Fail => {
   return { ok: false, status: e.status, error: e.error }
 }
 
-export async function listQueue(db: Db): Promise<Result<QueueItem[]>> {
+export async function listQueue(db: Db, catalog: Db = getSupabaseService()): Promise<Result<QueueItem[]>> {
   const { data, error } = await db.schema('core').rpc('list_pending_route_revisions')
   if (error) {
     console.error('[route-revisions] queue refused:', error.code)
     return fail(error.code)
   }
-  return { ok: true, data: ((data ?? []) as QueueItem[]).map((r) => ({ ...r, report_count: Number(r.report_count ?? 0) })) }
+  const items = ((data ?? []) as QueueItem[]).map((r) => ({ ...r, report_count: Number(r.report_count ?? 0) }))
+  const partners = await authorPartners(catalog, items)
+  return { ok: true, data: items.map((r) => ({ ...r, author_partner: (r.author_user_id && partners.get(r.author_user_id)) || null })) }
+}
+
+/**
+ * The partner behind each author (#1261, BR-B2B-073 item 7.b; contract `tuggi-do-parceiro.md` §10.3):
+ * an account linked to a place (`drive.profiles.client_id`) or the owner of a partner record
+ * (`partner.clients.owner_user_id`), the same two as `partner.partner_account_ids`. Service role:
+ * `partner` has no grant for the curator's client. The handle is the one of `partner.client_handle`
+ * (the client slug, else the owner's @). Only a badge: a failed read leaves the queue without it,
+ * and the review is the same for every author (BR-ROTA-006 item 3).
+ */
+async function authorPartners(catalog: Db, items: QueueItem[]): Promise<Map<string, AuthorPartner>> {
+  const out = new Map<string, AuthorPartner>()
+  const authors = [...new Set(items.map((i) => i.author_user_id).filter((id): id is string => !!id))]
+  if (authors.length === 0) return out
+  const linked = await catalog.schema('drive').from('profiles').select('id, client_id').in('id', authors).not('client_id', 'is', null)
+  if (linked.error) {
+    console.error('[route-revisions] partner accounts read refused:', linked.error.code)
+    return out
+  }
+  const placeOf = new Map(((linked.data ?? []) as { id: string; client_id: string }[]).map((p) => [p.id, p.client_id]))
+  const clientIds = [...new Set(placeOf.values())]
+  const filters = [`owner_user_id.in.(${authors.join(',')})`, ...(clientIds.length ? [`id.in.(${clientIds.join(',')})`] : [])]
+  const clients = await catalog.schema('partner').from('clients').select('id, name, slug, owner_user_id').or(filters.join(','))
+  if (clients.error) {
+    console.error('[route-revisions] partner records read refused:', clients.error.code)
+    return out
+  }
+  type ClientRow = { id: string; name: string | null; slug: string | null; owner_user_id: string | null }
+  const rows = (clients.data ?? []) as ClientRow[]
+  const nickname = new Map(items.map((i) => [i.author_user_id, i.author_nickname]))
+  const toPartner = (c: ClientRow): AuthorPartner => ({
+    client_id: c.id,
+    name: c.name,
+    handle: c.slug?.trim() || (c.owner_user_id ? nickname.get(c.owner_user_id)?.trim() : null) || null,
+  })
+  for (const author of authors) {
+    const row = rows.find((c) => c.id === placeOf.get(author)) ?? rows.find((c) => c.owner_user_id === author)
+    if (row) out.set(author, toPartner(row))
+  }
+  return out
 }
 
 async function readRevision(db: Db, revisionId: string): Promise<Result<(RevisionContent & { linestring: unknown }) | null>> {
@@ -100,7 +143,7 @@ export async function nearbyPois(point: LatLng, catalog: Db = getSupabaseService
   const { data, error } = await catalog
     .schema('core')
     .from('attraction_coordinate')
-    .select('attraction_id, latitude, longitude, attractions!inner(id, name, city, country)')
+    .select('attraction_id, latitude, longitude, attractions!inner(id, name, city, country, primary_category, approved)')
     .gte('latitude', box.minLat).lte('latitude', box.maxLat)
     .gte('longitude', box.minLng).lte('longitude', box.maxLng)
     .limit(50)
@@ -116,7 +159,7 @@ export async function nearbyPois(point: LatLng, catalog: Db = getSupabaseService
     longitude: number
     attractions: CatalogPoi | CatalogPoi[] | null
   }
-  type CatalogPoi = { id: string; name: string | null; city: string | null; country: string | null }
+  type CatalogPoi = { id: string; name: string | null; city: string | null; country: string | null; primary_category: string | null; approved: boolean | null }
   for (const row of (data ?? []) as unknown as CatalogRow[]) {
     const a = Array.isArray(row.attractions) ? row.attractions[0] : row.attractions
     const id = a?.id ?? row.attraction_id
@@ -124,7 +167,15 @@ export async function nearbyPois(point: LatLng, catalog: Db = getSupabaseService
     seen.add(id)
     const distance = calculateDistance(point, { lat: Number(row.latitude), lng: Number(row.longitude) })
     if (distance > NEARBY_POI_RADIUS_M) continue
-    out.push({ id, name: a?.name ?? '', city: a?.city ?? null, country: a?.country ?? null, distance_m: Math.round(distance) })
+    out.push({
+      id,
+      name: a?.name ?? '',
+      city: a?.city ?? null,
+      country: a?.country ?? null,
+      category: a?.primary_category ?? null,
+      approved: a?.approved === true,
+      distance_m: Math.round(distance),
+    })
   }
   return out.sort((x, y) => x.distance_m - y.distance_m).slice(0, 10)
 }

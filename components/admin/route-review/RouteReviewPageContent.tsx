@@ -9,17 +9,22 @@
  * difference from the version on the air. Approving goes through `core.approve_route_revision`
  * only; refusing needs the reason the author reads. The photo filter only signals.
  *
+ * An author who publishes for a partner carries the badge "Parceiro" in the queue and in the header,
+ * with the link to the record (#1261, `docs/design/spec-tuggi-do-parceiro-onda-2-2026-11.md` §2.2).
+ *
  * Content follows `docs/design/spec-diario-de-bordo-2026-11.md` §9; the shell, table and states
  * follow `AdminStoryFeedbackPageContent`.
  */
 
 import { useCallback, useEffect, useState } from 'react'
-import { AlertCircle, CheckCircle, Inbox } from 'lucide-react'
+import Link from 'next/link'
+import { AlertCircle, CheckCircle, Inbox, Info, MessageCircle } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { Container } from '@/components/ui/Container'
 import { Button } from '@/components/ui/button'
 import { formatDate } from '@/lib/contract/snapshot'
 import { appUserLabel } from '@/lib/format/user-identity'
+import { partnerBrandHref } from '@/lib/partner-brand/brand'
 import { canPromote, type QueueItem } from '@/lib/routes/route-revisions'
 import type { RevisionDetail } from '@/lib/services/route-revision-service'
 import { RejectForm } from './RejectForm'
@@ -53,6 +58,25 @@ const CHANGE_CLASS: Record<string, string> = {
   same: 'bg-gray-100 text-gray-700',
 }
 
+/**
+ * The author publishes for a partner (#1261, BR-B2B-073 item 7.b): a badge in the drawing of the
+ * signal badge, in blue. No filter and no priority: the review is the same (BR-ROTA-006 item 3).
+ */
+function PartnerBadge() {
+  const t = useTranslations('Pages.RouteReview')
+  return <span className="rounded bg-blue-100 px-1 text-[10px] font-bold text-blue-900">{t('partner.badge')}</span>
+}
+
+/** Before "Virar POI" of a partner author: the POI goes out with "Contado por @parceiro" (BR-B2B-073 item 8). */
+function ToldByNotice({ handle }: { handle: string }) {
+  const t = useTranslations('Pages.RouteReview')
+  return (
+    <p className="flex items-center gap-2 rounded-md bg-blue-50 px-2 py-1.5 text-xs text-blue-900">
+      <MessageCircle size={14} aria-hidden /> {t('partner.told_by', { handle })}
+    </p>
+  )
+}
+
 function PhotoBadge({ verdict, check }: { verdict?: PhotoVerdict; check: PhotoCheck }) {
   const t = useTranslations('Pages.RouteReview')
   if (check.state === 'loading') return <span className="text-[10px] text-gray-500">{t('photo_checking')}</span>
@@ -74,6 +98,7 @@ export function RevisionReview({ item, detail, photoCheck, busy, notice, onAppro
   const t = useTranslations('Pages.RouteReview')
   const [promoting, setPromoting] = useState<string | null>(null)
   const { revision, diff } = detail
+  const partner = item.author_partner ?? null
   const changeOf = new Map(diff.stops.map((s) => [`${s.kind}:${s.ref}`, s.change]))
   const removed = diff.stops.filter((s) => s.change === 'removed')
 
@@ -82,10 +107,25 @@ export function RevisionReview({ item, detail, photoCheck, busy, notice, onAppro
       <header>
         <h2 className="text-lg font-bold text-gray-900">{revision.name}</h2>
         <p className="text-xs text-gray-600">
-          {appUserLabel({ nickname: item.author_nickname, user_id: item.author_user_id })} ·{' '}
+          {appUserLabel({ nickname: item.author_nickname, user_id: item.author_user_id })}
+          {partner && (
+            <>
+              {' '}
+              <PartnerBadge /> ·{' '}
+              <Link href={partnerBrandHref(partner.client_id)} className="text-tuggi-blue underline underline-offset-2">
+                {partner.name ?? t('partner.no_name')}
+              </Link>
+            </>
+          )}{' '}
+          ·{' '}
           {item.live_revision_no ? t('edit_of', { no: item.live_revision_no }) : t('first_submission')} ·{' '}
           {t('version', { no: revision.revision_no })} · {formatDate(revision.submitted_at)}
         </p>
+        {partner && (
+          <p className="mt-2 flex items-start gap-2 rounded-md bg-blue-50 px-3 py-2 text-xs text-blue-900">
+            <Info size={14} className="mt-0.5 shrink-0" aria-hidden /> {t('partner.what_changes')}
+          </p>
+        )}
         {revision.description ? (
           <p className="mt-2 whitespace-pre-line text-sm text-gray-800">{revision.description}</p>
         ) : (
@@ -175,9 +215,12 @@ export function RevisionReview({ item, detail, photoCheck, busy, notice, onAppro
                           <span className="text-xs text-gray-500">{t('promote.cannot')}</span>
                         ) : promoting === s.ref ? (
                           <PromoteForm
-                            stop={s}
+                            formId={s.ref}
+                            initial={{ name: s.title ?? '', description: s.description ?? s.title ?? '' }}
                             nearby={detail.nearby[s.ref] ?? []}
+                            photoKeys={s.photo_keys}
                             photoUrls={detail.photoUrls}
+                            notice={partner?.handle ? <ToldByNotice handle={partner.handle} /> : null}
                             busy={busy}
                             onCancel={() => setPromoting(null)}
                             onSubmit={(values) => onPromote(s.ref, values)}
@@ -376,7 +419,10 @@ export function RouteReviewPageContent() {
                           <span className="ml-2 rounded bg-red-100 px-1 text-[10px] font-bold text-red-800">{t('has_signal')}</span>
                         )}
                       </td>
-                      <td className="px-3 py-2 text-gray-700">{appUserLabel({ nickname: i.author_nickname, user_id: i.author_user_id })}</td>
+                      <td className="px-3 py-2 text-gray-700">
+                        {appUserLabel({ nickname: i.author_nickname, user_id: i.author_user_id })}
+                        {i.author_partner && <> <PartnerBadge /></>}
+                      </td>
                       <td className="px-3 py-2 text-gray-700">{i.live_revision_no ? t('edit_of', { no: i.live_revision_no }) : t('first_submission')}</td>
                       <td className="px-3 py-2 text-right text-xs text-gray-500">{formatDate(i.submitted_at)}</td>
                     </tr>

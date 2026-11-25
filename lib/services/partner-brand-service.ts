@@ -14,6 +14,8 @@
  *   three of this product leave this module), the packages from `partner.gift_day_packages`.
  *   The term and the switches are written by the routes that already own those writes
  *   (`/api/admin/reward-settings`, `/api/admin/trip-reminder/switches`).
+ * - Place suggestions (#1261, §10.3): `partner.cms_list_partner_pick_suggestions` and
+ *   `partner.cms_decide_partner_pick_suggestion`; `created` makes the POI by the common path first.
  *
  * The Wi-Fi of the brand row is never selected here (BR-B2B-070 item 6.b). Logs carry the SQLSTATE
  * only, never a row.
@@ -35,6 +37,9 @@ import {
   type PendingLogo,
   type PilotWindow,
 } from '@/lib/partner-brand/brand'
+import type { PlaceSuggestion, SuggestionDecision, SuggestionRow } from '@/lib/partner-brand/suggestions'
+import { nearbyPois } from '@/lib/services/route-revision-service'
+import { POICreationService } from '@/lib/services/poi-creation.service'
 
 export type Outcome<T> = { ok: true; value: T } | { ok: false; error: PartnerBrandError }
 
@@ -199,4 +204,130 @@ export async function savePackagePrice(db: SupabaseClient, price: PackagePrice):
   // The effect is the proof: no row back means no package of that length.
   if (!data) return failed('package_not_found')
   return { ok: true, value: data as GiftPackage }
+}
+
+// ─── Place suggestions (#1261, BR-B2B-073 item 3.b; contract §10.3) ─────────────────────────
+
+/** The partner has at most 10 pending (item 3.a); the queue of every partner fits in one page. */
+const SUGGESTION_QUEUE_LIMIT = 500
+
+/**
+ * The pending suggestions, oldest first, each with the POIs around its pin (the query of "Virar
+ * POI"). `clientId` narrows to one partner, for the Marca tab of the record.
+ */
+export async function listPlaceSuggestions(db: SupabaseClient, clientId: string | null = null): Promise<Outcome<PlaceSuggestion[]>> {
+  const read = await listPendingRows(db)
+  if (!read.ok) return read
+  const rows = read.value.filter((r) => !clientId || r.client_id === clientId)
+  const withNearby = await Promise.all(
+    rows.map(async (r) => ({
+      id: r.id,
+      client_id: r.client_id,
+      partner_handle: r.partner_handle,
+      partner_name: r.partner_name,
+      client_type: r.client_type,
+      name: r.name,
+      latitude: Number(r.latitude),
+      longitude: Number(r.longitude),
+      note: r.note,
+      status: r.status,
+      created_at: r.created_at,
+      picks_count: Number(r.picks_count ?? 0),
+      pending_count: Number(r.pending_count ?? 0),
+      nearby: await nearbyPois({ lat: Number(r.latitude), lng: Number(r.longitude) }, db),
+    }))
+  )
+  return { ok: true, value: withNearby }
+}
+
+export interface SuggestionOutcome {
+  decision: Record<string, unknown>
+  /** The POI the CMS created for a `created` answer. */
+  attraction_id: string | null
+}
+
+/** The failure of a `created` answer after the POI was born: the POI stays, in the usual review. */
+export type SuggestionFailure = { ok: false; error: PartnerBrandError; attraction_id?: string }
+
+async function decideSuggestion(
+  db: SupabaseClient,
+  suggestionId: string,
+  decision: 'link' | 'created' | 'refuse',
+  attractionId: string | null,
+  reason: string | null,
+  actor: string
+): Promise<Outcome<Record<string, unknown>>> {
+  const { data, error } = await db.schema('partner').rpc('cms_decide_partner_pick_suggestion', {
+    p_suggestion_id: suggestionId,
+    p_decision: decision,
+    p_attraction_id: attractionId,
+    p_reason: reason,
+    p_actor: actor,
+  })
+  if (error) {
+    console.error('[partner-brand] suggestion decision refused:', error.code)
+    return { ok: false, error: classifyPartnerBrandError(error) }
+  }
+  return { ok: true, value: (data ?? {}) as Record<string, unknown> }
+}
+
+/**
+ * One answer to a pending suggestion. `created` checks that the suggestion is still pending, creates
+ * the POI by the common path of the curation (`POICreationService`, the one of
+ * `/api/pois/create-manual`: born not approved, the usual review follows) at the partner's pin, and
+ * then marks the suggestion with it. The POI is the curation's: no partner credit, not the
+ * partner's POI (item 3.c), so nothing of the partner is written on it.
+ *
+ * `actor` is the auth user (`p_actor`, as the logo decision); `cmsUserId` is `created_by` of the POI,
+ * as the common path writes it.
+ */
+export async function answerPlaceSuggestion(
+  db: SupabaseClient,
+  answer: SuggestionDecision,
+  actor: string,
+  cmsUserId: string
+): Promise<{ ok: true; value: SuggestionOutcome } | SuggestionFailure> {
+  if (answer.decision === 'link') {
+    const done = await decideSuggestion(db, answer.suggestion_id, 'link', answer.attraction_id, null, actor)
+    return done.ok ? { ok: true, value: { decision: done.value, attraction_id: null } } : done
+  }
+  if (answer.decision === 'refuse') {
+    const done = await decideSuggestion(db, answer.suggestion_id, 'refuse', null, answer.reason, actor)
+    return done.ok ? { ok: true, value: { decision: done.value, attraction_id: null } } : done
+  }
+
+  const queue = await listPendingRows(db)
+  if (!queue.ok) return queue
+  const suggestion = queue.value.find((r) => r.id === answer.suggestion_id)
+  if (!suggestion) return failed('suggestion_not_pending')
+
+  const created = await POICreationService.createPOIWithCoordinates({
+    name: answer.poi.name,
+    city: answer.poi.city,
+    state: answer.poi.state,
+    country: answer.poi.country,
+    latitude: Number(suggestion.latitude),
+    longitude: Number(suggestion.longitude),
+    import_source: 'manual',
+    source_type: 'manual',
+    additionalFields: { created_by: cmsUserId, description: answer.poi.description },
+  })
+  if (!created.success || !created.attraction_id) {
+    console.error('[partner-brand] suggestion POI not created')
+    return failed('write_failed')
+  }
+  const done = await decideSuggestion(db, answer.suggestion_id, 'created', created.attraction_id, null, actor)
+  if (!done.ok) return { ...done, attraction_id: created.attraction_id }
+  return { ok: true, value: { decision: done.value, attraction_id: created.attraction_id } }
+}
+
+async function listPendingRows(db: SupabaseClient): Promise<Outcome<SuggestionRow[]>> {
+  const { data, error } = await db
+    .schema('partner')
+    .rpc('cms_list_partner_pick_suggestions', { p_status: 'pending', p_limit: SUGGESTION_QUEUE_LIMIT, p_offset: 0 })
+  if (error) {
+    console.error('[partner-brand] suggestions refused:', error.code)
+    return failed('read_failed')
+  }
+  return { ok: true, value: (data ?? []) as SuggestionRow[] }
 }
