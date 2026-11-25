@@ -1,0 +1,13 @@
+{
+  "rows": [
+    { "keys": ["2026-11-03", "https://tuggi.app/@joao.silva"], "clicks": 2, "impressions": 41, "ctr": 0.0487, "position": 4.2 },
+    { "keys": ["2026-11-03", "https://tuggi.app/@JoaoSilva"], "clicks": 0, "impressions": 3, "ctr": 0, "position": 9.1 },
+    { "keys": ["2026-11-04", "https://www.tuggi.app/%40pousada-do-sol/"], "clicks": 1.6, "impressions": 17.4, "ctr": 0.09, "position": 2.5 },
+    { "keys": ["2026-11-04", "https://tuggi.app/@antigo"], "clicks": 0, "impressions": 5, "ctr": 0, "position": 11 },
+    { "keys": ["2026-11-05", "https://tuggi.app/pt/@joao.silva"], "clicks": 1, "impressions": 8, "ctr": 0.125, "position": 3 },
+    { "keys": ["2026-11-05", "https://tuggi.app/@ninguem"], "clicks": 0, "impressions": 2, "ctr": 0, "position": 30 },
+    { "keys": ["2026-11-05", "https://partners.tuggi.app/@joao.silva"], "clicks": 0, "impressions": 1, "ctr": 0, "position": 40 },
+    { "keys": ["2026-11-05", "https://tuggi.app/@joao.silva"], "clicks": -1, "impressions": 4, "ctr": 0, "position": 5 }
+  ],
+  "responseAggregationType": "byPage"
+}

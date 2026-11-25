@@ -19,6 +19,9 @@ import {
 import {
   collectSearchConsole,
   monthsBefore,
+  pageOwnerOf,
+  partnerNameOf,
+  type PartnerSearchRow,
   pickProperty,
   SEARCH_CONSOLE_ROW_LIMIT,
   SEARCH_CONSOLE_SCOPE,
@@ -32,6 +35,7 @@ import {
   type Ga4Run,
   dayWindows,
   HISTORY_BUDGET_MS,
+  type PartnerSearchStore,
   runSocialCollect,
   SITE_CHANNELS_WINDOW_DAYS,
   type SocialStore,
@@ -587,4 +591,215 @@ Deno.test('#1170: without the service account both jobs are not_configured; with
   const none = await runSocialCollect(deps(b.s, undefined));
   assertEquals([none.site_channels, none.search_console], ['skipped', 'skipped']);
   assertEquals([b.run('site_channels'), b.run('search_console')], [undefined, undefined]);
+});
+
+// ------------------------------------------------------------------------------------------------
+// #1294, BR-B2B-068 item 8.a: the partner pages `tuggi.app/@nome` in the same `search_console` job, into
+// `partner.search_console_daily` (contract `metricas-do-parceiro.md` §6). The answers of
+// `partner.resolve_public_page` follow its shape in the site (`parsePublicPage`), written 2026-11-25.
+
+const CLIENT_JOAO = '11111111-1111-4111-8111-111111111111';
+const CLIENT_POUSADA = '22222222-2222-4222-8222-222222222222';
+
+/** What `partner.resolve_public_page` answers, by name, like the database (the key ignores case and `._-`). */
+const RESOLVER: Record<string, unknown> = {
+  'joao.silva': { state: 'page', kind: 'creator', client_id: CLIENT_JOAO, name: 'joao.silva' },
+  JoaoSilva: { state: 'redirect', to: 'joao.silva', reason: 'spelling', permanent: true },
+  'pousada-do-sol': { state: 'page', kind: 'client', client_id: CLIENT_POUSADA, name: 'pousada-do-sol' },
+  // An old @ of the same account, kept for good in drive.retired_nicknames.
+  antigo: { state: 'redirect', to: 'pousada-do-sol', reason: 'previous_name', permanent: true },
+};
+
+function partnerStore(opts: { resolve?: (name: string) => Promise<unknown> } = {}) {
+  const table = new Map<string, PartnerSearchRow>();
+  const upserts: string[] = [];
+  const resolved: string[] = [];
+  const s: PartnerSearchStore = {
+    lastDay: () => Promise.resolve([...table.values()].map((r) => r.day).sort().at(-1) ?? null),
+    resolvePage: (name) => {
+      resolved.push(name);
+      if (opts.resolve) return opts.resolve(name);
+      return Promise.resolve(RESOLVER[name] ?? { state: 'not_found' });
+    },
+    upsert: (rows) => {
+      upserts.push(JSON.stringify(rows));
+      for (const row of rows) {
+        // The CHECKs of the table: integer >= 0 (23514), page 1 to 2048.
+        assert(Number.isInteger(row.impressions) && row.impressions >= 0, 'impressions');
+        assert(Number.isInteger(row.clicks) && row.clicks >= 0, 'clicks');
+        assert(row.page.length >= 1 && row.page.length <= 2048, 'page');
+        table.set(`${row.client_id}|${row.day}|${row.page}`, row);
+      }
+      return Promise.resolve();
+    },
+  };
+  return { s, table, upserts, resolved };
+}
+
+/** The job's client: the searches answer the query fixture, the pages the partner fixture. */
+function partnerApi(opts: { refusePages?: GoogleApiError; refuse?: GoogleApiError; pages?: unknown } = {}) {
+  const queries: Array<{ siteUrl: string; body: Record<string, unknown> }> = [];
+  let sitesCalls = 0;
+  const api: SearchConsoleApi = {
+    sites: () => {
+      sitesCalls += 1;
+      if (opts.refuse) return Promise.reject(opts.refuse);
+      return Promise.resolve((fixture('search-console-sites') as { siteEntry: SiteEntry[] }).siteEntry);
+    },
+    query: (siteUrl, body) => {
+      queries.push({ siteUrl, body });
+      const byPage = (body.dimensions as string[]).includes('page');
+      if (byPage && opts.refusePages) return Promise.reject(opts.refusePages);
+      return Promise.resolve(byPage ? (opts.pages ?? fixture('search-console-partner-pages')) : fixture('search-console-query'));
+    },
+  };
+  return { api, queries, sites: () => sitesCalls, pageQueries: () => queries.filter((q) => (q.body.dimensions as string[]).includes('page')) };
+}
+
+Deno.test('#1294 BR-B2B-068 8.a: the partner name is the first segment after /@ on tuggi.app, raw or encoded, with or without a locale', () => {
+  assertEquals(partnerNameOf('https://tuggi.app/@joao.silva'), 'joao.silva');
+  assertEquals(partnerNameOf('https://www.tuggi.app/%40Pousada_Sol/'), 'Pousada_Sol');
+  assertEquals(partnerNameOf('https://tuggi.app/pt/@maria?utm_source=x'), 'maria');
+  assertEquals(partnerNameOf('https://tuggi.app/@maria/rotas'), 'maria');
+  assertEquals(partnerNameOf('/@maria'), 'maria');
+  // Not a name the database could hold, another host of the domain property, or not the partner page.
+  assertEquals(partnerNameOf('https://tuggi.app/@jo%C3%A3o'), null);
+  assertEquals(partnerNameOf('https://tuggi.app/@%E0%A4%A'), null);
+  assertEquals(partnerNameOf('https://partners.tuggi.app/@joao'), null);
+  assertEquals(partnerNameOf('https://tuggi.app/blog/@joao'), null);
+  assertEquals(partnerNameOf('https://tuggi.app/d/joao'), null);
+  assertEquals(partnerNameOf(`https://tuggi.app/@${'a'.repeat(65)}`), null);
+});
+
+Deno.test('#1294: the resolver answer is a client, a redirect or nothing; another shape throws instead of dropping the day', () => {
+  assertEquals(pageOwnerOf(RESOLVER['joao.silva']), { clientId: CLIENT_JOAO });
+  assertEquals(pageOwnerOf(RESOLVER.antigo), { redirect: 'pousada-do-sol' });
+  assertEquals(pageOwnerOf({ state: 'not_found' }), null);
+  let thrown = '';
+  try {
+    pageOwnerOf({ state: 'page', kind: 'creator' });
+  } catch (e) {
+    thrown = (e as Error).message;
+  }
+  assertEquals(thrown, 'resolve_public_page_unexpected_page');
+});
+
+Deno.test('#1294 BR-B2B-068 8.a: the job reads date and page under /@ from the same property and window, and writes per partner', async () => {
+  const { s, tables, run } = store();
+  const p = partnerStore();
+  const sc = partnerApi();
+  const report = await runSocialCollect(deps(s, { siteGa4: null, searchConsole: sc.api, partner: p.s }));
+  assertEquals([report.search_console, report.partner_search_console], ['read', 'read']);
+  // One sites.list for both reads, both on sc-domain, sixteen months on the first run, through yesterday.
+  assertEquals(sc.sites(), 1);
+  const q = sc.pageQueries()[0];
+  assertEquals(q.siteUrl, 'sc-domain:tuggi.app');
+  assertEquals(q.body.dimensions, ['date', 'page']);
+  assertEquals(q.body.dimensionFilterGroups, [
+    { groupType: 'and', filters: [{ dimension: 'page', operator: 'contains', expression: '/@' }] },
+  ]);
+  assertEquals([q.body.startDate, q.body.endDate, q.body.type], ['2025-07-09', '2026-11-08', 'web']);
+  // The searches are written as before.
+  assertEquals(tables.search_console_daily.size, 4);
+
+  // @joao.silva, another spelling of it and the locale-prefixed URL go to João; the old @ and the encoded @ go
+  // to the pousada; the API doubles are rounded to integers.
+  assertEquals(p.table.get(`${CLIENT_POUSADA}|2026-11-04|https://www.tuggi.app/%40pousada-do-sol/`), {
+    client_id: CLIENT_POUSADA,
+    day: '2026-11-04',
+    page: 'https://www.tuggi.app/%40pousada-do-sol/',
+    impressions: 17,
+    clicks: 2,
+  });
+  assertEquals(
+    [...p.table.keys()].sort(),
+    [
+      `${CLIENT_JOAO}|2026-11-03|https://tuggi.app/@JoaoSilva`,
+      `${CLIENT_JOAO}|2026-11-03|https://tuggi.app/@joao.silva`,
+      `${CLIENT_JOAO}|2026-11-05|https://tuggi.app/pt/@joao.silva`,
+      `${CLIENT_POUSADA}|2026-11-04|https://tuggi.app/@antigo`,
+      `${CLIENT_POUSADA}|2026-11-04|https://www.tuggi.app/%40pousada-do-sol/`,
+    ].sort(),
+  );
+  // Each name is resolved once; a redirect is followed once.
+  assertEquals(p.resolved.filter((n) => n === 'joao.silva').length, 2);
+
+  // The page with no partner and the other host are skipped and counted; the negative click is no row.
+  const detail = JSON.parse(String(run('search_console')?.detail));
+  assertEquals(run('search_console')?.status, 'ok');
+  assertEquals(detail.property, 'sc-domain:tuggi.app');
+  assertEquals(
+    [detail.partner.state, detail.partner.pages, detail.partner.unmatched, detail.partner.invalid, detail.partner.rows, detail.partner.clients],
+    ['read', 7, 2, 1, 5, 2],
+  );
+  assertEquals(detail.partner.first_day, '2026-11-03');
+});
+
+Deno.test('#1294: a second run of the same days sends the same upsert and duplicates nothing; the next day reads from five days back', async () => {
+  const { s } = store();
+  const p = partnerStore();
+  await runSocialCollect(deps(s, { siteGa4: null, searchConsole: partnerApi().api, partner: p.s }));
+  const first = new Map(p.table);
+  const again = partnerApi();
+  await runSocialCollect(deps(s, { siteGa4: null, searchConsole: again.api, partner: p.s }));
+  assertEquals(p.upserts.length, 2);
+  assertEquals(p.upserts[1], p.upserts[0]);
+  assertEquals(p.table, first);
+  // The last stored day is 2026-11-05, newer than five days back: the window is the last five days.
+  assertEquals(again.pageQueries()[0].body.startDate, '2026-11-04');
+});
+
+Deno.test('#1294: a resolver failure fails only the partner read; the searches stay written and the row says both', async () => {
+  const { s, tables, run } = store();
+  const logs: string[] = [];
+  const p = partnerStore({ resolve: () => Promise.reject(new Error('store_resolve_public_page_PGRST301')) });
+  const report = await runSocialCollect(deps(s, { siteGa4: null, searchConsole: partnerApi().api, partner: p.s }, logs));
+  assertEquals([report.search_console, report.partner_search_console], ['read', 'failed']);
+  assertEquals(tables.search_console_daily.size, 4);
+  assertEquals(p.table.size, 0);
+  const row = run('search_console');
+  assertEquals([row?.status, row?.covered_from], ['error', '2026-11-03']);
+  assertEquals(JSON.parse(String(row?.detail)).partner, 'store_resolve_public_page_PGRST301');
+  assert(logs.some((l) => l.includes('partner search_console failed')), logs.join('\n'));
+});
+
+Deno.test('#1294: Google refusing the pages query keeps the searches; refusing everything still lets the other jobs run', async () => {
+  const pages = store();
+  const p = partnerStore();
+  const refusePages = await refusal('search_console', 'error-403-permission', 403);
+  const one = await runSocialCollect(deps(pages.s, { siteGa4: null, searchConsole: partnerApi({ refusePages }).api, partner: p.s }));
+  assertEquals([one.search_console, one.partner_search_console], ['read', 'failed']);
+  assertEquals(pages.tables.search_console_daily.size, 4);
+  assert(String(JSON.parse(String(pages.run('search_console')?.detail)).partner).startsWith('search_console_403'));
+
+  const all = store();
+  const refuse = await refusal('search_console', 'error-403-service-disabled', 403);
+  const two = await runSocialCollect(
+    deps(all.s, { siteGa4: siteGa4().run, searchConsole: partnerApi({ refuse }).api, partner: partnerStore().s }),
+  );
+  assertEquals([two.site_channels, two.search_console, two.partner_search_console], ['read', 'failed', 'failed']);
+  const detail = String(all.run('search_console')?.detail);
+  assert(detail.startsWith('search_console_403 PERMISSION_DENIED SERVICE_DISABLED: '), detail);
+  assert(detail.includes(' | partner: search_console_403'), detail);
+});
+
+Deno.test('#1294: without the service account the partner read is not_configured; without its store it does not run', async () => {
+  const a = store();
+  const none = await runSocialCollect(deps(a.s, { siteGa4: null, searchConsole: null, partner: partnerStore().s }));
+  assertEquals(none.partner_search_console, 'not_configured');
+  const b = store();
+  const sc = partnerApi();
+  const only = await runSocialCollect(deps(b.s, { siteGa4: null, searchConsole: sc.api }));
+  assertEquals([only.search_console, only.partner_search_console], ['read', 'skipped']);
+  assertEquals(sc.pageQueries().length, 0);
+});
+
+Deno.test('#1294: a page over 2048 characters is dropped and counted, never sent to the CHECK', async () => {
+  const { s, run } = store();
+  const p = partnerStore();
+  const long = `https://tuggi.app/@joao.silva?${'x'.repeat(2048)}`;
+  const sc = partnerApi({ pages: { rows: [{ keys: ['2026-11-03', long], clicks: 1, impressions: 1 }] } });
+  await runSocialCollect(deps(s, { siteGa4: null, searchConsole: sc.api, partner: p.s }));
+  assertEquals(p.table.size, 0);
+  assertEquals(JSON.parse(String(run('search_console')?.detail)).partner.invalid, 1);
 });

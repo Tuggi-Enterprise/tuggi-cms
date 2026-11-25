@@ -56,7 +56,11 @@
 //   Data API schema, checked 2026-11-09), sessions and totalUsers, and `click_store` by `customEvent:store`
 //   into `social.site_channel_daily`. Before STORE_DIMENSION_SINCE a click has no store, so both click
 //   columns are null there, never 0 (DS-COMPONENTE-084 item 1).
-// - `search_console`: `_shared/search-console.ts` into `social.search_console_daily`.
+// - `search_console`: `_shared/search-console.ts` into `social.search_console_daily`; since #1294 (BR-B2B-068
+//   item 8.a) the same job also reads the partner pages `tuggi.app/@nome` into `partner.search_console_daily`,
+//   one `sites.list` for both. One job and one `collector_runs` row, the partner read under `partner` in the
+//   detail: `collector_runs_job_check` lists the jobs, and a sibling job would need a migration for nothing.
+//   Each read is isolated: a refusal of one is recorded and the other is written.
 // Both keep `covered_from` on a refusal and write Google's status, reason and sentence in the detail
 // (`googleErrorDetail`): a 403 with SERVICE_DISABLED is the API off in the Cloud project, a 403 without it
 // or an empty `sites.list` is the account not granted in Search Console.
@@ -70,7 +74,15 @@ import {
 } from './ga4-data.ts';
 import { type AppleConfig, collectAppleDownloads, redact } from './apple-downloads.ts';
 import { collectAppleStoreFunnel } from './apple-store-funnel.ts';
-import { collectSearchConsole, type SearchConsoleApi } from './search-console.ts';
+import {
+  collectPartnerSearchConsole,
+  collectSearchConsole,
+  type PartnerSearchResult,
+  type PartnerSearchRow,
+  type SearchConsoleApi,
+  type SearchConsoleResult,
+  sharingSites,
+} from './search-console.ts';
 
 /** Same value as `SOCIAL_TIME_ZONE` in the CMS (`lib/social/time.ts`): every day here is Brasília. */
 export const SOCIAL_TIME_ZONE = 'America/Sao_Paulo';
@@ -503,6 +515,41 @@ export function supabaseStore(social: any): SocialStore {
   };
 }
 
+/** #1294: what the partner read of the `search_console` job touches in the `partner` schema. */
+export interface PartnerSearchStore {
+  /** The latest `day` of `partner.search_console_daily`, or null when it is empty. */
+  lastDay(): Promise<string | null>;
+  /** `partner.resolve_public_page(p_name)`, the answer as it comes. */
+  resolvePage(name: string): Promise<unknown>;
+  /** Upsert on `(client_id, day, page)`; the day Google revises is overwritten. */
+  upsert(rows: PartnerSearchRow[]): Promise<void>;
+}
+
+/** The partner store on a supabase-js client scoped to `.schema('partner')`, keyed with the secret key. */
+// deno-lint-ignore no-explicit-any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function partnerSearchStore(partner: any): PartnerSearchStore {
+  return {
+    async lastDay() {
+      const rows = check<Array<{ day: string | null }>>(
+        'partner_search_console_last_day',
+        await partner.from('search_console_daily').select('day').order('day', { ascending: false }).limit(1),
+      ) ?? [];
+      return rows[0]?.day ?? null;
+    },
+    async resolvePage(name) {
+      return check<unknown>('resolve_public_page', await partner.rpc('resolve_public_page', { p_name: name }));
+    },
+    async upsert(rows) {
+      if (rows.length === 0) return;
+      check(
+        'upsert_partner_search_console_daily',
+        await partner.from('search_console_daily').upsert(rows, { onConflict: 'client_id,day,page' }),
+      );
+    },
+  };
+}
+
 // ----------------------------------------------------------------------------------------------
 // Collection
 
@@ -538,7 +585,12 @@ export interface CollectDeps {
    * #1170: the site property's runner and the Search Console client, each null without the service account
    * (the job records `not_configured`). Absent: neither job runs (the stories job, the older tests).
    */
-  acquisition?: { siteGa4: Ga4Run | null; searchConsole: SearchConsoleApi | null };
+  acquisition?: {
+    siteGa4: Ga4Run | null;
+    searchConsole: SearchConsoleApi | null;
+    /** #1294: the partner pages of the same job. Absent: only the searches are read. */
+    partner?: PartnerSearchStore;
+  };
 }
 
 export interface CollectReport {
@@ -561,6 +613,8 @@ export interface CollectReport {
   site_channels: 'read' | 'partial' | 'not_configured' | 'failed' | 'skipped';
   /** #1170: `no_property` when `sites.list` gives no tuggi.app property (the account was not added). */
   search_console: 'read' | 'no_property' | 'not_configured' | 'failed' | 'skipped';
+  /** #1294: the partner pages of the same job; the counts are in the job's `collector_runs.detail`. */
+  partner_search_console: 'read' | 'no_property' | 'not_configured' | 'failed' | 'skipped';
   themes: number;
   /** #1064: the competitors whose history walk reached the end in this run, and those it left. */
   history: { done: string[]; partial: string[]; posts: number };
@@ -1624,16 +1678,47 @@ async function runSiteChannelsCollect(
   }
 }
 
-/** #1170, the `search_console` job, isolated and recorded like `site_channels`. */
+type SearchConsoleJobReport = Pick<CollectReport, 'search_console' | 'partner_search_console'>;
+
+/**
+ * #1170, the `search_console` job, isolated and recorded like `site_channels`; #1294, then the partner pages.
+ * One row for both: `error` when either read failed (or no property was listed), the searches' detail first
+ * and the partner read under `partner`, so a refusal of one never hides what the other wrote.
+ */
 async function runSearchConsoleCollect(
   deps: CollectDeps,
-  api: SearchConsoleApi | null,
+  acquisition: NonNullable<CollectDeps['acquisition']>,
   today: string,
-): Promise<CollectReport['search_console']> {
-  if (!api) {
+): Promise<SearchConsoleJobReport> {
+  const partner = acquisition.partner;
+  if (!acquisition.searchConsole) {
     await recordRun(deps, 'search_console', 'not_configured', null);
-    return 'not_configured';
+    return { search_console: 'not_configured', partner_search_console: partner ? 'not_configured' : 'skipped' };
   }
+  const api = sharingSites(acquisition.searchConsole);
+  const site = await readSearches(deps, api, today);
+  const pages = partner ? await readPartnerPages(deps, api, partner, today) : null;
+
+  let detail = site.detail;
+  if (pages) {
+    const partnerDetail = pages.result ?? pages.detail;
+    detail = site.result
+      ? JSON.stringify({ ...site.result, partner: partnerDetail })
+      : `${site.detail} | partner: ${typeof partnerDetail === 'string' ? partnerDetail : JSON.stringify(partnerDetail)}`;
+  }
+  // No covered_from on a refusal: the upsert leaves the one already recorded as it was.
+  const extra = site.coveredFrom === undefined ? {} : { covered_from: site.coveredFrom };
+  await recordRun(deps, 'search_console', site.error || pages?.state === 'failed' ? 'error' : 'ok', detail, extra);
+  return { search_console: site.state, partner_search_console: pages?.state ?? 'skipped' };
+}
+
+async function readSearches(deps: CollectDeps, api: SearchConsoleApi, today: string): Promise<{
+  state: 'read' | 'no_property' | 'failed';
+  error: boolean;
+  detail: string;
+  result: SearchConsoleResult | null;
+  coveredFrom?: string | null;
+}> {
   try {
     const coveredFrom = await deps.store.coveredFrom('search_console');
     const result = await collectSearchConsole({
@@ -1652,17 +1737,38 @@ async function runSearchConsoleCollect(
       // sites.list answered, without tuggi.app: the account was not added as a user in Search Console.
       const detail = `search_console_no_property: sites.list listed ${result.listed} site(s), none on tuggi.app`;
       deps.log(`[social-collect] ${detail}`);
-      await recordRun(deps, 'search_console', 'error', detail, { covered_from: first });
-      return 'no_property';
+      return { state: 'no_property', error: true, detail, result: null, coveredFrom: first };
     }
-    await recordRun(deps, 'search_console', 'ok', JSON.stringify(result), { covered_from: first });
-    return 'read';
+    return { state: 'read', error: false, detail: JSON.stringify(result), result, coveredFrom: first };
   } catch (e) {
     const detail = googleErrorDetail(e);
     deps.log(`[social-collect] search_console failed: ${detail}`);
-    // No covered_from in the row: the upsert leaves the one already recorded as it was.
-    await recordRun(deps, 'search_console', 'error', detail);
-    return 'failed';
+    return { state: 'failed', error: true, detail, result: null };
+  }
+}
+
+/** #1294, BR-B2B-068 item 8.a: the partner pages; a refusal is logged and the searches stay written. */
+async function readPartnerPages(
+  deps: CollectDeps,
+  api: SearchConsoleApi,
+  partner: PartnerSearchStore,
+  today: string,
+): Promise<{ state: 'read' | 'no_property' | 'failed'; detail: string; result: PartnerSearchResult | null }> {
+  try {
+    const result = await collectPartnerSearchConsole({
+      api,
+      today,
+      lastDay: await partner.lastDay(),
+      resolve: (name) => partner.resolvePage(name),
+      write: async (rows) => {
+        for (let i = 0; i < rows.length; i += UPSERT_CHUNK) await partner.upsert(rows.slice(i, i + UPSERT_CHUNK));
+      },
+    });
+    return { state: result.state, detail: JSON.stringify(result), result };
+  } catch (e) {
+    const detail = googleErrorDetail(e);
+    deps.log(`[social-collect] partner search_console failed: ${detail}`);
+    return { state: 'failed', detail, result: null };
   }
 }
 
@@ -1925,6 +2031,7 @@ export async function runSocialCollect(deps: CollectDeps): Promise<CollectReport
     apple_store: 'skipped',
     site_channels: 'skipped',
     search_console: 'skipped',
+    partner_search_console: 'skipped',
     themes: 0,
     history: { done: [], partial: [], posts: 0 },
     weekly: 'not_monday',
@@ -1991,7 +2098,7 @@ export async function runSocialCollect(deps: CollectDeps): Promise<CollectReport
   }
   if (deps.acquisition) {
     report.site_channels = await runSiteChannelsCollect(deps, deps.acquisition.siteGa4, today, deadline);
-    report.search_console = await runSearchConsoleCollect(deps, deps.acquisition.searchConsole, today);
+    Object.assign(report, await runSearchConsoleCollect(deps, deps.acquisition, today));
   }
 
   if (own) {

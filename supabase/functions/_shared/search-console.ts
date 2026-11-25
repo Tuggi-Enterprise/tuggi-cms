@@ -18,6 +18,11 @@
 //   "Performance report"): its clicks are missing from the rows, and that is not an error.
 // - Search Console keeps 16 months, so the first run reads 16 months.
 //
+//
+// #1294 (BR-B2B-068 item 8.a): the same job reads, after the searches, the partner pages by date and page
+// (`collectPartnerSearchConsole`), into `partner.search_console_daily` (contract `metricas-do-parceiro.md` §6).
+// "contains" is case-insensitive in the filter; `page` is the full URL Google indexed.
+//
 // Import-free except `ga4-data.ts` (import-free): `fetch`, the clock and the database are parameters.
 
 import { googleAccessToken, googleApiError, type ServiceAccount } from './ga4-data.ts';
@@ -113,6 +118,20 @@ export function searchAnalyticsBody(from: string, to: string, startRow: number):
   };
 }
 
+/** #1294: what a partner page path carries; Search Console's `contains` is case-insensitive. */
+export const PARTNER_PAGE_MARKER = '/@';
+
+/** #1294: the same read by date and page, only the pages under `tuggi.app/@`. */
+export function partnerPagesBody(from: string, to: string, startRow: number): Record<string, unknown> {
+  return {
+    ...searchAnalyticsBody(from, to, startRow),
+    dimensions: ['date', 'page'],
+    dimensionFilterGroups: [
+      { groupType: 'and', filters: [{ dimension: 'page', operator: 'contains', expression: PARTNER_PAGE_MARKER }] },
+    ],
+  };
+}
+
 /** A row of `social.search_console_daily`. */
 export interface SearchConsoleRow {
   day: string;
@@ -205,27 +224,228 @@ export async function collectSearchConsole(deps: SearchConsoleDeps): Promise<Sea
   };
   if (!property) return { ...result, state: 'no_property' };
 
-  const to = addDays(deps.today, -1);
-  const recent = addDays(deps.today, -SEARCH_CONSOLE_LOOKBACK_DAYS);
-  const from = deps.lastDay === null
-    ? monthsBefore(deps.today, SEARCH_CONSOLE_HISTORY_MONTHS)
-    : deps.lastDay < recent
-    ? deps.lastDay
-    : recent;
+  const { from, to } = readWindow(deps.today, deps.lastDay);
   result.from = from;
   result.to = to;
 
   // Every page first: a refusal on page three leaves nothing half written. Keys are unique per answer and
   // pages do not overlap; the map only keeps one upsert from touching the same key twice (PostgREST refuses).
   const byKey = new Map<string, SearchConsoleRow>();
-  for (let page = 0, startRow = 0; page < MAX_PAGES; page++, startRow += SEARCH_CONSOLE_ROW_LIMIT) {
-    const rows = searchConsoleRows(await deps.api.query(property, searchAnalyticsBody(from, to, startRow)));
-    for (const r of rows) byKey.set(`${r.day}|${r.query}`, r);
-    if (rows.length < SEARCH_CONSOLE_ROW_LIMIT) break;
+  for (const body of await everyPage(deps.api, property, (startRow) => searchAnalyticsBody(from, to, startRow))) {
+    for (const r of searchConsoleRows(body)) byKey.set(`${r.day}|${r.query}`, r);
   }
   const out = [...byKey.values()];
   if (out.length > 0) await deps.write(out);
   result.rows = out.length;
+  result.first_day = out.map((r) => r.day).sort()[0] ?? null;
+  return result;
+}
+
+/**
+ * From the oldest of the last stored day and the last five days, through yesterday; sixteen months back on
+ * an empty table. Both reads of the job use it, each with the last day of its own table.
+ */
+function readWindow(today: string, lastDay: string | null): { from: string; to: string } {
+  const to = addDays(today, -1);
+  const recent = addDays(today, -SEARCH_CONSOLE_LOOKBACK_DAYS);
+  const from = lastDay === null
+    ? monthsBefore(today, SEARCH_CONSOLE_HISTORY_MONTHS)
+    : lastDay < recent
+    ? lastDay
+    : recent;
+  return { from, to };
+}
+
+/** Every answer of one read, page after page, until a page comes back short. */
+async function everyPage(
+  api: SearchConsoleApi,
+  property: string,
+  bodyAt: (startRow: number) => Record<string, unknown>,
+): Promise<unknown[]> {
+  const answers: unknown[] = [];
+  for (let page = 0, startRow = 0; page < MAX_PAGES; page++, startRow += SEARCH_CONSOLE_ROW_LIMIT) {
+    const body = await api.query(property, bodyAt(startRow));
+    answers.push(body);
+    const rows = body && typeof body === 'object' ? (body as { rows?: unknown }).rows : undefined;
+    if (!Array.isArray(rows) || rows.length < SEARCH_CONSOLE_ROW_LIMIT) break;
+  }
+  return answers;
+}
+
+/**
+ * The client whose job reads both the searches and the partner pages: one `sites.list` for the run, so both
+ * reads pick the same property and a refused list refuses both.
+ */
+export function sharingSites(api: SearchConsoleApi): SearchConsoleApi {
+  let sites: Promise<SiteEntry[]> | null = null;
+  return { sites: () => (sites ??= api.sites()), query: (siteUrl, body) => api.query(siteUrl, body) };
+}
+
+// ----------------------------------------------------------------------------------------------
+// #1294, BR-B2B-068 item 8.a: the Google searches that showed `tuggi.app/@nome`, per partner and day
+
+/** The hosts of the partner page; a `/@` on another host of the domain property is not one. */
+const PARTNER_PAGE_HOSTS = new Set([SEARCH_CONSOLE_DOMAIN, `www.${SEARCH_CONSOLE_DOMAIN}`]);
+/**
+ * `/@nome`, or `/<locale>/@nome` (the site serves `/@nome` without a locale; a prefixed one is read the same),
+ * the `@` raw or encoded. The name is the first segment after it, as the site's middleware reads it.
+ */
+const PARTNER_PAGE_PATH = /^\/(?:[a-z]{2}(?:-[a-z]{2})?\/)?(?:@|%40)([^/?#]+)/i;
+/** The characters of an @ and of a client slug (`docs/contracts/identidade-publica.md`, "Formato"), and the site's cap. */
+const PARTNER_NAME = /^[A-Za-z0-9._-]{1,64}$/;
+/** `partner.search_console_daily.page`, `CHECK` 1 to 2048. */
+export const PARTNER_PAGE_MAX_LENGTH = 2048;
+
+/** The name a Search Console page is the partner page of, without the `@`, or null when it is not one. */
+export function partnerNameOf(page: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(page, `https://${SEARCH_CONSOLE_DOMAIN}`);
+  } catch {
+    return null;
+  }
+  if (!PARTNER_PAGE_HOSTS.has(url.hostname.toLowerCase())) return null;
+  const m = PARTNER_PAGE_PATH.exec(url.pathname);
+  if (!m) return null;
+  let name: string;
+  try {
+    name = decodeURIComponent(m[1]);
+  } catch {
+    return null;
+  }
+  return PARTNER_NAME.test(name) ? name : null;
+}
+
+/**
+ * What `partner.resolve_public_page` answered, read as the site reads it (`tuggi-enterprise`
+ * `src/lib/public-page.ts` `parsePublicPage`): a page names its client, a redirect names the current @ (an
+ * old @ of the same account, or another spelling), anything else has no partner. An answer of another shape
+ * throws: a contract change read as "no partner" would drop every day silently.
+ */
+export function pageOwnerOf(answer: unknown): { clientId: string } | { redirect: string } | null {
+  const a = answer && typeof answer === 'object' ? (answer as Record<string, unknown>) : null;
+  if (a?.state === 'not_found') return null;
+  if (a?.state === 'page' && typeof a.client_id === 'string' && a.client_id) return { clientId: a.client_id };
+  if (a?.state === 'redirect' && typeof a.to === 'string' && a.to) return { redirect: a.to };
+  throw new Error(`resolve_public_page_unexpected_${String(a?.state)}`);
+}
+
+/** A row of `partner.search_console_daily`. */
+export interface PartnerSearchRow {
+  client_id: string;
+  day: string;
+  page: string;
+  impressions: number;
+  clicks: number;
+}
+
+/** A measure of `partner.search_console_daily`: `integer >= 0`, the API's double rounded; anything else is no row. */
+const measure = (v: unknown): number | null =>
+  typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.round(v) : null;
+
+export interface PartnerSearchResult {
+  state: 'read' | 'no_property';
+  from: string | null;
+  to: string | null;
+  /** Distinct pages Search Console answered under `/@`. */
+  pages: number;
+  /** Of those, the pages with no partner today (no page, a name that is not one, another host): skipped. */
+  unmatched: number;
+  /** Rows dropped for a bad day or measure, or a page over 2048 characters. */
+  invalid: number;
+  rows: number;
+  clients: number;
+  first_day: string | null;
+}
+
+export interface PartnerSearchDeps {
+  /** The job's client, already `sharingSites`: the property is the one the searches read. */
+  api: SearchConsoleApi;
+  today: string;
+  /** The latest day already in `partner.search_console_daily`, or null on the first run. */
+  lastDay: string | null;
+  /** `partner.resolve_public_page(p_name)`, the one resolver of the page, raw. */
+  resolve: (name: string) => Promise<unknown>;
+  /** Upsert of `partner.search_console_daily` on `(client_id, day, page)`, called once; the caller chunks. */
+  write: (rows: PartnerSearchRow[]) => Promise<void>;
+}
+
+/**
+ * The partner pages read like the searches (same property, window and pages) and tied to the partner by
+ * the one resolver the page itself uses, so a click lands on the client the visit counter credits. The
+ * day ties to the @ the page has when it is read: a day is read again for five days, then stays. An old @
+ * of an account with a page redirects to the current one (`drive.retired_nicknames`, kept for good), so its
+ * days go to the same partner. Every page is resolved before anything is written.
+ */
+export async function collectPartnerSearchConsole(deps: PartnerSearchDeps): Promise<PartnerSearchResult> {
+  const property = pickProperty(await deps.api.sites());
+  const result: PartnerSearchResult = {
+    state: 'read',
+    from: null,
+    to: null,
+    pages: 0,
+    unmatched: 0,
+    invalid: 0,
+    rows: 0,
+    clients: 0,
+    first_day: null,
+  };
+  if (!property) return { ...result, state: 'no_property' };
+
+  const { from, to } = readWindow(deps.today, deps.lastDay);
+  result.from = from;
+  result.to = to;
+
+  const raw: Array<{ day: string; page: string; impressions: number; clicks: number }> = [];
+  const pages = new Set<string>();
+  for (const body of await everyPage(deps.api, property, (startRow) => partnerPagesBody(from, to, startRow))) {
+    const rows = body && typeof body === 'object' ? (body as { rows?: unknown }).rows : undefined;
+    for (const r of Array.isArray(rows) ? (rows as Array<Record<string, unknown>>) : []) {
+      const [day, page] = Array.isArray(r?.keys) ? r.keys : [];
+      if (typeof page === 'string' && page) pages.add(page);
+      const impressions = measure(r?.impressions);
+      const clicks = measure(r?.clicks);
+      if (
+        typeof day !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(day) || typeof page !== 'string' || !page ||
+        page.length > PARTNER_PAGE_MAX_LENGTH || impressions === null || clicks === null
+      ) {
+        result.invalid += 1;
+        continue;
+      }
+      raw.push({ day, page, impressions, clicks });
+    }
+  }
+  result.pages = pages.size;
+
+  // One resolve per name, one redirect followed at most.
+  const owners = new Map<string, string | null>();
+  const ownerOf = async (name: string): Promise<string | null> => {
+    if (owners.has(name)) return owners.get(name) ?? null;
+    let owner = pageOwnerOf(await deps.resolve(name));
+    if (owner && 'redirect' in owner) {
+      const next = pageOwnerOf(await deps.resolve(owner.redirect));
+      owner = next && 'clientId' in next ? next : null;
+    }
+    const clientId = owner && 'clientId' in owner ? owner.clientId : null;
+    owners.set(name, clientId);
+    return clientId;
+  };
+  const clientOfPage = new Map<string, string | null>();
+  for (const page of pages) {
+    const name = partnerNameOf(page);
+    clientOfPage.set(page, name ? await ownerOf(name) : null);
+  }
+  result.unmatched = [...clientOfPage.values()].filter((c) => c === null).length;
+
+  const byKey = new Map<string, PartnerSearchRow>();
+  for (const r of raw) {
+    const clientId = clientOfPage.get(r.page);
+    if (clientId) byKey.set(`${clientId}|${r.day}|${r.page}`, { client_id: clientId, ...r });
+  }
+  const out = [...byKey.values()];
+  if (out.length > 0) await deps.write(out);
+  result.rows = out.length;
+  result.clients = new Set(out.map((r) => r.client_id)).size;
   result.first_day = out.map((r) => r.day).sort()[0] ?? null;
   return result;
 }

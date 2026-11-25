@@ -21,6 +21,8 @@
  * (job `site_channels`, `social.site_channel_daily`) and the Google searches per day and query through the Search
  * Console API (job `search_console`, `social.search_console_daily`, `_shared/search-console.ts`), each isolated;
  * without the secret both record `not_configured`.
+ * #1294: the `search_console` job also reads the partner pages `tuggi.app/@nome` into
+ * `partner.search_console_daily` (BR-B2B-068 item 8.a), tied to the partner by `partner.resolve_public_page`.
  *
  * Machine key only (`isOwnSecretKey`: `ef_secret_key` of the cron, `cms_secret_key` of the CMS
  * server). The Meta token lives in this function's secrets and nowhere else: the CMS validates a
@@ -38,6 +40,7 @@ import {
   type Gemini,
   lookupAccount,
   metaClient,
+  partnerSearchStore,
   recordRun,
   runSocialCollect,
   runStoriesCollect,
@@ -78,9 +81,10 @@ serve(async (req) => {
   }
 
   const supabaseUrl = (Deno.env.get('SUPABASE_URL') ?? '').trim();
-  const social = createClient(supabaseUrl, getSecretKey().trim(), {
+  const db = createClient(supabaseUrl, getSecretKey().trim(), {
     auth: { autoRefreshToken: false, persistSession: false },
-  }).schema('social');
+  });
+  const social = db.schema('social');
   const store = supabaseStore(social);
   const now = () => new Date();
   const log = (line: string) => console.log(line);
@@ -119,6 +123,7 @@ serve(async (req) => {
       acquisition: {
         siteGa4: sa ? ga4Runner(sa, GA4_SITE_PROPERTY_ID, (url, init) => fetch(url, init)) : null,
         searchConsole: sa ? searchConsoleClient(sa, (url, init) => fetch(url, init)) : null,
+        partner: partnerSearchStore(db.schema('partner')),
       },
     });
     console.log(`[social-collect] done ${JSON.stringify(report)}`);
