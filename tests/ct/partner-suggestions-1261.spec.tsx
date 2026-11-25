@@ -112,7 +112,7 @@ test('#1261 BR-B2B-073 item 3.b: each suggestion shows what the partner sent bes
   await first.getByRole('button', { name: 'Ligar a Praia do Forte' }).click()
   await expect.poll(() => s.posted.length).toBe(1)
   expect(s.posted[0]).toEqual({ suggestion_id: S1, decision: 'link', attraction_id: 'eeeeeeee-2222-4222-8333-444444444444' })
-  await expect(c.getByRole('status')).toHaveText('Sugestão ligada ao ponto. Ele entra no fim da lista do parceiro.')
+  await expect(c.getByRole('status')).toHaveText('Sugestão ligada ao ponto. Ele entra no fim da lista do parceiro quando estiver no ar.')
   await expect(card(c, S1)).toHaveCount(0)
 })
 
@@ -132,7 +132,7 @@ test('#1261 BR-B2B-073 item 3.b: "Criar o ponto" sends the fields with the name 
     decision: 'created',
     poi: { name: 'Quiosque do Tonho', description: 'Barraca de praia com peixe frito, parceira nossa há dez anos.', city: 'Cabo Frio', country: 'Brasil', state: 'RJ' },
   })
-  await expect(c.getByRole('status')).toContainText('Ponto criado em revisão')
+  await expect(c.getByRole('status')).toContainText('Ponto criado na revisão')
 })
 
 test('#1261 BR-B2B-073 item 3.b: a refusal without a reason never leaves the browser; with one it travels as written; switching forms keeps it', async ({ mount, page }) => {
@@ -164,7 +164,7 @@ test('#1261: TGB86 (answered or cancelled meanwhile) reads as the sentence and t
   await expect(card(c, S1)).toBeVisible()
   const before = s.reads.length
   await card(c, S1).getByRole('button', { name: 'Ligar a Praia do Forte' }).click()
-  await expect(c.getByRole('alert')).toContainText('Esta sugestão não espera mais resposta')
+  await expect(c.getByRole('alert')).toContainText('Outra pessoa já respondeu esta sugestão')
   await expect.poll(() => s.reads.length).toBeGreaterThan(before)
 })
 
@@ -189,7 +189,7 @@ test('#1261: the Marca tab of the record reads only the suggestions of its partn
   await expect(card(c, S2)).toBeVisible()
   await expect(card(c, S1)).toHaveCount(0)
   expect(s.reads).toContain(`?client_id=${OTHER_CLIENT}`)
-  await expect(c.getByRole('option', { name: 'Hotel Mar Azul (de outro parceiro)' })).toBeDisabled()
+  await expect(c.getByRole('option', { name: 'Hotel Mar Azul (ligado a outro parceiro)' })).toBeDisabled()
   await shoot(page, 'c01-brand-tab')
   await c.getByLabel('Parceiro de roteiro').selectOption('rp-2')
   await expect.poll(() => patches.length).toBe(1)
@@ -245,6 +245,6 @@ test('#1261 BR-B2B-073 item 7.b: the route review shows the partner badge in the
   await expect(header.getByText(/Autor parceiro\. Aprovado e público/)).toBeVisible()
 
   await c.getByRole('button', { name: 'Virar POI' }).click()
-  await expect(c.getByText('No app o ponto sai com "Contado por @hotel-mar-azul".')).toBeVisible()
+  await expect(c.getByText('No app, o ponto sai com o crédito "Contado por @hotel-mar-azul".')).toBeVisible()
   await shoot(page, 'c02-route-review')
 })

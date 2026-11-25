@@ -2733,8 +2733,8 @@
       "partner": {
         "badge": "Partner",
         "no_name": "Partner without a name",
-        "what_changes": "Partner author. Once approved and public, the route goes out signed by them and highlighted for the people they brought, in the region and during the term. The review is the usual one.",
-        "told_by": "In the app the point shows \"Contado por @{handle}\"."
+        "what_changes": "Partner author. Once approved and public, the route shows signed by them to the people who came through their QR code or link. Refuse with a reason if the text sells: price, coupon, an invitation to book or visit the place, opening hours, phone, website, social media or a comparison with competitors.",
+        "told_by": "In the app, the point shows the credit \"Told by @{handle}\"."
       }
     },
     "PublicNames": {
@@ -5514,15 +5514,15 @@
       "read_failed": "Could not load. Reload the page.",
       "write_failed": "Could not save. Try again.",
       "invalid_suggestion": "Invalid suggestion. Reload the page.",
-      "invalid_poi": "Invalid point. Check the id or the fields of the point.",
-      "suggestion_reason_too_long": "The reason has at most 1,000 characters.",
-      "suggestion_not_pending": "This suggestion no longer waits for an answer: someone already answered, or the partner cancelled it. The list was reloaded.",
-      "poi_not_found": "This point does not exist. Check the id.",
-      "own_poi": "This point already belongs to the partner and is on its page."
+      "invalid_poi": "Invalid point. Check the id or the point fields.",
+      "suggestion_reason_too_long": "The reason is over 1,000 characters. Shorten it and send it again.",
+      "suggestion_not_pending": "Someone already answered this suggestion, or the partner cancelled it. The queue was reloaded.",
+      "poi_not_found": "No point with this id. Check it and try again.",
+      "own_poi": "This is the partner's own point, already on their page. Link to another point or refuse."
     },
     "suggestions": {
       "queueTitle": "Place suggestions",
-      "queueIntro": "Places the partner wants to recommend that Tuggi does not have yet. Link to a point that exists, create the point, or refuse saying why.",
+      "queueIntro": "Places the partner wants to recommend that Tuggi does not have yet. Link to an existing point, create the point, or refuse with a reason.",
       "queueEmpty": "No suggestion waiting for an answer.",
       "submittedAt": "Sent on {date}",
       "sent": "What the partner sent",
@@ -5531,8 +5531,8 @@
       "noNote": "No note",
       "pin": "Pin",
       "openMap": "See on the map",
-      "counts": "The partner has {picks} picks and {pending} pending suggestions.",
-      "nearbyTitle": "Already near the pin? (up to {radius} m)",
+      "counts": "The partner has {picks, plural, one {# pick} other {# picks}} and {pending, plural, one {# pending suggestion} other {# pending suggestions}}.",
+      "nearbyTitle": "Tuggi points within {radius} m of the pin",
       "nearbyNone": "No point within {radius} m of the pin.",
       "distance": "{meters} m from the pin",
       "notApproved": "not approved",
@@ -5540,28 +5540,28 @@
       "linkTo": "Link to {name}",
       "linkById": "Link by point id",
       "linkByIdSubmit": "Link",
-      "linkByIdHint": "For a point that exists far from the pin: copy its id from the list of points.",
+      "linkByIdHint": "Point far from the pin: paste its id here, copied from the list of points.",
       "create": "Create the point",
-      "createHint": "The point is born not approved and follows the usual review. It belongs to the curation and carries no partner credit.",
+      "createHint": "The point starts unapproved and goes through the usual review. It belongs to curation and carries no partner credit.",
       "refuse": "Refuse",
-      "refuseLabel": "Reason for the refusal. The partner reads it in the portal as you write it.",
+      "refuseLabel": "Reason for refusing. The partner reads it in the portal exactly as you write it.",
       "refusePlaceholder": "E.g.: the place closed in October.",
       "refuseSubmit": "Refuse suggestion",
       "reasonRequired": "Write the reason: the partner reads it in the portal.",
-      "createdNotLinked": "The point was created in review and stays there, but the suggestion was not marked.",
-      "done_linked": "Suggestion linked to the point. It goes to the end of the partner list.",
-      "done_created": "Point created in review and linked to the suggestion. It goes to the end of the partner list and reaches the app once it is live.",
+      "createdNotLinked": "The point was created and is in review, but the suggestion is still open. Do not create it again: link the suggestion to it by id.",
+      "done_linked": "Suggestion linked to the point. It goes to the end of the partner's list once it is live.",
+      "done_created": "Point created in review and linked to the suggestion. Once approved and live, it goes to the end of the partner's list.",
       "done_refused": "Suggestion refused. The partner sees the reason in the portal."
     },
     "routePartner": {
       "title": "Curation routes",
       "label": "Route partner",
       "none": "None",
-      "takenOption": "{name} (of another partner)",
-      "hint": "The public routes on the air of this route partner show as \"Roteiros de @parceiro\" to the people this partner brought. Route partners are created in the route editor.",
+      "takenOption": "{name} (linked to another partner)",
+      "hint": "The public, live routes of this route partner show signed by them to the people they brought: on the partner's page and, during the brand period, at the top of the Routes tab. Route partners are created in the route editor.",
       "saved": "Route partner linked.",
       "cleared": "Route partner unlinked.",
-      "readFailed": "Could not load the route partners.",
+      "readFailed": "Could not load the route partners. Reload the page.",
       "saveFailed": "Could not save. Try again."
     }
   }

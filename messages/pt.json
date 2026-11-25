@@ -3081,8 +3081,8 @@
       "partner": {
         "badge": "Parceiro",
         "no_name": "Parceiro sem nome",
-        "what_changes": "Autor parceiro. Aprovado e público, o roteiro sai assinado por ele e em destaque para quem chegou por ele, na região e durante o prazo. A revisão é a de sempre.",
-        "told_by": "No app o ponto sai com \"Contado por @{handle}\"."
+        "what_changes": "Autor parceiro. Aprovado e público, o roteiro aparece assinado por ele para quem chegou pelo QR ou link dele. Recuse com motivo se o texto vender: preço, cupom, convite para reservar ou ir ao local, horário, telefone, site, rede social ou comparação com concorrente.",
+        "told_by": "No app, o ponto sai com o crédito \"Contado por @{handle}\"."
       }
     },
     "PublicNames": {
@@ -7523,24 +7523,24 @@
       "write_failed": "Não foi possível salvar. Tente de novo.",
       "invalid_suggestion": "Sugestão inválida. Recarregue a página.",
       "invalid_poi": "Ponto inválido. Confira o id ou os campos do ponto.",
-      "suggestion_reason_too_long": "O motivo tem no máximo 1.000 caracteres.",
-      "suggestion_not_pending": "Esta sugestão não espera mais resposta: alguém já respondeu, ou o parceiro cancelou. A lista foi recarregada.",
-      "poi_not_found": "Este ponto não existe. Confira o id.",
-      "own_poi": "Este ponto já é do próprio parceiro e está na página dele."
+      "suggestion_reason_too_long": "O motivo passa de 1.000 caracteres. Encurte e envie de novo.",
+      "suggestion_not_pending": "Outra pessoa já respondeu esta sugestão, ou o parceiro a cancelou. A fila foi recarregada.",
+      "poi_not_found": "Nenhum ponto com este id. Confira e tente de novo.",
+      "own_poi": "Este é o ponto do próprio parceiro, que já está na página dele. Ligue a outro ponto ou recuse."
     },
     "suggestions": {
       "queueTitle": "Sugestões de local",
-      "queueIntro": "Lugares que o parceiro quer indicar e o Tuggi ainda não tem. Ligue a um ponto que já existe, crie o ponto ou recuse dizendo por quê.",
+      "queueIntro": "Lugares que o parceiro quer indicar e que o Tuggi ainda não tem. Ligue a um ponto que já existe, crie o ponto ou recuse com o motivo.",
       "queueEmpty": "Nenhuma sugestão esperando resposta.",
       "submittedAt": "Enviada em {date}",
       "sent": "O que o parceiro mandou",
       "place": "Lugar",
-      "note": "Recado",
-      "noNote": "Sem recado",
+      "note": "Observação",
+      "noNote": "Sem observação",
       "pin": "Pino",
       "openMap": "Ver no mapa",
-      "counts": "O parceiro tem {picks} indicados e {pending} sugestões pendentes.",
-      "nearbyTitle": "Já existe perto do pino? (até {radius} m)",
+      "counts": "O parceiro tem {picks, plural, one {# indicado} other {# indicados}} e {pending, plural, one {# sugestão pendente} other {# sugestões pendentes}}.",
+      "nearbyTitle": "Pontos do Tuggi a até {radius} m do pino",
       "nearbyNone": "Nenhum ponto a até {radius} m do pino.",
       "distance": "{meters} m do pino",
       "notApproved": "não aprovado",
@@ -7548,28 +7548,28 @@
       "linkTo": "Ligar a {name}",
       "linkById": "Ligar pelo id do ponto",
       "linkByIdSubmit": "Ligar",
-      "linkByIdHint": "Para o ponto que existe longe do pino: copie o id na lista de pontos.",
+      "linkByIdHint": "Ponto longe do pino: cole aqui o id dele, copiado da lista de pontos.",
       "create": "Criar o ponto",
       "createHint": "O ponto nasce não aprovado e segue a revisão de sempre. Ele é da curadoria e não leva crédito do parceiro.",
       "refuse": "Recusar",
-      "refuseLabel": "Motivo da recusa. O parceiro lê no portal como você escrever.",
+      "refuseLabel": "Motivo da recusa. O parceiro lê no portal exatamente como você escrever.",
       "refusePlaceholder": "Ex.: o lugar fechou em outubro.",
       "refuseSubmit": "Recusar sugestão",
       "reasonRequired": "Escreva o motivo: o parceiro lê no portal.",
-      "createdNotLinked": "O ponto foi criado em revisão e continua lá, mas a sugestão não foi marcada.",
-      "done_linked": "Sugestão ligada ao ponto. Ele entra no fim da lista do parceiro.",
-      "done_created": "Ponto criado em revisão e ligado à sugestão. Ele entra no fim da lista do parceiro e chega ao app quando estiver no ar.",
+      "createdNotLinked": "O ponto foi criado e está na revisão, mas a sugestão continua aberta. Não crie de novo: ligue a sugestão a ele pelo id.",
+      "done_linked": "Sugestão ligada ao ponto. Ele entra no fim da lista do parceiro quando estiver no ar.",
+      "done_created": "Ponto criado na revisão e ligado à sugestão. Quando for aprovado e estiver no ar, ele entra no fim da lista do parceiro.",
       "done_refused": "Sugestão recusada. O parceiro vê o motivo no portal."
     },
     "routePartner": {
       "title": "Roteiros da curadoria",
       "label": "Parceiro de roteiro",
       "none": "Nenhum",
-      "takenOption": "{name} (de outro parceiro)",
-      "hint": "Os roteiros públicos e no ar deste parceiro de roteiro aparecem como \"Roteiros de @parceiro\" para quem ele trouxe. O parceiro de roteiro se cria no editor de rotas.",
+      "takenOption": "{name} (ligado a outro parceiro)",
+      "hint": "Os roteiros públicos e no ar deste parceiro de roteiro aparecem assinados por ele para quem ele trouxe: na página dele e, durante o prazo da marca, no topo da aba Roteiros. O parceiro de roteiro se cria no editor de rotas.",
       "saved": "Parceiro de roteiro ligado.",
       "cleared": "Parceiro de roteiro desligado.",
-      "readFailed": "Não foi possível carregar os parceiros de roteiro.",
+      "readFailed": "Não foi possível carregar os parceiros de roteiro. Recarregue a página.",
       "saveFailed": "Não foi possível salvar. Tente de novo."
     }
   }

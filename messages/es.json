@@ -2720,8 +2720,8 @@
       "partner": {
         "badge": "Socio",
         "no_name": "Socio sin nombre",
-        "what_changes": "Autor socio. Aprobada y pública, la ruta sale firmada por él y destacada para quien llegó por él, en la región y durante el plazo. La revisión es la de siempre.",
-        "told_by": "En la app el punto sale con \"Contado por @{handle}\"."
+        "what_changes": "Autor socio. Aprobada y pública, la ruta aparece firmada por él para quien llegó por su QR o enlace. Recházala con motivo si el texto vende: precio, cupón, invitación a reservar o ir al lugar, horario, teléfono, sitio web, redes sociales o comparación con la competencia.",
+        "told_by": "En la app, el punto sale con el crédito \"Contado por @{handle}\"."
       }
     },
     "PublicNames": {
@@ -5497,14 +5497,14 @@
       "write_failed": "No se pudo guardar. Inténtalo de nuevo.",
       "invalid_suggestion": "Sugerencia inválida. Recarga la página.",
       "invalid_poi": "Punto inválido. Revisa el id o los campos del punto.",
-      "suggestion_reason_too_long": "El motivo tiene como máximo 1.000 caracteres.",
-      "suggestion_not_pending": "Esta sugerencia ya no espera respuesta: alguien ya respondió, o el socio la canceló. La lista se recargó.",
-      "poi_not_found": "Este punto no existe. Revisa el id.",
-      "own_poi": "Este punto ya es del propio socio y está en su página."
+      "suggestion_reason_too_long": "El motivo pasa de 1000 caracteres. Acórtalo y envíalo de nuevo.",
+      "suggestion_not_pending": "Alguien ya respondió esta sugerencia, o el socio la canceló. La lista se recargó.",
+      "poi_not_found": "Ningún punto con este id. Revísalo e inténtalo de nuevo.",
+      "own_poi": "Este es el punto del propio socio, que ya está en su página. Vincula otro punto o rechaza la sugerencia."
     },
     "suggestions": {
       "queueTitle": "Sugerencias de lugar",
-      "queueIntro": "Lugares que el socio quiere recomendar y que Tuggi todavía no tiene. Vincula a un punto que ya existe, crea el punto o rechaza diciendo por qué.",
+      "queueIntro": "Lugares que el socio quiere recomendar y que Tuggi todavía no tiene. Vincula a un punto que ya existe, crea el punto o rechaza con el motivo.",
       "queueEmpty": "Ninguna sugerencia esperando respuesta.",
       "submittedAt": "Enviada el {date}",
       "sent": "Lo que envió el socio",
@@ -5513,8 +5513,8 @@
       "noNote": "Sin nota",
       "pin": "Pin",
       "openMap": "Ver en el mapa",
-      "counts": "El socio tiene {picks} recomendados y {pending} sugerencias pendientes.",
-      "nearbyTitle": "¿Ya existe cerca del pin? (hasta {radius} m)",
+      "counts": "El socio tiene {picks, plural, one {# recomendado} other {# recomendados}} y {pending, plural, one {# sugerencia pendiente} other {# sugerencias pendientes}}.",
+      "nearbyTitle": "Puntos de Tuggi a menos de {radius} m del pin",
       "nearbyNone": "Ningún punto a menos de {radius} m del pin.",
       "distance": "{meters} m del pin",
       "notApproved": "no aprobado",
@@ -5522,7 +5522,7 @@
       "linkTo": "Vincular a {name}",
       "linkById": "Vincular por id del punto",
       "linkByIdSubmit": "Vincular",
-      "linkByIdHint": "Para el punto que existe lejos del pin: copia el id en la lista de puntos.",
+      "linkByIdHint": "Punto lejos del pin: pega aquí su id, copiado de la lista de puntos.",
       "create": "Crear el punto",
       "createHint": "El punto nace sin aprobar y sigue la revisión de siempre. Es de la curaduría y no lleva crédito del socio.",
       "refuse": "Rechazar",
@@ -5530,20 +5530,20 @@
       "refusePlaceholder": "Ej.: el lugar cerró en octubre.",
       "refuseSubmit": "Rechazar sugerencia",
       "reasonRequired": "Escribe el motivo: el socio lo lee en el portal.",
-      "createdNotLinked": "El punto se creó en revisión y sigue allí, pero la sugerencia no se marcó.",
-      "done_linked": "Sugerencia vinculada al punto. Entra al final de la lista del socio.",
-      "done_created": "Punto creado en revisión y vinculado a la sugerencia. Entra al final de la lista del socio y llega a la app cuando esté publicado.",
+      "createdNotLinked": "El punto se creó y está en revisión, pero la sugerencia sigue abierta. No lo crees de nuevo: vincula la sugerencia a él por el id.",
+      "done_linked": "Sugerencia vinculada al punto. Entra al final de la lista del socio cuando esté publicado.",
+      "done_created": "Punto creado en revisión y vinculado a la sugerencia. Cuando se apruebe y esté publicado, entra al final de la lista del socio.",
       "done_refused": "Sugerencia rechazada. El socio ve el motivo en el portal."
     },
     "routePartner": {
       "title": "Rutas de la curaduría",
       "label": "Socio de ruta",
       "none": "Ninguno",
-      "takenOption": "{name} (de otro socio)",
-      "hint": "Las rutas públicas y publicadas de este socio de ruta aparecen como \"Roteiros de @parceiro\" para quien él trajo. El socio de ruta se crea en el editor de rutas.",
+      "takenOption": "{name} (vinculado a otro socio)",
+      "hint": "Las rutas públicas y publicadas de este socio de ruta aparecen firmadas por él para quien él trajo: en su página y, durante el plazo de la marca, arriba en la pestaña Rutas. El socio de ruta se crea en el editor de rutas.",
       "saved": "Socio de ruta vinculado.",
       "cleared": "Socio de ruta desvinculado.",
-      "readFailed": "No se pudieron cargar los socios de ruta.",
+      "readFailed": "No se pudieron cargar los socios de ruta. Recarga la página.",
       "saveFailed": "No se pudo guardar. Inténtalo de nuevo."
     }
   }
