@@ -10,9 +10,11 @@ import { PARTNER_MESSAGE_FOOTER_VERSION } from '../_shared/partner-message-copy.
 import {
   buildClickUrl,
   buildStopUrl,
+  emailButtonTarget,
   handlePartnerMessageRequest,
   renderPartnerMessageEmail,
   runPartnerMessageRound,
+  withPartnerMessageUtm,
   type PartnerEmailConfig,
   type PartnerMessageDeps,
   type PartnerMessageHttpDeps,
@@ -398,4 +400,34 @@ Deno.test('#1264: a failed click record still takes the person to the page, and 
   const res = await handlePartnerMessageRequest(at(`/click${click.search}`), f.deps);
   assertEquals(res.status, 302);
   assertEquals(f.lines, ['[partner-message-send] click not recorded: 40001']);
+});
+
+const UTM = `utm_source=tuggi&utm_medium=partner_message&utm_campaign=${ROW.message_id}`;
+
+Deno.test('#1289 item 12: a site URL without a query gets the three UTM parameters', () => {
+  assertEquals(withPartnerMessageUtm('https://viladomar.example/reservas', ROW.message_id), `https://viladomar.example/reservas?${UTM}`);
+});
+
+Deno.test('#1289 item 12: a site URL with a query keeps it in its order and encoding, and the fragment at the end', () => {
+  assertEquals(
+    withPartnerMessageUtm('https://viladomar.example/r?dia=s%C3%A1bado&mesa=2#jantar', ROW.message_id),
+    `https://viladomar.example/r?dia=s%C3%A1bado&mesa=2&${UTM}#jantar`,
+  );
+  assertEquals(
+    withPartnerMessageUtm('https://x.example/?utm_source=insta&ref=a&UTM_MEDIUM=bio', ROW.message_id),
+    `https://x.example/?ref=a&${UTM}`,
+  );
+  assertEquals(withPartnerMessageUtm('https://x.example/a?', null), 'https://x.example/a?utm_source=tuggi&utm_medium=partner_message');
+});
+
+Deno.test('#1289 item 12: the e-mail button signs and redirects to the site with the UTM; a tuggi:// button takes none; the row is untouched', async () => {
+  const row = { ...ROW, button_url: 'https://viladomar.example/reservas?mesa=2#jantar' };
+  const target = emailButtonTarget(row.button_url, row.message_id);
+  assertEquals(target, `https://viladomar.example/reservas?mesa=2&${UTM}#jantar`);
+  assertEquals(emailButtonTarget('tuggi://place?id=1', row.message_id), 'https://tuggi.app/download');
+  const mail = await renderPartnerMessageEmail(row, CONFIG);
+  assert(mail);
+  const click = await buildClickUrl(row, target, CONFIG);
+  assert(mail.html.includes(click.replaceAll('&', '&amp;')) || mail.html.includes(click), 'the button is the signed click of the UTM target');
+  assertEquals(row.button_url, 'https://viladomar.example/reservas?mesa=2#jantar');
 });

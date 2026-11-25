@@ -215,12 +215,45 @@ async function pushOne(deps: PartnerMessageDeps, r: PartnerMessageRecipient): Pr
 }
 
 /**
- * Where the e-mail button lands. A website goes as recorded and approved; a `tuggi://` link has no
- * page a mail client can open, so it opens the app by our universal link, as the other tourist
- * e-mails do (`TOURIST_APP_LINK`).
+ * #1289: the UTM of the partner's site, so the partner's own analytics reads the visit as ours. The
+ * app adds the same three on the tap of the Correio button (`withPartnerMessageUtm` in
+ * `tuggi-drive-v2/src/features/partnerBrand/partnerMessages.ts`; contract §11.3 and §11.4).
  */
-export function emailButtonTarget(buttonUrl: string | null): string {
-  return buttonUrl && /^https?:\/\//i.test(buttonUrl.trim()) ? buttonUrl.trim() : TOURIST_APP_LINK;
+export const PARTNER_MESSAGE_UTM_SOURCE = 'tuggi';
+export const PARTNER_MESSAGE_UTM_MEDIUM = 'partner_message';
+const UTM_KEYS = ['utm_source', 'utm_medium', 'utm_campaign'];
+
+/**
+ * The approved URL with `utm_source`, `utm_medium` and `utm_campaign=<message_id>`. Text only, so
+ * the rest stays byte for byte: the partner's query keeps its order and encoding, the fragment
+ * stays at the end, and only an earlier utm of those three keys gives way to ours. The value saved
+ * in `approved_button_url` never changes: this runs when the e-mail is built.
+ */
+export function withPartnerMessageUtm(url: string, messageId: string | null | undefined): string {
+  const hashAt = url.indexOf('#');
+  const fragment = hashAt >= 0 ? url.slice(hashAt) : '';
+  const beforeHash = hashAt >= 0 ? url.slice(0, hashAt) : url;
+  const queryAt = beforeHash.indexOf('?');
+  const base = queryAt >= 0 ? beforeHash.slice(0, queryAt) : beforeHash;
+  const query = queryAt >= 0 ? beforeHash.slice(queryAt + 1) : '';
+  const kept = query.split('&').filter((pair) => pair && !UTM_KEYS.includes(pair.split('=')[0].toLowerCase()));
+  const ours = [
+    `utm_source=${PARTNER_MESSAGE_UTM_SOURCE}`,
+    `utm_medium=${PARTNER_MESSAGE_UTM_MEDIUM}`,
+    ...(messageId ? [`utm_campaign=${encodeURIComponent(messageId)}`] : []),
+  ];
+  return `${base}?${[...kept, ...ours].join('&')}${fragment}`;
+}
+
+/**
+ * Where the e-mail button lands. A website goes as approved, with our UTM (#1289); a `tuggi://`
+ * link has no page a mail client can open, so it opens the app by our universal link, as the other
+ * tourist e-mails do (`TOURIST_APP_LINK`), and takes no UTM.
+ */
+export function emailButtonTarget(buttonUrl: string | null, messageId?: string | null): string {
+  return buttonUrl && /^https?:\/\//i.test(buttonUrl.trim())
+    ? withPartnerMessageUtm(buttonUrl.trim(), messageId)
+    : TOURIST_APP_LINK;
 }
 
 export async function buildStopUrl(r: Pick<PartnerMessageRecipient, 'recipient_id'>, lang: PartnerMessageLang, config: PartnerEmailConfig) {
@@ -255,7 +288,7 @@ export async function renderPartnerMessageEmail(
   const handle = r.partner_handle;
   const date = consentDate(r.consent_at, lang);
   const stopUrl = await buildStopUrl(r, lang, config);
-  const clickUrl = await buildClickUrl(r, emailButtonTarget(r.button_url), config);
+  const clickUrl = await buildClickUrl(r, emailButtonTarget(r.button_url, r.message_id), config);
   const generalUrl = await buildUnsubscribeUrl(r.email, config.siteUrl, config.secret, lang);
   const why = date ? fill(PARTNER_EMAIL_COPY.footer_why[lang], { handle, date }) : '';
   const content = {
