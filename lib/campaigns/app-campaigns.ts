@@ -100,10 +100,19 @@ export const CAMPAIGN_SELECT =
 // ─── Destinations ────────────────────────────────────────────────────────────────────────────
 
 /**
- * Where an `open_path` campaign may send the tourist. Mirror of `IN_APP_NAVIGATION_PATHS` and of
- * the `/route/` prefix in `tuggi-drive-v2/src/services/deepLinkInAppPaths.ts`: the app hides a
- * campaign whose path it cannot open, so a path outside this list is a campaign nobody sees.
- * `/r/<slug>` is left out on purpose (#1192): it would count in the route-link funnel.
+ * #1284 (BR-USUARIO-055 item 11.f): the destination wish, the one `/trip` a campaign may open, query
+ * included and nothing else. Mirror of `TRIP_WISH_PATH` in `tuggi-drive-v2/src/constants/tripDeepLink.ts`.
+ * `/trip`, `ask=1` (the trip question, which is no campaign, item 6.d) and `id=` (one person's trip)
+ * stay out.
+ */
+export const TRIP_WISH_PATH = '/trip?wish=1'
+
+/**
+ * Where an `open_path` campaign may send the tourist. Mirror of `IN_APP_NAVIGATION_PATHS`, of
+ * `IN_APP_NAVIGATION_EXACT` and of the `/route/` prefix in
+ * `tuggi-drive-v2/src/services/deepLinkInAppPaths.ts`: the app hides a campaign whose path it cannot
+ * open, so a path outside this list is a campaign nobody sees. `/r/<slug>` is left out on purpose
+ * (#1192): it would count in the route-link funnel.
  *
  * `/map` opens the same Explorar as `/explore`, and `/ranking` the same page as `/scoreboard`:
  * the select offers one of each, and the route still accepts the alias a row may carry.
@@ -117,6 +126,7 @@ export const CAMPAIGN_DESTINATIONS = [
   { path: '/stamps', id: null },
   { path: '/earn', id: null },
   { path: '/trips', id: null },
+  { path: TRIP_WISH_PATH, id: null },
   { path: '/notifications', id: null },
   { path: '/my-routes', id: null },
   { path: '/route', id: 'path' },
@@ -129,6 +139,7 @@ export type CampaignDestination = (typeof CAMPAIGN_DESTINATIONS)[number]['path']
 
 /** The i18n key of a destination under `AppCampaigns.destinations` (`/my-routes` → `my_routes`). */
 export function destinationKey(destination: CampaignDestination): string {
+  if (destination === TRIP_WISH_PATH) return 'trip_wish'
   return destination.slice(1).replace('-', '_')
 }
 
@@ -150,6 +161,7 @@ export function buildActionPath(destination: CampaignDestination, id: string): s
 /** Back from a stored path to the select: `null` when the path is none of the offered ones. */
 export function parseActionPath(path: string | null): { destination: CampaignDestination; id: string } | null {
   if (!path) return null
+  if (path === TRIP_WISH_PATH) return { destination: TRIP_WISH_PATH, id: '' }
   if (path.startsWith('/route/')) return { destination: '/route', id: path.slice('/route/'.length) }
   const [base, query = ''] = path.split('?')
   const entry = CAMPAIGN_DESTINATIONS.find((d) => d.path === base)
@@ -158,9 +170,13 @@ export function parseActionPath(path: string | null): { destination: CampaignDes
   return { destination: entry.path, id }
 }
 
-/** A path the app opens from a tap inside it. Plain paths take no query; the four detail paths take `id`. */
+/**
+ * A path the app opens from a tap inside it. Plain paths take no query; the four detail paths take
+ * `id`; `/trip` only as `TRIP_WISH_PATH`, whole.
+ */
 export function isAllowedActionPath(path: unknown): path is string {
   if (typeof path !== 'string') return false
+  if (path === TRIP_WISH_PATH) return true
   if (path.startsWith('/route/')) return isUuid(path.slice('/route/'.length))
   const queryAt = path.indexOf('?')
   if (queryAt < 0) return PLAIN_PATHS.has(path)

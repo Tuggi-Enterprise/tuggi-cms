@@ -426,6 +426,31 @@ test('#1192: the destinations the form offers are paths the app opens, and the d
   assert.equal(lib.isAllowedActionPath('/r/slug'), false)
 })
 
+test('#1284 BR-USUARIO-055 11.f: the destination wish is /trip?wish=1, whole, and no other /trip is a campaign destination', () => {
+  assert.equal(lib.TRIP_WISH_PATH, '/trip?wish=1')
+  assert.equal(lib.isAllowedActionPath('/trip?wish=1'), true)
+  // ask=1 is the trip question coming back, which is no campaign (055 item 6.d); id= is one person's trip.
+  const uuid = 'cccccccc-1111-4222-8333-444444444444'
+  for (const path of ['/trip', '/trip?ask=1', `/trip?id=${uuid}`, '/trip?wish=2', '/trip?wish=1&x=1', '/trip?wish=1 ', 'tuggi://trip?wish=1']) {
+    assert.equal(lib.isAllowedActionPath(path), false, path)
+    assert.equal(lib.parseCampaignInput({ ...OPEN_PATH, action_path: path }).error?.code, 'invalid_action_path', path)
+  }
+  // The select writes it and reads it back on edit.
+  assert.equal(lib.buildActionPath('/trip?wish=1', ''), '/trip?wish=1')
+  assert.deepEqual(lib.parseActionPath('/trip?wish=1'), { destination: '/trip?wish=1', id: '' })
+  assert.equal(lib.parseActionPath('/trip?ask=1'), null)
+  const parsed = lib.parseCampaignInput({ ...OPEN_PATH, action_path: '/trip?wish=1' })
+  assert.equal(parsed.ok, true)
+  assert.equal(parsed.fields.action_path, '/trip?wish=1')
+  // Every destination of the select has its label in the three CMS languages.
+  for (const d of lib.CAMPAIGN_DESTINATIONS) {
+    for (const l of ['pt', 'en', 'es']) {
+      assert.ok(messages[l].AppCampaigns.destinations[lib.destinationKey(d.path)], `${l} ${d.path}`)
+    }
+  }
+  assert.equal(lib.destinationKey('/trip?wish=1'), 'trip_wish')
+})
+
 test('#1192: the status is drive.in_app_campaign_is_running, and the other three say why not', () => {
   const now = new Date('2026-11-20T12:00:00Z')
   const s = (is_active: boolean, starts_at: string | null, ends_at: string | null) => lib.campaignStatus({ is_active, starts_at, ends_at }, now)

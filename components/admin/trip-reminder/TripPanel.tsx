@@ -6,9 +6,9 @@
  * person and no phone number, and this block prints nothing that is not a count, a month, a
  * destination, a length band or a channel. #1238: an account may have many trips, each counted, and
  * every row and total is split by the band the person picked (BR-MONETIZACAO-091 2.a).
- * #1275/#1276: the wished destinations of whoever answered "unsure" (BR-USUARIO-055 item 11) are a
- * block of their own, never mixed with the trips: a wish is not a trip. #1281: by place and month
- * (item 11.e).
+ * #1275/#1276: the wished destinations (BR-USUARIO-055 item 11) are a block of their own, never mixed
+ * with the trips: a wish is not a trip. #1281: by place and month (item 11.e). #1284: the wish of any
+ * permanent account, with any answer or none, with a trip or none (item 11.a).
  *
  * The one exception to "counts only" is the last block, `TripNowCredits` (#1281, BR-MONETIZACAO-091
  * item 8.2): who got the hours of "estou viajando agora", by the email of the account. It has its own
