@@ -15,13 +15,14 @@ import AcquisitionReportPage from '@/app/[locale]/dashboard/reports/acquisition/
 const noop = () => undefined
 const router = { push: noop, replace: noop, refresh: noop, back: noop, forward: noop, prefetch: noop, hmrRefresh: noop }
 
-export function AcquisitionHarness({ month }: { month: string }) {
+/** `search` replaces the query string (`month=...&store=...&country=...`); omitted, only the month. */
+export function AcquisitionHarness({ month, search }: { month: string; search?: string }) {
   const [client] = useState(() => new QueryClient({ defaultOptions: { queries: { retry: false } } }))
   return (
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     <AppRouterContext.Provider value={router as any}>
       <PathnameContext.Provider value="/pt/dashboard/reports/acquisition">
-        <SearchParamsContext.Provider value={new URLSearchParams(`month=${month}`) as never}>
+        <SearchParamsContext.Provider value={new URLSearchParams(search ?? `month=${month}`) as never}>
           <PathParamsContext.Provider value={{ locale: 'pt' }}>
             <QueryClientProvider client={client}>
               <NextIntlClientProvider

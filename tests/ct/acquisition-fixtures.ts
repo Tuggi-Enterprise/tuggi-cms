@@ -85,3 +85,78 @@ export const FUNNEL_FULL = {
     { store: 'play_store', installs_ga4: 171, installs_store: 176, uninstalls: 58 },
   ],
 }
+
+// ── #1309: stores by country and the store search position (contract banco-para-cms Parte 31) ──
+
+const october = Array.from({ length: 31 }, (_, i) => `2026-10-${String(i + 1).padStart(2, '0')}`)
+
+/** The job dates of `social.collector_runs`: the stores since September, the search tracker since October. */
+export const ASO_JOBS = [
+  { job: 'apple_store', covered_from: '2026-09-01' },
+  { job: 'play', covered_from: '2026-09-01' },
+  { job: 'store_rank', covered_from: '2026-10-01' },
+]
+
+/**
+ * October by country. The App Store detail only starts on 12/10 (a floor), Play covers the month. Italy
+ * has no Play row (unknown, never 0), Argentina no App Store row. App Store countries add up to 200
+ * downloads, 10 under the 210 of the funnel; Play to 190, the funnel's.
+ */
+export const COUNTRY_DAYS = [
+  ...october.slice(11).flatMap((day) => [
+    { day, store: 'app_store', country: 'BR', impressions: 150, page_views: 40, downloads: 7 },
+    { day, store: 'app_store', country: 'US', impressions: 30, page_views: 6, downloads: 2 },
+    { day, store: 'app_store', country: 'IT', impressions: 15, page_views: 3, downloads: 1 },
+  ]),
+  ...october.flatMap((day) => [
+    { day, store: 'play_store', country: 'BR', impressions: null, page_views: 20, downloads: 5 },
+    { day, store: 'play_store', country: 'US', impressions: null, page_views: 3, downloads: 1 },
+  ]),
+  { day: '2026-10-05', store: 'play_store', country: 'AR', impressions: null, page_views: 10, downloads: 4 },
+]
+
+export const RANK_KEYWORDS = [
+  { id: 'k-audio', keyword: 'audioguia', country: 'BR', active: true },
+  { id: 'k-guide', keyword: 'guia de viagem', country: 'BR', active: true },
+  { id: 'k-route', keyword: 'roteiro', country: 'BR', active: true },
+  { id: 'k-boat', keyword: 'passeio de barco', country: 'BR', active: true },
+  { id: 'k-lisbon', keyword: 'audioguia lisboa', country: 'PT', active: true },
+]
+
+export const RANK_APPS = [
+  { id: 'own-ios', store: 'app_store', name: 'Tuggi', is_own: true },
+  { id: 'own-play', store: 'play_store', name: 'Tuggi', is_own: true },
+  { id: 'gyg-ios', store: 'app_store', name: 'GetYourGuide', is_own: false },
+  { id: 'smart-ios', store: 'app_store', name: 'SmartGuide', is_own: false },
+  { id: 'voice-ios', store: 'app_store', name: 'VoiceMap', is_own: false },
+  { id: 'steves-ios', store: 'app_store', name: 'Rick Steves', is_own: false },
+  { id: 'gyg-play', store: 'play_store', name: 'GetYourGuide', is_own: false },
+  { id: 'smart-play', store: 'play_store', name: 'SmartGuide', is_own: false },
+  { id: 'voice-play', store: 'play_store', name: 'VoiceMap', is_own: false },
+]
+
+/** Our position by keyword on day `i` (0 is 01/10): up 3 on audioguia, down 2 on guia, out of roteiro after 25/10, never in passeio de barco. */
+const OWN: Record<string, (i: number) => number | null> = {
+  'k-audio': (i) => 7 - Math.round((3 * i) / 30),
+  'k-guide': (i) => 16 + Math.round((2 * i) / 30),
+  'k-route': (i) => (i < 25 ? 30 : null),
+  'k-boat': () => null,
+}
+const RIVALS: Record<string, number | null> = { gyg: 2, smart: null, voice: 11, steves: 14 }
+/** Play blocked the reading from 14/10 to 17/10: no row of the store those days. */
+const PLAY_BLOCKED = new Set(['2026-10-14', '2026-10-15', '2026-10-16', '2026-10-17'])
+
+/** October of the search tracker: 1,052 rows, past one page of PostgREST. */
+export const RANK_DAYS = october.flatMap((day, i) =>
+  (['app_store', 'play_store'] as const).flatMap((store) => {
+    if (store === 'play_store' && PLAY_BLOCKED.has(day)) return []
+    const suffix = store === 'app_store' ? 'ios' : 'play'
+    const read = store === 'app_store' ? 200 : 50
+    return Object.keys(OWN).flatMap((keyword_id) => [
+      { day, store, keyword_id, app_id: `own-${suffix}`, position: OWN[keyword_id](i), results_read: read },
+      ...Object.entries(RIVALS)
+        .filter(([name]) => store === 'app_store' || name !== 'steves')
+        .map(([name, position]) => ({ day, store, keyword_id, app_id: `${name}-${suffix}`, position, results_read: read })),
+    ])
+  })
+)

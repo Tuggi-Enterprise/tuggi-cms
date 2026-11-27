@@ -42,6 +42,8 @@ export function QuestionLines({
   format,
   reference,
   testId,
+  yDomain,
+  reversed = false,
 }: {
   label: string
   rows: LinesRow[]
@@ -52,6 +54,10 @@ export function QuestionLines({
   /** A dashed market line across the chart, with its label. */
   reference?: { y: number; label: string }
   testId: string
+  /** A fixed y domain for a chart that is not a share (a store search position, #1309); omitted, 0 to 100 %. */
+  yDomain?: [number, number]
+  /** The y axis upside down: position 1 on top. */
+  reversed?: boolean
 }) {
   const wide = useWide()
   const data = rows.map((r) => ({ ...r, ...Object.fromEntries(series.map((s) => [s.key, r.values[s.key] ?? null])) }))
@@ -64,7 +70,7 @@ export function QuestionLines({
         <LineChart data={data} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} strokeOpacity={0.4} />
           <XAxis dataKey="key" tickFormatter={(k: string) => (wide ? rows.find((r) => r.key === k)?.label : rows.find((r) => r.key === k)?.short) ?? k} tick={TICK} axisLine={false} tickLine={false} height={22} interval={0} padding={{ left: 12, right: 12 }} />
-          <YAxis tick={TICK} axisLine={false} tickLine={false} width={40} tickFormatter={format} domain={[0, domainTop]} />
+          <YAxis tick={TICK} axisLine={false} tickLine={false} width={40} tickFormatter={format} domain={yDomain ?? [0, domainTop]} reversed={reversed} allowDecimals={!yDomain} />
           <Tooltip content={<TooltipBox series={series} format={format} />} isAnimationActive={false} />
           {reference && (
             <ReferenceLine y={reference.y} ifOverflow="extendDomain" stroke={CHART_NEUTRAL} strokeDasharray="4 4" label={{ value: reference.label, position: 'insideTopRight', fill: '#6b7280', fontSize: 10, fontWeight: 700 }} />
