@@ -6,6 +6,9 @@
  *   POST {"recollect_app": true}             the same run, reading the app installs again over the whole
  *                                            funnel history (#1149, once after the app report changes)
  *   POST {"job":"stories"}                   the live stories only (pg_cron `social-collect-stories`, hourly)
+ *   POST {"job":"store_rank"}                the store search positions only, one slice of the day per call
+ *                                            (pg_cron `social-collect-store-rank`, hourly; #1307). Needs no Meta
+ *                                            secret, so it runs before that check
  *   POST {"action":"lookup","username":"x"}  Business Discovery only: the CMS checks a username
  *   -> 200 the run report, or { ok, ig_user_id, followers_count } / { ok: false, reason }
  *   -> 400 bad action, job or username, 401 any caller without our secret key, 405 any other method,
@@ -40,6 +43,7 @@ import { searchConsoleClient } from '../_shared/search-console.ts';
 import { runGeminiPromptWithUsage } from '../_shared/translationUtility.ts';
 import { appleConfig } from '../_shared/apple-downloads.ts';
 import { playConfig } from '../_shared/play-reports.ts';
+import { supabaseRankStore } from '../_shared/store-rank.ts';
 import {
   type Gemini,
   lookupAccount,
@@ -47,6 +51,7 @@ import {
   partnerSearchStore,
   recordRun,
   runSocialCollect,
+  runStoreRankCollect,
   runStoriesCollect,
   supabaseStore,
 } from '../_shared/social-collect.ts';
@@ -64,7 +69,28 @@ serve(async (req) => {
   const action = body?.action;
   if (action !== undefined && action !== 'lookup') return json({ error: 'unknown_action' }, 400);
   const job = body?.job;
-  if (job !== undefined && job !== 'stories') return json({ error: 'unknown_job' }, 400);
+  if (job !== undefined && job !== 'stories' && job !== 'store_rank') return json({ error: 'unknown_job' }, 400);
+
+  const database = () =>
+    createClient((Deno.env.get('SUPABASE_URL') ?? '').trim(), getSecretKey().trim(), {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
+  const now = () => new Date();
+  const log = (line: string) => console.log(line);
+
+  if (job === 'store_rank') {
+    const social = database().schema('social');
+    const report = await runStoreRankCollect({
+      store: supabaseStore(social),
+      rank: supabaseRankStore(social),
+      fetch: (url, init) => fetch(url, init),
+      now,
+      log,
+      sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    });
+    console.log(`[social-collect] store_rank ${JSON.stringify(report)}`);
+    return json(report ?? { error: 'store_rank_failed' }, report ? 200 : 500);
+  }
 
   const token = (Deno.env.get('META_PAGE_TOKEN') ?? '').trim();
   const igUserId = (Deno.env.get('META_IG_USER_ID') ?? '').trim();
@@ -84,14 +110,9 @@ serve(async (req) => {
     return json(result, result.ok || result.reason !== 'invalid' ? 200 : 400);
   }
 
-  const supabaseUrl = (Deno.env.get('SUPABASE_URL') ?? '').trim();
-  const db = createClient(supabaseUrl, getSecretKey().trim(), {
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
+  const db = database();
   const social = db.schema('social');
   const store = supabaseStore(social);
-  const now = () => new Date();
-  const log = (line: string) => console.log(line);
 
   if (job === 'stories') {
     const report = await runStoriesCollect({ store, meta, ga4: null, gemini: null, now, log });

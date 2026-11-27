@@ -1127,3 +1127,40 @@ Deno.test('#1064: the history walks last, after the funnel, and stops at HISTORY
   assert(!r.urls.some((u) => decodeURIComponent(u).includes('media.after(')), 'page 2 asked past the budget');
   assert(r.store.tables.collector_runs.has('daily'), 'the daily run did not finish');
 });
+
+// ------------------------------------------------------------------------------------------------
+// #1307: the `store_rank` job through the handler
+
+Deno.test('#1307: the store_rank job needs no Meta secret, reads the rank tables of social and records its run', async () => {
+  Deno.env.delete('META_PAGE_TOKEN');
+  scenario.tables.store_rank_keywords = [];
+  scenario.tables.store_rank_apps = [{ id: 'a1', store: 'app_store', store_app_id: '6744379818' }];
+  const idle = await call(MACHINE, { job: 'store_rank' });
+  assertEquals([idle.status, (await idle.json()).state], [200, 'not_configured']);
+  assertEquals(fetchCalls, []);
+  const run = scenario.writes.find((w) => w.table === 'collector_runs');
+  assertEquals((run?.values as Array<Record<string, unknown>>)[0]?.job, 'store_rank');
+
+  scenario.tables.store_rank_keywords = [{ id: 'k1', keyword: 'guia de viagem', country: 'BR', lang: 'pt-BR' }];
+  scenario.tables.store_rank_daily = [];
+  network.reply = (url) =>
+    url.startsWith('https://itunes.apple.com/search?')
+      ? new Response(JSON.stringify({ resultCount: 1, results: [{ trackId: 6744379818 }] }), { status: 200 })
+      : new Response('{}', { status: 400 });
+  const res = await call(MACHINE, { job: 'store_rank' });
+  assertEquals([res.status, (await res.json()).app_store.read], [200, 1]);
+  const written = scenario.writes.find((w) => w.table === 'store_rank_daily');
+  assertEquals((written?.values as Array<Record<string, unknown>>)[0], {
+    day: (written?.values as Array<Record<string, unknown>>)[0]?.day,
+    store: 'app_store',
+    keyword_id: 'k1',
+    app_id: 'a1',
+    position: 1,
+    results_read: 1,
+  });
+  assertEquals((await call(MACHINE, { job: 'nope' })).status, 400);
+  delete scenario.tables.store_rank_keywords;
+  delete scenario.tables.store_rank_apps;
+  delete scenario.tables.store_rank_daily;
+  network.reply = () => new Response('{}', { status: 400 });
+});

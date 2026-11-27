@@ -1,0 +1,33 @@
+{
+ "resultCount": 4,
+ "results": [
+  {
+   "wrapperType": "software",
+   "kind": "software",
+   "trackId": 1466065511,
+   "bundleId": "com.leisurepassgroup.GoCity",
+   "trackName": "Go City: Planejador de viagem"
+  },
+  {
+   "wrapperType": "software",
+   "kind": "software",
+   "trackId": 1209079115,
+   "bundleId": "com.civitatis.ios.civitatis",
+   "trackName": "Civitatis Complete sua viagem!"
+  },
+  {
+   "wrapperType": "software",
+   "kind": "software",
+   "trackId": 6744379818,
+   "bundleId": "com.tuggidrive.app",
+   "trackName": "Tuggi"
+  },
+  {
+   "wrapperType": "software",
+   "kind": "software",
+   "trackId": 382411090,
+   "bundleId": "com.etips.budapest",
+   "trackName": "Budapeste Guia de Viagem"
+  }
+ ]
+}

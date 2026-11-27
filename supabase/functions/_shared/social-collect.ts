@@ -6,8 +6,8 @@
 // lands in the schema `social` (migration 20261029150000) by upsert on the primary key, so a second
 // run on the same day rewrites the same rows instead of adding new ones.
 //
-// Import-free except `ga4-data.ts`, `apple-downloads.ts`, `apple-store-funnel.ts`, `play-reports.ts` and
-// `search-console.ts` (all import-free): the
+// Import-free except `ga4-data.ts`, `apple-downloads.ts`, `apple-store-funnel.ts`, `play-reports.ts`,
+// `store-rank.ts` and `search-console.ts` (all import-free): the
 // database, `fetch`, Gemini and the clock are parameters, so the Deno tests drive it with recorded answers and
 // no network.
 //
@@ -69,6 +69,9 @@
 // `social.store_listing_daily`, `social.store_search_terms_monthly`, `social.store_installs_daily` and (#1306)
 // `social.store_country_daily`, isolated like `apple_store`. The `apple_store` job writes the same country table
 // from the Apple Territory.
+//
+// #1307, the `store_rank` job (`_shared/store-rank.ts`), on its own hourly call (`POST {"job":"store_rank"}`): the
+// position of the watched apps in the store search, per keyword and country, a slice of the day per call.
 
 import {
   GA4_APP_PROPERTY_ID,
@@ -80,6 +83,7 @@ import {
 import { type AppleConfig, collectAppleDownloads, redact } from './apple-downloads.ts';
 import { collectAppleStoreFunnel } from './apple-store-funnel.ts';
 import { collectPlayReports, type PlayConfig } from './play-reports.ts';
+import { collectStoreRank, RANK_BUDGET_MS, RANK_STORES, type RankResult, type RankStore } from './store-rank.ts';
 import {
   collectPartnerSearchConsole,
   collectSearchConsole,
@@ -339,9 +343,10 @@ export type CollectorJob =
   | 'apple_store'
   | 'play'
   | 'site_channels'
-  | 'search_console';
+  | 'search_console'
+  | 'store_rank';
 /** The jobs with a `covered_from` (the CHECK `collector_runs_covered_from_jobs`). */
-export type CoveredJob = 'apple' | 'apple_store' | 'play' | 'site_channels' | 'search_console';
+export type CoveredJob = 'apple' | 'apple_store' | 'play' | 'site_channels' | 'search_console' | 'store_rank';
 export type CollectorStatus = 'ok' | 'error' | 'not_configured';
 
 export interface PostForPrompt {
@@ -1705,6 +1710,50 @@ async function runPlayCollect(
     // No covered_from in the row: the upsert leaves the one already recorded as it was.
     await recordRun(deps, 'play', 'error', detail);
     return 'failed';
+  }
+}
+
+export interface StoreRankDeps {
+  store: SocialStore;
+  rank: RankStore;
+  fetch: FetchFn;
+  now: () => Date;
+  log: (line: string) => void;
+  sleep: (ms: number) => Promise<void>;
+}
+
+/**
+ * #1307, the `store_rank` job: one slice of today's keyword x store pairs per call. `not_configured` with no
+ * active keyword or app. `error` when a store stopped on a failure (a Play block among them), with each store's
+ * slice in the detail, so a failure of one never hides the other's. `covered_from` is the first day a row was
+ * written and only moves back. Null when the run itself failed (its error is in `collector_runs`).
+ */
+export async function runStoreRankCollect(deps: StoreRankDeps): Promise<RankResult | null> {
+  const day = brasiliaDay(deps.now());
+  try {
+    const result = await collectStoreRank({
+      store: deps.rank,
+      fetch: deps.fetch,
+      now: deps.now,
+      sleep: deps.sleep,
+      day,
+      deadline: deps.now().getTime() + RANK_BUDGET_MS,
+    });
+    if (result.state === 'not_configured') {
+      await recordRun(deps, 'store_rank', 'not_configured', null);
+      return result;
+    }
+    const errors = RANK_STORES.filter((s) => result[s].error).map((s) => `${s}: ${result[s].error}`);
+    if (errors.length > 0) deps.log(`[social-collect] store_rank stopped: ${errors.join(' | ')}`);
+    const wrote = result.app_store.read + result.play_store.read > 0;
+    const extra = wrote ? { covered_from: earliest(await deps.store.coveredFrom('store_rank'), day) } : {};
+    await recordRun(deps, 'store_rank', errors.length > 0 ? 'error' : 'ok', JSON.stringify(result), extra);
+    return result;
+  } catch (e) {
+    const message = reason(e);
+    deps.log(`[social-collect] store_rank failed: ${message}`);
+    await recordRun(deps, 'store_rank', 'error', message);
+    return null;
   }
 }
 
