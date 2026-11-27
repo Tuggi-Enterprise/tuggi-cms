@@ -17,7 +17,13 @@
 // "App Store Discovery and Engagement Detailed"), at the Standard level. When one is not listed, the
 // detail names every report the request lists in that report's category, so the next run shows the
 // right name.
+//
+// #1169 (interface fixed on #1306): the same Discovery and Downloads files also go per day and `Territory` into
+// `social.store_country_daily` (impressions, product page views, first-time downloads, the same fields as the
+// listing), through `countryCode` of `store-country.ts`; a Territory that is not a country code is dropped and
+// named in `unmapped_territories`.
 
+import { countryCode } from './store-country.ts';
 import {
   type AppleConfig,
   asc,
@@ -162,6 +168,39 @@ export function parseInstalls(text: string): Parsed<InstallsRow> {
   );
 }
 
+/** One file per day and Territory (#1169); `unmapped` lists the Territory labels that are not a country code. */
+export function parseTerritories(
+  text: string,
+  report: 'discovery' | 'downloads',
+): {
+  rows: Array<{ day: string; country: string; impressions?: number; page_views?: number; downloads?: number }>;
+  unmapped: string[];
+} {
+  const unmapped = new Set<string>();
+  const known: Array<Record<string, string>> = [];
+  const required = report === 'discovery'
+    ? ['Event', 'Page Type', 'Territory', 'Unique Counts']
+    : ['Download Type', 'Territory', 'Counts'];
+  for (const f of reportRows(text, required)) {
+    const country = countryCode(f.Territory);
+    if (country) known.push({ ...f, Territory: country });
+    else unmapped.add(f.Territory);
+  }
+  const key = (f: Record<string, string>) => `${f.Date}|${f.Territory}`;
+  const rows = report === 'discovery'
+    ? sumBy(known, key, (f) => ({ day: f.Date, country: f.Territory, impressions: 0, page_views: 0 }), (acc, f) => {
+      const event = lower(f.Event);
+      if (event === 'impression') acc.impressions += count(f['Unique Counts']);
+      else if (event === 'page view' && lower(f['Page Type']) === 'product page') {
+        acc.page_views += count(f['Unique Counts']);
+      }
+    }).rows
+    : sumBy(known, key, (f) => ({ day: f.Date, country: f.Territory, downloads: 0 }), (acc, f) => {
+      if (lower(f['Download Type']) === 'first-time download') acc.downloads += count(f.Counts);
+    }).rows;
+  return { rows, unmapped: [...unmapped].sort() };
+}
+
 /** A row of `social.store_listing_daily`. A measure left out is not touched by the upsert. */
 export interface ListingRow {
   day: string;
@@ -175,6 +214,15 @@ export interface ListingRow {
 export interface InstallsWrite extends InstallsRow {
   store: 'app_store';
 }
+/** A row of `social.store_country_daily` (#1169). A measure left out is not touched by the upsert. */
+export interface CountryWrite {
+  day: string;
+  store: 'app_store';
+  country: string;
+  impressions?: number;
+  page_views?: number;
+  downloads?: number;
+}
 
 export interface StoreFunnelResult {
   /** `pending`: the request lists no report yet (Apple generates them 1 to 2 days after the request). */
@@ -186,6 +234,9 @@ export interface StoreFunnelResult {
   instances: number;
   listing_rows: number;
   installs_rows: number;
+  /** #1169: rows of `social.store_country_daily`, and the Territory labels dropped as not a country code. */
+  country_rows: number;
+  unmapped_territories: string[];
   /** The first day any read file covered, or null when none did. */
   first_day: string | null;
 }
@@ -198,6 +249,8 @@ export interface StoreFunnelDeps {
   writeListing: (rows: ListingRow[]) => Promise<void>;
   /** Upsert of `social.store_installs_daily` on `(day, store)`. */
   writeInstalls: (rows: InstallsWrite[]) => Promise<void>;
+  /** #1169: upsert of `social.store_country_daily` on `(day, store, country)`; one call per set of columns. */
+  writeCountry: (rows: CountryWrite[]) => Promise<void>;
   /** The `covered_from` of the `apple_store` job: null on the first run, which then reads every instance. */
   coveredFrom: string | null;
 }
@@ -232,6 +285,25 @@ export function missingHint(listed: Map<string, { category: string | null }>, ca
   return `${typed ? category : 'listed'}: ${names.length > 0 ? names.join(', ') : 'none'}`;
 }
 
+const MEASURES = ['impressions', 'page_views', 'downloads'] as const;
+
+/**
+ * Every row of one upsert carries the same columns, so the rows go grouped by the measures they hold; a measure
+ * left out keeps what the table had.
+ */
+function byShape<T extends Partial<Record<(typeof MEASURES)[number], number>>>(rows: T[]): T[][] {
+  const groups = new Map<string, T[]>();
+  const measure = new Set<string>(MEASURES);
+  for (const row of rows) {
+    // The keys in one order (the row's own, then the measures), so every row of a group has the same shape.
+    const out = Object.fromEntries(Object.entries(row).filter(([k]) => !measure.has(k))) as T;
+    for (const c of MEASURES) if (row[c] !== undefined) out[c] = row[c];
+    const shape = MEASURES.filter((c) => out[c] !== undefined).join(',');
+    groups.set(shape, [...(groups.get(shape) ?? []), out]);
+  }
+  return [...groups.values()];
+}
+
 export async function collectAppleStoreFunnel(deps: StoreFunnelDeps): Promise<StoreFunnelResult> {
   const now = deps.now();
   const token = await ascToken(deps.config, Math.floor(now.getTime() / 1000));
@@ -244,6 +316,8 @@ export async function collectAppleStoreFunnel(deps: StoreFunnelDeps): Promise<St
     instances: 0,
     listing_rows: 0,
     installs_rows: 0,
+    country_rows: 0,
+    unmapped_territories: [],
     first_day: null,
   };
   if (listed.size === 0) return { ...result, state: 'pending' };
@@ -252,6 +326,23 @@ export async function collectAppleStoreFunnel(deps: StoreFunnelDeps): Promise<St
   const covered: Record<StoreReport, Set<string>> = { discovery: new Set(), downloads: new Set(), installs: new Set() };
   const listing = new Map<string, ListingRow>();
   const installs = new Map<string, InstallsWrite>();
+  const countries = new Map<string, CountryWrite>();
+  const unmapped = new Set<string>();
+  const territoryErrors = new Set<string>();
+  // A Territory column that fails costs the country rows only, never the listing of the same file.
+  const territories = (text: string, report: 'discovery' | 'downloads') => {
+    try {
+      const p = parseTerritories(text, report);
+      for (const r of p.rows) {
+        const k = `${r.day}|${r.country}`;
+        const row = countries.get(k) ?? { day: r.day, store: 'app_store', country: r.country };
+        countries.set(k, Object.assign(row, r));
+      }
+      p.unmapped.forEach((u) => unmapped.add(u));
+    } catch (e) {
+      territoryErrors.add(`${STORE_REPORTS[report]} territory: ${e instanceof Error ? e.message : 'unknown'}`);
+    }
+  };
   const listingRow = (day: string, raw: string): ListingRow => {
     const k = `${day}|${raw}`;
     const row = listing.get(k) ?? { day, store: 'app_store', source: storeSource(raw), source_raw: raw };
@@ -266,11 +357,13 @@ export async function collectAppleStoreFunnel(deps: StoreFunnelDeps): Promise<St
       for (const r of p.rows) {
         Object.assign(listingRow(r.day, r.source_raw), { impressions: r.impressions, page_views: r.page_views });
       }
+      territories(text, 'discovery');
       return p.days;
     },
     downloads: (text) => {
       const p = parseStoreDownloads(text);
       for (const r of p.rows) listingRow(r.day, r.source_raw).downloads = r.downloads;
+      territories(text, 'downloads');
       return p.days;
     },
     installs: (text) => {
@@ -303,28 +396,24 @@ export async function collectAppleStoreFunnel(deps: StoreFunnelDeps): Promise<St
     }
   }
 
-  // A day a report covers with no row for a source seen by the other report is a measured zero, not null.
-  for (const row of listing.values()) {
+  // A day a report covers with no row for a source (or a country) seen by the other report is a measured zero,
+  // not null.
+  for (const row of [...listing.values(), ...countries.values()]) {
     if (covered.discovery.has(row.day)) {
       row.impressions ??= 0;
       row.page_views ??= 0;
     }
     if (covered.downloads.has(row.day)) row.downloads ??= 0;
   }
-  // Every row of one upsert carries the same columns, so the rows go grouped by the measures they hold.
-  const groups = new Map<string, ListingRow[]>();
-  for (const row of listing.values()) {
-    const held = (['impressions', 'page_views', 'downloads'] as const).filter((c) => row[c] !== undefined);
-    const out: ListingRow = { day: row.day, store: row.store, source: row.source, source_raw: row.source_raw };
-    for (const c of held) out[c] = row[c];
-    const shape = held.join(',');
-    groups.set(shape, [...(groups.get(shape) ?? []), out]);
-  }
-  for (const rows of groups.values()) await deps.writeListing(rows);
+  for (const rows of byShape([...listing.values()])) await deps.writeListing(rows);
   if (installs.size > 0) await deps.writeInstalls([...installs.values()]);
+  for (const rows of byShape([...countries.values()])) await deps.writeCountry(rows);
+  result.errors.push(...territoryErrors);
 
   result.listing_rows = listing.size;
   result.installs_rows = installs.size;
+  result.country_rows = countries.size;
+  result.unmapped_territories = [...unmapped].sort().slice(0, 20);
   const days = [...covered.discovery, ...covered.downloads, ...covered.installs].sort();
   result.first_day = days[0] ?? null;
   return result;

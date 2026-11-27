@@ -23,6 +23,9 @@
  * without the secret both record `not_configured`.
  * #1294: the `search_console` job also reads the partner pages `tuggi.app/@nome` into
  * `partner.search_console_daily` (BR-B2B-068 item 8.a), tied to the partner by `partner.resolve_public_page`.
+ * #1169: with PLAY_REPORTS_BUCKET, GOOGLE_SERVICE_ACCOUNT_EMAIL and GOOGLE_SERVICE_ACCOUNT_KEY (the Play account
+ * of the CMS) the run also reads the monthly Play reports of the bucket (job `play`, `_shared/play-reports.ts`),
+ * with a token of its own on the read-only storage scope; without them `play` is `not_configured`.
  *
  * Machine key only (`isOwnSecretKey`: `ef_secret_key` of the cron, `cms_secret_key` of the CMS
  * server). The Meta token lives in this function's secrets and nowhere else: the CMS validates a
@@ -36,6 +39,7 @@ import { GA4_CREDENTIALS_ENV, GA4_SITE_PROPERTY_ID, ga4Runner, parseServiceAccou
 import { searchConsoleClient } from '../_shared/search-console.ts';
 import { runGeminiPromptWithUsage } from '../_shared/translationUtility.ts';
 import { appleConfig } from '../_shared/apple-downloads.ts';
+import { playConfig } from '../_shared/play-reports.ts';
 import {
   type Gemini,
   lookupAccount,
@@ -120,6 +124,7 @@ serve(async (req) => {
       forceWeekly: body?.force_weekly === true,
       recollectApp: body?.recollect_app === true,
       apple: { config: appleConfig((name) => Deno.env.get(name)), fetch: (url, init) => fetch(url, init) },
+      play: { config: playConfig((name) => Deno.env.get(name)), fetch: (url, init) => fetch(url, init) },
       acquisition: {
         siteGa4: sa ? ga4Runner(sa, GA4_SITE_PROPERTY_ID, (url, init) => fetch(url, init)) : null,
         searchConsole: sa ? searchConsoleClient(sa, (url, init) => fetch(url, init)) : null,

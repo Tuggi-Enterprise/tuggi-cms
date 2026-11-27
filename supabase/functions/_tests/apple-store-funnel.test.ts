@@ -8,12 +8,14 @@ import { assert, assertEquals } from './assert.ts';
 import { APPLE_APP_ID, APPLE_REPORT_NAME, type AppleConfig, ASC_HOST } from '../_shared/apple-downloads.ts';
 import {
   collectAppleStoreFunnel,
+  type CountryWrite,
   type InstallsWrite,
   type ListingRow,
   parseDiscovery,
   parseInstalls,
   missingHint,
   parseStoreDownloads,
+  parseTerritories,
   STORE_REPORT_CATEGORIES,
   STORE_REPORTS,
   storeSource,
@@ -192,6 +194,7 @@ Deno.test('#1168: the three reports merge per (day, source_raw), the later insta
   const r = rig();
   const listing: ListingRow[] = [];
   const installs: InstallsWrite[] = [];
+  const countries: CountryWrite[] = [];
   const shapes: string[] = [];
   const result = await collectAppleStoreFunnel({
     config: cfg,
@@ -205,6 +208,7 @@ Deno.test('#1168: the three reports merge per (day, source_raw), the later insta
       return Promise.resolve();
     },
     writeInstalls: (rows) => (installs.push(...rows), Promise.resolve()),
+    writeCountry: (rows) => (countries.push(...rows), Promise.resolve()),
   });
   assertEquals(result, {
     state: 'read',
@@ -213,6 +217,8 @@ Deno.test('#1168: the three reports merge per (day, source_raw), the later insta
     instances: 6,
     listing_rows: 8,
     installs_rows: 3,
+    country_rows: 5,
+    unmapped_territories: [],
     first_day: '2026-11-05',
   });
   assertEquals(shapes.length, 1);
@@ -227,6 +233,18 @@ Deno.test('#1168: the three reports merge per (day, source_raw), the later insta
     { day: '2026-11-06', installs: 5, uninstalls: 2, store: 'app_store' },
     { day: '2026-11-07', installs: 3, uninstalls: 0, store: 'app_store' },
   ]);
+  // #1169: per day and Territory, the same measures summed over every Source Type; i2 corrects 2026-11-06; a
+  // country one report has and the other does not, on a day both cover, is a measured 0.
+  const byCountry = Object.fromEntries(
+    countries.map((x) => [`${x.day}|${x.country}`, [x.store, x.impressions, x.page_views, x.downloads]]),
+  );
+  assertEquals(byCountry, {
+    '2026-11-05|BR': ['app_store', 64, 19, 10],
+    '2026-11-05|US': ['app_store', 5, 0, 0],
+    '2026-11-06|BR': ['app_store', 33, 10, 6],
+    '2026-11-07|BR': ['app_store', 27, 0, 4],
+    '2026-11-05|PT': ['app_store', 0, 0, 2],
+  });
   // The live request is reused, the second page of reports was followed, and no token went to a file URL.
   assertEquals(r.calls.filter((c) => c.method === 'POST').length, 0);
   assert(r.calls.some((c) => c.url.includes('cursor=2')), 'second page of reports not read');
@@ -244,6 +262,7 @@ Deno.test('#1168: a request with no report yet is pending and writes nothing', a
     coveredFrom: null,
     writeListing: () => (writes++, Promise.resolve()),
     writeInstalls: () => (writes++, Promise.resolve()),
+    writeCountry: () => (writes++, Promise.resolve()),
   });
   assertEquals([result.state, result.first_day, writes], ['pending', null, 0]);
 });
@@ -257,6 +276,7 @@ Deno.test('#1168: after the first run only the last 14 days of instances are rea
     coveredFrom: '2026-11-05',
     writeListing: () => Promise.resolve(),
     writeInstalls: () => Promise.resolve(),
+    writeCountry: () => Promise.resolve(),
   });
   // Since 2026-11-08: i2 (processed 2026-11-08) is read, i1 (2026-11-07) is not.
   const segments = r.calls.filter((c) => c.url.endsWith('/segments')).map((c) => c.url.split('/').at(-2));
@@ -271,6 +291,7 @@ const PK: Partial<Record<SocialTable, string[]>> = {
   apple_downloads_daily: ['day', 'campaign'],
   store_listing_daily: ['day', 'store', 'source_raw'],
   store_installs_daily: ['day', 'store'],
+  store_country_daily: ['day', 'store', 'country'],
 };
 
 function store() {
@@ -464,4 +485,45 @@ Deno.test('#1168: the names adopted for the API, and the hint of a missing repor
   // A listing that carries no category names every report, so the hint is never empty by our filter.
   const untyped = new Map([['B report', { category: null }], ['A report', { category: null }]]);
   assertEquals(missingHint(untyped, 'COMMERCE'), 'listed: A report, B report');
+});
+
+Deno.test('#1169: Territory comes as alpha-2 or alpha-3 and lands as alpha-2; anything else is dropped and named', () => {
+  const head = 'Date\tApp Apple Identifier\tDownload Type\tSource Type\tTerritory\tCounts';
+  const text = [
+    head,
+    '2026-11-05\t6744379818\tFirst-time Download\tApp Store search\tBR\t3',
+    '2026-11-05\t6744379818\tFirst-time Download\tWeb referrer\tBRA\t2',
+    '2026-11-05\t6744379818\tFirst-time Download\tApp Store search\tdeu\t1',
+    '2026-11-05\t6744379818\tFirst-time Download\tApp Store search\tNarnia\t9',
+    '2026-11-05\t6744379818\tRedownload\tApp Store search\tPT\t4',
+  ].join('\n');
+  const p = parseTerritories(text, 'downloads');
+  assertEquals(p.rows, [
+    { day: '2026-11-05', country: 'BR', downloads: 5 },
+    { day: '2026-11-05', country: 'DE', downloads: 1 },
+    { day: '2026-11-05', country: 'PT', downloads: 0 },
+  ]);
+  assertEquals(p.unmapped, ['Narnia']);
+  let refused = '';
+  try {
+    parseTerritories('Date\tDownload Type\tCounts\n2026-11-05\tFirst-time Download\t1', 'downloads');
+  } catch (e) {
+    refused = (e as Error).message;
+  }
+  assertEquals(refused, 'apple_report_columns');
+});
+
+Deno.test('#1169: a full apple_store run writes store_country_daily on its key, with the measures of the listing', async () => {
+  const { s, tables } = store();
+  const report = await runSocialCollect(deps(s, { config: await config(), fetch: rig().fetch }));
+  assertEquals(report.apple_store, 'read');
+  assertEquals(tables.store_country_daily.size, 5);
+  assertEquals(tables.store_country_daily.get('2026-11-05|app_store|BR'), {
+    day: '2026-11-05',
+    store: 'app_store',
+    country: 'BR',
+    impressions: 64,
+    page_views: 19,
+    downloads: 10,
+  });
 });

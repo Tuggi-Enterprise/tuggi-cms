@@ -6,8 +6,8 @@
 // lands in the schema `social` (migration 20261029150000) by upsert on the primary key, so a second
 // run on the same day rewrites the same rows instead of adding new ones.
 //
-// Import-free except `ga4-data.ts`, `apple-downloads.ts`, `apple-store-funnel.ts` and `search-console.ts` (all
-// import-free): the
+// Import-free except `ga4-data.ts`, `apple-downloads.ts`, `apple-store-funnel.ts`, `play-reports.ts` and
+// `search-console.ts` (all import-free): the
 // database, `fetch`, Gemini and the clock are parameters, so the Deno tests drive it with recorded answers and
 // no network.
 //
@@ -64,6 +64,11 @@
 // Both keep `covered_from` on a refusal and write Google's status, reason and sentence in the detail
 // (`googleErrorDetail`): a 403 with SERVICE_DISABLED is the API off in the Cloud project, a 403 without it
 // or an empty `sites.list` is the account not granted in Search Console.
+//
+// #1169, the `play` job (`_shared/play-reports.ts`): the monthly Play reports of the developer bucket into
+// `social.store_listing_daily`, `social.store_search_terms_monthly`, `social.store_installs_daily` and (#1306)
+// `social.store_country_daily`, isolated like `apple_store`. The `apple_store` job writes the same country table
+// from the Apple Territory.
 
 import {
   GA4_APP_PROPERTY_ID,
@@ -74,6 +79,7 @@ import {
 } from './ga4-data.ts';
 import { type AppleConfig, collectAppleDownloads, redact } from './apple-downloads.ts';
 import { collectAppleStoreFunnel } from './apple-store-funnel.ts';
+import { collectPlayReports, type PlayConfig } from './play-reports.ts';
 import {
   collectPartnerSearchConsole,
   collectSearchConsole,
@@ -319,6 +325,8 @@ export type SocialTable =
   | 'apple_downloads_daily'
   | 'store_listing_daily'
   | 'store_installs_daily'
+  | 'store_search_terms_monthly'
+  | 'store_country_daily'
   | 'site_channel_daily'
   | 'search_console_daily';
 
@@ -329,10 +337,11 @@ export type CollectorJob =
   | 'audience'
   | 'apple'
   | 'apple_store'
+  | 'play'
   | 'site_channels'
   | 'search_console';
-/** The jobs with a `covered_from` (the CHECK `collector_runs_covered_from_apple_only`). */
-export type CoveredJob = 'apple' | 'apple_store' | 'site_channels' | 'search_console';
+/** The jobs with a `covered_from` (the CHECK `collector_runs_covered_from_jobs`). */
+export type CoveredJob = 'apple' | 'apple_store' | 'play' | 'site_channels' | 'search_console';
 export type CollectorStatus = 'ok' | 'error' | 'not_configured';
 
 export interface PostForPrompt {
@@ -582,6 +591,11 @@ export interface CollectDeps {
    */
   apple?: { config: AppleConfig | null; fetch: FetchFn };
   /**
+   * #1169, the Play bucket. `config` null: a secret is missing and the job records `not_configured`. Absent: the
+   * run does not touch Play at all (the stories job, the older tests).
+   */
+  play?: { config: PlayConfig | null; fetch: FetchFn };
+  /**
    * #1170: the site property's runner and the Search Console client, each null without the service account
    * (the job records `not_configured`). Absent: neither job runs (the stories job, the older tests).
    */
@@ -609,6 +623,8 @@ export interface CollectReport {
   apple: 'read' | 'pending' | 'not_configured' | 'failed' | 'skipped';
   /** #1168: the store funnel; `partial` when one report was refused or missing and the others were written. */
   apple_store: 'read' | 'pending' | 'partial' | 'not_configured' | 'failed' | 'skipped';
+  /** #1169: `partial` when a file was refused after others were written, or the time budget left months. */
+  play: 'read' | 'partial' | 'not_configured' | 'failed' | 'skipped';
   /** #1170: `partial` when the clicks report was refused, or the windows stopped before yesterday. */
   site_channels: 'read' | 'partial' | 'not_configured' | 'failed' | 'skipped';
   /** #1170: `no_property` when `sites.list` gives no tuggi.app property (the account was not added). */
@@ -1627,6 +1643,8 @@ async function runAppleStoreCollect(
         deps.store.upsert('store_listing_daily', rows as unknown as Record<string, unknown>[], 'day,store,source_raw'),
       writeInstalls: (rows) =>
         deps.store.upsert('store_installs_daily', rows as unknown as Record<string, unknown>[], 'day,store'),
+      writeCountry: (rows) =>
+        deps.store.upsert('store_country_daily', rows as unknown as Record<string, unknown>[], 'day,store,country'),
     });
     const first = [coveredFrom, result.first_day].filter((d): d is string => !!d).sort()[0] ?? null;
     const failed = result.errors.length > 0;
@@ -1634,11 +1652,58 @@ async function runAppleStoreCollect(
     if (failed) deps.log(`[social-collect] apple_store refused: ${detail}`);
     await recordRun(deps, 'apple_store', failed ? 'error' : 'ok', detail, { covered_from: first });
     if (!failed) return result.state;
-    return result.listing_rows + result.installs_rows > 0 ? 'partial' : 'failed';
+    return result.listing_rows + result.installs_rows + result.country_rows > 0 ? 'partial' : 'failed';
   } catch (e) {
     const message = redact(reason(e), config);
     deps.log(`[social-collect] apple_store failed: ${message}`);
     await recordRun(deps, 'apple_store', 'error', message);
+    return 'failed';
+  }
+}
+
+/**
+ * #1169, the `play` job, isolated like `apple_store`: a refusal is recorded with Google's words and the run goes on.
+ * `covered_from` only moves back, and a refused run keeps it. A run stopped by the time budget is `ok` and
+ * `partial` (the next run reads the months left); a refused file after others were written is `error` and
+ * `partial`. The detail leads with the refusals, so the 500 characters keep them.
+ */
+async function runPlayCollect(
+  deps: CollectDeps,
+  play: NonNullable<CollectDeps['play']>,
+  deadline: number,
+): Promise<CollectReport['play']> {
+  if (!play.config) {
+    await recordRun(deps, 'play', 'not_configured', null);
+    return 'not_configured';
+  }
+  const upsert = (table: SocialTable, onConflict: string) => (rows: object[]) =>
+    deps.store.upsert(table, rows as unknown as Record<string, unknown>[], onConflict);
+  try {
+    const coveredFrom = await deps.store.coveredFrom('play');
+    const result = await collectPlayReports({
+      config: play.config,
+      fetch: play.fetch,
+      now: deps.now,
+      deadline,
+      coveredFrom,
+      writeListing: upsert('store_listing_daily', 'day,store,source_raw'),
+      writeTerms: upsert('store_search_terms_monthly', 'month,store,term'),
+      writeCountry: upsert('store_country_daily', 'day,store,country'),
+      writeInstalls: upsert('store_installs_daily', 'day,store'),
+    });
+    const failed = result.errors.length > 0;
+    const summary = JSON.stringify({ ...result, errors: undefined });
+    const detail = failed ? `${result.errors.join(' | ')} | ${summary}` : summary;
+    if (failed) deps.log(`[social-collect] play refused: ${result.errors.join(' | ')}`);
+    const first = earliest(coveredFrom, result.first_day);
+    await recordRun(deps, 'play', failed ? 'error' : 'ok', detail, { covered_from: first });
+    if (!failed) return result.months.left === 0 ? 'read' : 'partial';
+    return result.files > 0 ? 'partial' : 'failed';
+  } catch (e) {
+    const detail = googleErrorDetail(e);
+    deps.log(`[social-collect] play failed: ${detail}`);
+    // No covered_from in the row: the upsert leaves the one already recorded as it was.
+    await recordRun(deps, 'play', 'error', detail);
     return 'failed';
   }
 }
@@ -2029,6 +2094,7 @@ export async function runSocialCollect(deps: CollectDeps): Promise<CollectReport
     audience: 'skipped',
     apple: 'skipped',
     apple_store: 'skipped',
+    play: 'skipped',
     site_channels: 'skipped',
     search_console: 'skipped',
     partner_search_console: 'skipped',
@@ -2096,6 +2162,7 @@ export async function runSocialCollect(deps: CollectDeps): Promise<CollectReport
     report.apple = await runAppleCollect(deps, deps.apple);
     report.apple_store = await runAppleStoreCollect(deps, deps.apple);
   }
+  if (deps.play) report.play = await runPlayCollect(deps, deps.play, deadline);
   if (deps.acquisition) {
     report.site_channels = await runSiteChannelsCollect(deps, deps.acquisition.siteGa4, today, deadline);
     Object.assign(report, await runSearchConsoleCollect(deps, deps.acquisition, today));

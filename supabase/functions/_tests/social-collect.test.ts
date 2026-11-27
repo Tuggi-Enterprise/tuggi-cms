@@ -54,6 +54,8 @@ const PK: Record<SocialTable, string[]> = {
   apple_downloads_daily: ['day', 'campaign'],
   store_listing_daily: ['day', 'store', 'source_raw'],
   store_installs_daily: ['day', 'store'],
+  store_search_terms_monthly: ['month', 'store', 'term'],
+  store_country_daily: ['day', 'store', 'country'],
   site_channel_daily: ['day', 'channel'],
   search_console_daily: ['day', 'query'],
 };
@@ -73,6 +75,8 @@ class MemoryStore implements SocialStore {
     apple_downloads_daily: new Map(),
     store_listing_daily: new Map(),
     store_installs_daily: new Map(),
+    store_search_terms_monthly: new Map(),
+    store_country_daily: new Map(),
     site_channel_daily: new Map(),
     search_console_daily: new Map(),
   };
