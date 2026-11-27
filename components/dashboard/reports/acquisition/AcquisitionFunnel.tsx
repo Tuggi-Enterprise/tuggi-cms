@@ -11,19 +11,20 @@
  * the dense table of `components/ui/dense-table` (DS-COMPONENTE-081).
  */
 
-import { useMemo, type ReactNode } from 'react'
+import { useMemo } from 'react'
 import dynamic from 'next/dynamic'
-import { useLocale, useTranslations } from 'next-intl'
+import { useTranslations } from 'next-intl'
 import { Globe, Search, Store } from 'lucide-react'
 
 import { WidgetCard, SectionHeader } from '@/components/dashboard/WidgetCard'
 import { CardError } from '@/components/admin/social/shared'
 import { CAMPAIGNS_ANCHOR } from '@/components/admin/social/SocialCampaigns'
-import { StatLine, STAT_BADGE } from '@/components/dashboard/reports/engagement/StatLine'
+import { StatLine } from '@/components/dashboard/reports/engagement/StatLine'
 import { stepFunnelHeight, type StepFunnelRow } from '@/components/dashboard/reports/engagement/question-charts'
 import { DIM, DenseTableScroller, HEAD_SOLO, HEAD_SOLO_NUM, NUM, ROW_HEAD } from '@/components/ui/dense-table'
 import { UNKNOWN_VALUE } from '@/lib/format/unknown'
 import { cn } from '@/lib/utils'
+import { Count, CoverageLines, EMPTY, PULSE, ROW_LINE, SkeletonRows, useAcquisitionFmt, type AcqT, type Fmt } from '@/components/dashboard/reports/acquisition/coverage'
 import { useAcquisitionFunnel } from '@/lib/hooks/use-acquisition'
 import type { StepFunnelView } from '@/lib/conversion/funnel'
 import {
@@ -46,65 +47,11 @@ const StepFunnel = dynamic(() => import('@/components/dashboard/reports/engageme
   loading: () => <div className="animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800" style={{ height: stepFunnelHeight(5) }} />,
 })
 
-type T = (key: string, values?: Record<string, string | number>) => string
+type T = AcqT
 
-const PULSE = 'animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800'
-const ROW_LINE = 'border-t border-gray-100 dark:border-gray-800'
 const TOTAL_LINE = 'border-t border-gray-200 dark:border-gray-700 font-semibold'
-const EMPTY = cn('py-8 text-center text-xs', DIM)
 /** The channels whose name has a hint in the copy. */
 const CHANNEL_HINTS = new Set(['Direct', 'Organic_Search', 'Organic_Social', 'Referral', 'Unassigned', 'other'])
-
-interface Fmt {
-  int: (v: number) => string
-  pct: (v: number) => string
-  dec: (v: number) => string
-  day: (iso: string) => string
-}
-
-/** A count of a source: `UNKNOWN_VALUE` when unknown, `≥ n` when the source covers part of the month. */
-function Count({ v, floor, fmt, title }: { v: number | null; floor: boolean; fmt: Fmt; title?: string }) {
-  if (v === null) return <span className={DIM} title={title}>{UNKNOWN_VALUE}</span>
-  return <>{`${floor ? '≥ ' : ''}${fmt.int(v)}`}</>
-}
-
-/** The coverage of the card's sources, one line per source, under the header (#1051: never in the cell). */
-function CoverageLines({ items, t, fmt, extra }: { items: { source: FunnelSource; c: SourceCoverage }[]; t: T; fmt: Fmt; extra?: ReactNode }) {
-  const lines: ReactNode[] = []
-  for (const { source, c } of items) {
-    const name = t(`coverage.source.${source}`)
-    const badge = (text: string) => <span className={cn(STAT_BADGE, 'mr-1.5')}>{text}</span>
-    if (c.state === 'none') {
-      lines.push(
-        <p key={source} data-testid={`coverage-${source}`} data-state="none">
-          {badge(t('coverage.no_data_badge'))}
-          {c.none === 'before_start' ? t('coverage.none_before_start', { source: name, date: fmt.day(c.from as string) }) : t('coverage.none_not_configured', { source: name })}
-        </p>
-      )
-      continue
-    }
-    if (c.state === 'full') continue
-    const sentences = [
-      c.from ? t('coverage.partial', { source: name, date: fmt.day(c.from) }) : null,
-      c.through ? t('coverage.through', { source: name, date: fmt.day(c.through) }) : null,
-      c.noRows ? t('coverage.no_rows', { source: name }) : null,
-    ].filter(Boolean)
-    lines.push(
-      <p key={source} data-testid={`coverage-${source}`} data-state="partial">
-        {c.from && badge(t('coverage.since_badge', { date: fmt.day(c.from) }))}
-        {badge(t('coverage.floor_badge'))}
-        {sentences.join(' ')}
-      </p>
-    )
-  }
-  if (lines.length === 0 && !extra) return null
-  return (
-    <div className={cn('-mt-2 mb-3 space-y-1 text-[11px] leading-4', DIM)}>
-      {extra}
-      {lines}
-    </div>
-  )
-}
 
 /** The rows `StepFunnel` draws, from the resolved view. The first step the store measures is the base: no 100 %. */
 function funnelRows(view: StepFunnelView, t: T, fmt: Fmt, ga4: string): StepFunnelRow[] {
@@ -205,16 +152,6 @@ function StoreCard({
         {footer('uninstalls', t('uninstalls.col_uninstalls'))}
       </div>
     </WidgetCard>
-  )
-}
-
-function SkeletonRows({ n }: { n: number }) {
-  return (
-    <div className="space-y-1" aria-busy="true">
-      {Array.from({ length: n }, (_, i) => (
-        <div key={i} className={cn(PULSE, 'h-10')} />
-      ))}
-    </div>
   )
 }
 
@@ -425,21 +362,8 @@ function BlockIntro({ title, subtitle }: { title: string; subtitle: string }) {
 export function AcquisitionFunnel({ month, platforms }: { month: string; platforms: { platform: string; total: number }[] | undefined }) {
   const tr = useTranslations('Pages.Dashboard.reports')
   const t: T = (key, values) => tr(`acquisition.${key}`, values)
-  const locale = useLocale()
   const query = useAcquisitionFunnel(month)
-
-  const fmt = useMemo<Fmt>(() => {
-    const int = new Intl.NumberFormat(locale)
-    const pct = new Intl.NumberFormat(locale, { style: 'percent', maximumFractionDigits: 1 })
-    const dec = new Intl.NumberFormat(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 })
-    const day = new Intl.DateTimeFormat(locale, { day: '2-digit', month: '2-digit', timeZone: 'UTC' })
-    return {
-      int: (v) => int.format(v),
-      pct: (v) => pct.format(v),
-      dec: (v) => dec.format(v),
-      day: (iso) => day.format(new Date(`${iso}T12:00:00Z`)),
-    }
-  }, [locale])
+  const fmt = useAcquisitionFmt()
 
   const data = query.data
   const coverage = useMemo(() => (data ? funnelCoverage(data, month) : undefined), [data, month])
