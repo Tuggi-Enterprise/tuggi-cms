@@ -1102,7 +1102,7 @@
           },
           "store_countries": {
             "title": "Lojas por país",
-            "subtitle": "Impressões, visitas e downloads de cada loja no mês, por país. Ordenado por downloads.",
+            "subtitle": "Impressões, visitas e downloads de cada loja no mês. O país é o da conta da pessoa na loja, que pode não ser onde ela estava.",
             "filter_store": "Loja",
             "col_country": "País",
             "col_impressions": "Impressões",
@@ -1111,8 +1111,8 @@
             "conversion_hint": "Downloads sobre impressões na App Store e sobre visitas no Google Play.",
             "sum_below_total": "{count, plural, one {Os países somam # download a menos que o total da loja no funil.} other {Os países somam # downloads a menos que o total da loja no funil.}}",
             "empty": "Nenhum país com visita ou download neste mês.",
-            "failed": "Não foi possível carregar as lojas por país deste mês.",
-            "absent_hint": "A loja não mandou este país no mês. Pode ser zero ou poucos usuários: a Apple omite valores pequenos."
+            "failed": "Não foi possível carregar os países das lojas deste mês. Tente de novo.",
+            "absent_hint": "A loja não informou este país no mês. Pode ser zero ou poucos usuários (a Apple esconde números abaixo de 5)."
           },
           "store_rank": {
             "title": "Posição na busca",
@@ -1139,20 +1139,20 @@
             "missing_today": "{source}: a leitura de hoje falhou. A tabela mostra o último dia lido.",
             "empty_not_configured": "Nenhuma palavra acompanhada ainda. A lista de palavras e concorrentes é cadastrada pelo time, não por esta tela.",
             "empty_country": "{country}: nenhuma palavra acompanhada.",
-            "failed": "Não foi possível carregar a posição na busca deste mês.",
-            "not_read_hint": "Sem leitura desta palavra neste mês.",
-            "trend_ruler_hint": "Sem comparação: num dos dias a loja devolveu menos resultados do que a posição do outro dia.",
-            "stat_found": "Aparece em",
+            "failed": "Não foi possível carregar a posição na busca deste mês. Tente de novo.",
+            "not_read_hint": "Sem leitura, então não sabemos a posição.",
+            "trend_ruler_hint": "Num dos dias a loja devolveu menos resultados, e não dá para saber se o app subiu ou caiu.",
+            "stat_found": "Palavras em que o Tuggi aparece",
             "stat_found_value": "{found} de {total}",
-            "stat_found_hint": "Palavras em que o app apareceu na última leitura, sobre as palavras lidas no mês.",
-            "stat_top10": "No top 10",
-            "days": "Apareceu em {found} de {read} dias lidos, {missing} sem leitura. Última leitura em {date}.",
-            "chart_label": "Posição diária de {app} em {keyword}"
+            "stat_found_hint": "Contado na última leitura de cada palavra, entre as palavras lidas no mês.",
+            "stat_top10": "Palavras no top 10",
+            "days": "Apareceu em {found} de {read, plural, one {# dia lido} other {# dias lidos}}{missing, plural, =0 {} one {, e # dia ficou sem leitura} other {, e # dias ficaram sem leitura}}. Última leitura em {date}.",
+            "chart_label": "Posição de {app} na busca por “{keyword}”, dia a dia"
           },
           "store_section": {
-            "title": "Lojas por país e busca",
-            "subtitle": "De onde vem quem baixa, e onde o Tuggi aparece na busca das lojas.",
-            "read_incomplete": "A leitura deste mês parou no meio. Para não mostrar um mês pela metade, nada foi desenhado."
+            "title": "Onde o Tuggi aparece nas lojas",
+            "subtitle": "Países que veem e baixam o app em cada loja, e a posição dele na busca por palavra.",
+            "read_incomplete": "A leitura deste mês parou no meio, e a tela não mostra mês pela metade. Tente de novo."
           }
         },
         "ranking": {

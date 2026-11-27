@@ -1104,7 +1104,7 @@
           },
           "store_countries": {
             "title": "Stores by country",
-            "subtitle": "Impressions, page views and downloads for each store this month, by country. Sorted by downloads.",
+            "subtitle": "Impressions, page views and downloads for each store this month. The country is the one on the person's store account, which may not be where they were.",
             "filter_store": "Store",
             "col_country": "Country",
             "col_impressions": "Impressions",
@@ -1113,8 +1113,8 @@
             "conversion_hint": "Downloads over impressions on the App Store and over page views on Google Play.",
             "sum_below_total": "{count, plural, one {Countries add up to # download fewer than the store total in the funnel.} other {Countries add up to # downloads fewer than the store total in the funnel.}}",
             "empty": "No country with page views or downloads this month.",
-            "failed": "Could not load stores by country for this month.",
-            "absent_hint": "The store sent no row for this country this month. It may be zero or a few users: Apple omits small values."
+            "failed": "Couldn't load store countries for this month. Try again.",
+            "absent_hint": "The store reported nothing for this country this month. It may be zero or just a few users (Apple hides counts under 5)."
           },
           "store_rank": {
             "title": "Search ranking",
@@ -1141,20 +1141,20 @@
             "missing_today": "{source}: today's reading failed. The table shows the last day read.",
             "empty_not_configured": "No keywords tracked yet. The keyword and competitor list is set up by the team, not on this screen.",
             "empty_country": "{country}: no keywords tracked.",
-            "failed": "Could not load the search ranking for this month.",
-            "not_read_hint": "This keyword was not read this month.",
-            "trend_ruler_hint": "No comparison: on one of the days the store returned fewer results than the other day's position.",
-            "stat_found": "Shows up in",
+            "failed": "Couldn't load search ranking for this month. Try again.",
+            "not_read_hint": "Not read, so the position is unknown.",
+            "trend_ruler_hint": "On one of the days the store returned fewer results, so there's no telling whether the app went up or down.",
+            "stat_found": "Keywords where Tuggi shows up",
             "stat_found_value": "{found} of {total}",
-            "stat_found_hint": "Keywords where the app showed up on the last reading, over the keywords read this month.",
-            "stat_top10": "In the top 10",
-            "days": "Showed up on {found} of {read} days read, {missing} not read. Last read on {date}.",
-            "chart_label": "Daily position of {app} for {keyword}"
+            "stat_found_hint": "Counted on the last reading of each keyword, out of the keywords read this month.",
+            "stat_top10": "Keywords in the top 10",
+            "days": "Showed up on {found} of {read, plural, one {# day read} other {# days read}}{missing, plural, =0 {} one {, and # day was not read} other {, and # days were not read}}. Last read on {date}.",
+            "chart_label": "{app} search position for “{keyword}”, day by day"
           },
           "store_section": {
-            "title": "Stores by country and search",
-            "subtitle": "Where downloads come from, and where Tuggi shows up in store search.",
-            "read_incomplete": "This month's read stopped partway. Nothing is drawn, so a half month is never shown."
+            "title": "Where Tuggi shows up in the stores",
+            "subtitle": "Countries that see and download the app in each store, and where it ranks in search by keyword.",
+            "read_incomplete": "This month's data stopped loading partway, and the screen never shows half a month. Try again."
           }
         },
         "ranking": {

@@ -1093,7 +1093,7 @@
           },
           "store_countries": {
             "title": "Tiendas por país",
-            "subtitle": "Impresiones, visitas y descargas de cada tienda en el mes, por país. Ordenado por descargas.",
+            "subtitle": "Impresiones, visitas y descargas de cada tienda en el mes. El país es el de la cuenta de la persona en la tienda, que puede no ser donde estaba.",
             "filter_store": "Tienda",
             "col_country": "País",
             "col_impressions": "Impresiones",
@@ -1102,8 +1102,8 @@
             "conversion_hint": "Descargas sobre impresiones en la App Store y sobre visitas en Google Play.",
             "sum_below_total": "{count, plural, one {Los países suman # descarga menos que el total de la tienda en el embudo.} other {Los países suman # descargas menos que el total de la tienda en el embudo.}}",
             "empty": "Ningún país con visitas o descargas este mes.",
-            "failed": "No se pudieron cargar las tiendas por país de este mes.",
-            "absent_hint": "La tienda no envió este país en el mes. Puede ser cero o pocos usuarios: Apple omite valores pequeños."
+            "failed": "No se pudieron cargar los países de las tiendas de este mes. Intenta de nuevo.",
+            "absent_hint": "La tienda no informó este país en el mes. Puede ser cero o pocos usuarios (Apple oculta cifras menores que 5)."
           },
           "store_rank": {
             "title": "Posición en la búsqueda",
@@ -1130,20 +1130,20 @@
             "missing_today": "{source}: la lectura de hoy falló. La tabla muestra el último día leído.",
             "empty_not_configured": "Todavía no hay palabras seguidas. La lista de palabras y competidores la carga el equipo, no esta pantalla.",
             "empty_country": "{country}: ninguna palabra seguida.",
-            "failed": "No se pudo cargar la posición en la búsqueda de este mes.",
-            "not_read_hint": "Sin lectura de esta palabra en este mes.",
-            "trend_ruler_hint": "Sin comparación: en uno de los días la tienda devolvió menos resultados que la posición del otro día.",
-            "stat_found": "Aparece en",
+            "failed": "No se pudo cargar la posición en la búsqueda de este mes. Intenta de nuevo.",
+            "not_read_hint": "Sin lectura, así que no sabemos la posición.",
+            "trend_ruler_hint": "En uno de los días la tienda devolvió menos resultados, y no se puede saber si la app subió o bajó.",
+            "stat_found": "Palabras en las que aparece Tuggi",
             "stat_found_value": "{found} de {total}",
-            "stat_found_hint": "Palabras en las que la app apareció en la última lectura, sobre las palabras leídas en el mes.",
-            "stat_top10": "En el top 10",
-            "days": "Apareció en {found} de {read} días leídos, {missing} sin lectura. Última lectura el {date}.",
-            "chart_label": "Posición diaria de {app} en {keyword}"
+            "stat_found_hint": "Contado en la última lectura de cada palabra, entre las palabras leídas en el mes.",
+            "stat_top10": "Palabras en el top 10",
+            "days": "Apareció en {found} de {read, plural, one {# día leído} other {# días leídos}}{missing, plural, =0 {} one {, y # día quedó sin lectura} other {, y # días quedaron sin lectura}}. Última lectura el {date}.",
+            "chart_label": "Posición de {app} en la búsqueda de “{keyword}”, día a día"
           },
           "store_section": {
-            "title": "Tiendas por país y búsqueda",
-            "subtitle": "De dónde viene quien descarga, y dónde aparece Tuggi en la búsqueda de las tiendas.",
-            "read_incomplete": "La lectura de este mes se detuvo a mitad. Para no mostrar medio mes, no se dibujó nada."
+            "title": "Dónde aparece Tuggi en las tiendas",
+            "subtitle": "Países que ven y descargan la app en cada tienda, y su posición en la búsqueda por palabra.",
+            "read_incomplete": "La lectura de este mes se cortó a mitad, y la pantalla no muestra medio mes. Intenta de nuevo."
           }
         },
         "ranking": {
